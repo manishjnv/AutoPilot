@@ -1,0 +1,9 @@
+# Changelog
+
+- 2026-10-01 **FIX001-T01** Package distribution — Added pyproject.toml with PEP 621 configuration (setuptools backend) enabling `pip install .` and a `todo` console script entry point. Updated README with installation instructions. All acceptance criteria verified.
+- 2026-10-01 **P01-T02** JSON persistence — Added public `save(path)` instance method and `load(path)` classmethod for explicit JSON persistence. Created 5 comprehensive tests covering round-trip save/load preservation of items/next-id and missing file handling. All 17 tests pass.
+- 2026-09-30 **P01-T01** Todo store — Implemented TodoStore class with add(title)->int, list()->list[dict], complete(id) methods. Added optional JSON persistence. Created 11 comprehensive pytest tests covering all acceptance criteria and edge cases. All tests pass.
+- 2026-09-30 **P01-T02** JSON persistence — Added public save(path) instance method and load(path) classmethod for explicit JSON persistence to TodoStore. Implemented round-trip save/load that preserves items and next ID, and load() returns emp
+- 2026-09-30 **P02-T01** CLI commands — Added an argparse CLI (add/list/done) in todo/cli.py with a python -m todo entry point. The data file comes from TODO_FILE, defaulting to ./todo.json. Verified with 3 new tests, using both subprocess 
+- 2026-09-30 **FIX001-T01** Add pyproject.toml so the package is installable with a `todo` console script — Added PEP 621 pyproject.toml with setuptools backend enabling pip installation and console script entry point. Updated README with installation docs and added CHANGELOG entry. All acceptance criteria 
+- 2026-09-30 **FIX001-T02** Untrack build artifacts and extend .gitignore for Python — Extended .gitignore to ignore Python bytecode (__pycache__/, *.pyc), caches (.pytest_cache/), packaging output (*.egg-info/, build/, dist/), and runtime files (todo.json, run.out). Untracked all previ

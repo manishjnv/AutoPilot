@@ -1,0 +1,118 @@
+"""Context packs: the small, fresh bundle every session starts from (instead of a long-lived chat)."""
+from __future__ import annotations
+
+from pathlib import Path
+
+PROMPTS = Path(__file__).parent / "prompts"
+
+
+def render(name: str, **vars) -> str:
+    text = (PROMPTS / name).read_text(encoding="utf-8")
+    for k, v in vars.items():
+        text = text.replace("{{" + k + "}}", str(v))
+    return text
+
+
+def read_capped(path: Path, max_chars: int, tail: bool = False, default: str = "(none)") -> str:
+    if not path.exists():
+        return default
+    text = path.read_text(encoding="utf-8", errors="replace").strip()
+    if not text:
+        return default
+    if len(text) <= max_chars:
+        return text
+    return ("…(truncated)…\n" + text[-max_chars:]) if tail else (text[:max_chars] + "\n…(truncated)…")
+
+
+def bullets(items, empty: str = "(none)") -> str:
+    items = [str(i) for i in (items or []) if str(i).strip()]
+    return "\n".join(f"- {i}" for i in items) if items else empty
+
+
+def progress_line(plan, status: dict) -> str:
+    total = len(plan.all_tasks())
+    counts = {}
+    for t in plan.all_tasks():
+        s = status.get(t.id, "pending")
+        counts[s] = counts.get(s, 0) + 1
+    done = counts.get("done", 0)
+    pct = (100 * done // total) if total else 0
+    return (f"{done}/{total} tasks done ({pct}%), {counts.get('blocked', 0)} blocked, "
+            f"{counts.get('pending', 0)} pending across {len(plan.phases)} phases")
+
+
+def plan_status(plan, state, include_criteria: bool = True, max_chars: int = 30000) -> str:
+    lines = []
+    status = state.status_map()
+    for p in plan.phases:
+        lines.append(f"\n### {p.id} {p.title}")
+        for t in p.tasks:
+            s = status.get(t.id, "pending")
+            lines.append(f"- [{s}] {t.id} {t.title} (risk {t.risk})")
+            if include_criteria and s == "done":
+                for ac in t.acceptance_criteria:
+                    lines.append(f"    - AC: {ac}")
+            if s == "blocked":
+                row = state.task(t.id)
+                reason = (row["last_error"] or "")[:300].replace("\n", " ") if row else ""
+                lines.append(f"    - BLOCKED: {reason}")
+    text = "\n".join(lines)
+    return text if len(text) <= max_chars else text[:max_chars] + "\n…(truncated)…"
+
+
+class ContextBuilder:
+    def __init__(self, cfg, plan, state):
+        self.cfg, self.plan, self.state = cfg, plan, state
+        self.ad = cfg.agent_dir
+
+    def brain(self) -> str:
+        return read_capped(self.ad / "BRAIN.md", 12000)
+
+    def decisions(self) -> str:
+        return read_capped(self.ad / "DECISIONS.md", 6000, tail=True)
+
+    def handoff(self) -> str:
+        return read_capped(self.ad / "HANDOFF.md", 3000)
+
+    def followups(self) -> str:
+        return read_capped(self.ad / "FOLLOWUPS.md", 5000, tail=True)
+
+    def verify_cmds(self, extra=None) -> str:
+        from .gate import verify_commands
+        return bullets([f"`{c}`" for c in verify_commands(self.cfg, extra)], "(no commands configured)")
+
+    def task_prompt(self, task, attempt: int, last_error: str | None) -> str:
+        phase = self.plan.phase_of(task)
+        retry = ""
+        if attempt > 1 and last_error:
+            retry = render("retry.md", attempt=attempt - 1, errors=last_error[-6000:])
+        return render(
+            "task.md", task_id=task.id, task_title=task.title, goal=self.plan.goal or "(see BRAIN.md)",
+            phase_id=phase.id, phase_title=phase.title, phase_goal=phase.goal, risk=task.risk,
+            description=task.description or task.title, acceptance=bullets(task.acceptance_criteria),
+            scope=bullets(task.files_in_scope, "(not restricted)"), docs=bullets(task.docs, "(whatever this change affects)"),
+            brain=self.brain(), decisions=self.decisions(), handoff=self.handoff(),
+            progress=progress_line(self.plan, self.state.status_map()), retry_block=retry,
+            verify_cmds=self.verify_cmds(task.verify),
+        )
+
+    def fixer_prompt(self, errors: str, git_log: str) -> str:
+        return render("fixer.md", brain=self.brain(), decisions=self.decisions(), git_log=git_log,
+                      errors=errors[-8000:], verify_cmds=self.verify_cmds())
+
+    def auditor_prompt(self, kind: str, max_new: int) -> str:
+        completion = ("Completion: is the product described in the goal actually complete and usable end to end? "
+                      "Set complete=true ONLY if nothing important is missing." if kind == "completion"
+                      else "Set complete=false unless the entire goal is already met.")
+        return render("auditor.md", audit_kind=kind, goal=self.plan.goal or "(see BRAIN.md)", brain=self.brain(),
+                      plan_status=plan_status(self.plan, self.state), decisions=self.decisions(),
+                      followups=self.followups(), completion_check=completion, max_new=max_new)
+
+    def replanner_prompt(self) -> str:
+        blocked = [f"{r['id']}: {(r['last_error'] or '')[:500]}" for r in self.state.tasks("blocked")]
+        return render("replanner.md", goal=self.plan.goal or "(see BRAIN.md)",
+                      plan_status=plan_status(self.plan, self.state, include_criteria=False),
+                      blocked=bullets(blocked), decisions=self.decisions(), followups=self.followups())
+
+    def system_append(self) -> str:
+        return (PROMPTS / "system.md").read_text(encoding="utf-8")

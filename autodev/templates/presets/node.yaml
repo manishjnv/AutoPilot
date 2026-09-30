@@ -1,0 +1,7 @@
+detect: [package.json]
+commands:
+  setup: ["npm ci || npm install"]
+  build: ["npm run build --if-present"]
+  lint: ["npm run lint --if-present"]
+  typecheck: ["npm run typecheck --if-present"]
+  test: ["npm test --if-present"]

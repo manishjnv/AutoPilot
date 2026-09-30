@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "todo"
+version = "0.1.0"
+description = "A tiny todo-list Python package with JSON persistence and a CLI"
+requires-python = ">=3.8"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "todo", email = "manishjnvk@gmail.com"}
+]
+
+[project.scripts]
+todo = "todo.cli:main"
+
+[tool.setuptools]
+packages = ["todo"]

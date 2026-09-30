@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autodev-agent"
+version = "0.1.0"
+description = "Autonomous development orchestrator: runs 100+ Claude Code sessions back-to-back to implement, verify, document and deploy a phased project plan."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+autodev = "autodev.cli:main"
+
+[tool.setuptools]
+packages = ["autodev", "autodev.backends"]
+
+[tool.setuptools.package-data]
+autodev = ["prompts/*.md", "templates/agent/*", "templates/presets/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

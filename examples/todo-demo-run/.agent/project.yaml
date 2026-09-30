@@ -1,0 +1,15 @@
+name: todo-demo
+stack: python
+commands:
+  test: ["python -m pytest -q"]
+agent:
+  session_timeout_sec: 900
+  env: {IS_SANDBOX: "1"}
+models:
+  ladder: {low: [haiku, sonnet], medium: [sonnet, sonnet], high: [sonnet], critical: [sonnet]}
+  fixer: sonnet
+  replanner: sonnet
+  auditor: sonnet
+budget_usd: {per_session: 1.5, per_task: 3, total: 8, wait_for_next_day: false}
+audit: {every_n_phases: 0, max_completion_rounds: 1, max_new_tasks: 2}
+replan: {every_n_phases: 0}

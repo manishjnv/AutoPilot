@@ -1,0 +1,4 @@
+detect: [pom.xml, build.gradle, build.gradle.kts]
+commands:
+  build: ["if [ -f pom.xml ]; then mvn -q -DskipTests package; else ./gradlew -q assemble; fi"]
+  test: ["if [ -f pom.xml ]; then mvn -q test; else ./gradlew -q test; fi"]

@@ -1,0 +1,5 @@
+detect: [Cargo.toml]
+commands:
+  build: ["cargo build --quiet"]
+  lint: ["cargo clippy --quiet -- -D warnings"]
+  test: ["cargo test --quiet"]

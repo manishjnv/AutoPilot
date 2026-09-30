@@ -1,0 +1,6 @@
+detect: [go.mod]
+commands:
+  setup: ["go mod download"]
+  build: ["go build ./..."]
+  lint: ["go vet ./..."]
+  test: ["go test ./..."]

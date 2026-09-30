@@ -1,0 +1,27 @@
+# systemd unit: one instance per project.
+#   sudo cp deploy/autodev@.service /etc/systemd/system/
+#   sudo systemctl enable --now autodev@intelwatch      # project at /srv/projects/intelwatch
+# Secrets/config: /etc/autodev/<name>.env  (ANTHROPIC_API_KEY or ANTHROPIC_BASE_URL for LiteLLM,
+#                 AUTODEV_TG_TOKEN, AUTODEV_TG_CHAT, ...)
+[Unit]
+Description=AutoDev autonomous build for %i
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=autodev
+WorkingDirectory=/srv/projects/%i
+EnvironmentFile=-/etc/autodev/%i.env
+Environment=IS_SANDBOX=1
+ExecStart=/usr/local/bin/autodev run
+# a finished run exits 0 and stays down; crashes restart and resume from the state DB
+Restart=on-failure
+RestartSec=120
+TimeoutStopSec=60
+KillSignal=SIGINT
+StandardOutput=append:/var/log/autodev/%i.log
+StandardError=append:/var/log/autodev/%i.log
+
+[Install]
+WantedBy=multi-user.target

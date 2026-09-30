@@ -1,0 +1,108 @@
+# AutoDev project contract — one file per repo, same shape for every project type.
+# Everything here is optional except `name`; unset keys fall back to AutoDev defaults.
+
+name: my-project
+stack: generic            # python | node | go | rust | java | static | docker | generic (set by `autodev init`)
+main_branch: main
+
+# Commands the orchestrator runs itself. The agent's own "done" is never trusted.
+commands:
+  setup: []               # once at the start of every run (install deps, migrations)
+  build: []
+  lint: []
+  typecheck: []
+  test: []
+  phase_verify: []        # extra, slower checks at the end of each phase (e2e, integration)
+  smoke: []               # after each deploy (can use $AUTODEV_ENV / $AUTODEV_URL)
+verify_timeout_sec: 1200
+
+agent:
+  backend: claude_cli     # claude_cli | command
+  # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
+  permission_mode: bypassPermissions      # run AutoDev inside a VM/container when bypassing
+  session_timeout_sec: 3600
+  effort: ""              # low | medium | high | xhigh | max  (empty = CLI default)
+  allowed_tools: []
+  disallowed_tools:
+    - "Bash(git push:*)"
+    - "Bash(git commit:*)"
+    - "Bash(git checkout:*)"
+    - "Bash(git reset:*)"
+    - "Bash(git rebase:*)"
+    - "Bash(rm -rf /:*)"
+  extra_args: []
+  env: {}                 # e.g. ANTHROPIC_BASE_URL: http://localhost:4000  (LiteLLM)
+
+# Risk tier -> model ladder. Attempt N uses ladder[N] (last entry repeats).
+models:
+  ladder:
+    low: [haiku, sonnet, opus]
+    medium: [sonnet, sonnet, opus]
+    high: [opus, opus, opus]
+    critical: [opus, opus]
+  fallback: ""            # passed as --fallback-model when set
+  fixer: opus
+  replanner: opus
+  auditor: opus
+  onboard: opus
+
+retries:
+  max_attempts_per_task: 3
+  max_fixer_attempts: 3
+  rate_limit_backoff_sec: [60, 300, 900, 1800, 3600]
+
+budget_usd:
+  per_session: 8
+  per_task: 20
+  per_phase: 150
+  daily: 200
+  total: 5000
+  wait_for_next_day: true # when daily cap is hit: sleep until midnight instead of stopping
+
+scheduling:
+  phase_dependency: soft  # soft = blocked tasks don't hold later phases; strict = they do
+  max_sessions_per_run: 0 # 0 = unlimited
+
+git:
+  push: false
+  remote: origin
+
+docs:
+  changelog: CHANGELOG.md
+  history_dir: .agent/history
+
+replan:                   # rewrites stale pending tasks, reopens blocked ones, refreshes BRAIN.md
+  enabled: true
+  every_n_phases: 5
+  on_stall: true          # when everything left is waiting on blocked tasks
+
+audit:                    # reviews overall implementation vs plan -> corrective tasks (self-correction)
+  enabled: true
+  every_n_phases: 3
+  completion_audit: true  # when the plan is exhausted: is the app actually complete? gaps -> new tasks
+  max_completion_rounds: 5
+  max_new_tasks: 15       # per audit, keeps self-correction bounded
+
+deploy:
+  staging:
+    enabled: false
+    cmd: ""               # gets $AUTODEV_REF, $AUTODEV_PHASE, $AUTODEV_ENV
+    health_url: ""
+    health_timeout_sec: 180
+    rollback_cmd: ""      # gets $AUTODEV_PREV_REF (last good deploy)
+  prod:
+    enabled: false
+    auto: false           # false = queued; run `autodev approve <phase>`; the run keeps going
+    max_auto_risk: medium # auto-deploy only phases whose riskiest task is <= this
+    cmd: ""
+    health_url: ""
+    health_timeout_sec: 180
+    rollback_cmd: ""
+
+notify:
+  telegram_token_env: AUTODEV_TG_TOKEN
+  telegram_chat_env: AUTODEV_TG_CHAT
+  slack_webhook_env: AUTODEV_SLACK_WEBHOOK
+  webhook_env: AUTODEV_WEBHOOK
+  ntfy_topic_env: AUTODEV_NTFY_TOPIC
+  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, budget, stalled, run_done, fatal]

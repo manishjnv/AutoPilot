@@ -1,0 +1,22 @@
+
+# AutoDev runtime (not committed)
+.agent/state.db
+.agent/state.db-*
+.agent/logs/
+.agent/run.lock
+.agent/STOP
+.agent/REPORT.md
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Packaging
+*.egg-info/
+build/
+dist/
+
+# Runtime
+todo.json
+run.out

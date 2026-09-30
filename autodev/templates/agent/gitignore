@@ -1,0 +1,8 @@
+
+# AutoDev runtime (not committed)
+.agent/state.db
+.agent/state.db-*
+.agent/logs/
+.agent/run.lock
+.agent/STOP
+.agent/REPORT.md

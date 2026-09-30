@@ -1,0 +1,33 @@
+# AutoDev plan. Generate from your plan doc with:  autodev onboard --plan-doc docs/PLAN.md
+# Phases depend on the previous phase unless `depends_on` is given ([] = independent).
+# Task ids must be unique and stable — the state DB tracks progress by id.
+
+version: 1
+goal: >
+  One paragraph describing the product being built.
+
+phases:
+  - id: P01
+    title: Foundation
+    goal: Project skeleton, CI-able test setup, health endpoint.
+    tasks:
+      - id: P01-T01
+        title: Create project skeleton
+        risk: low                     # low | medium | high | critical  -> model ladder
+        description: |
+          Set up the base project structure and a passing test suite.
+        acceptance_criteria:
+          - "Test command exits 0 with at least one real test"
+          - "README documents how to run the project locally"
+        files_in_scope: ["src/**", "tests/**", "README.md"]
+        verify: []                    # extra commands for this task only
+        depends_on: []
+
+      - id: P01-T02
+        title: Health endpoint
+        risk: low
+        description: Add GET /health returning {"status":"ok"}.
+        acceptance_criteria:
+          - "GET /health returns 200 and JSON {\"status\":\"ok\"}"
+          - "Covered by an automated test"
+        depends_on: [P01-T01]

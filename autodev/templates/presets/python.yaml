@@ -1,0 +1,6 @@
+detect: [pyproject.toml, requirements.txt, setup.py]
+commands:
+  setup: ["python -m pip install -e '.[dev]' || python -m pip install -r requirements.txt || true"]
+  lint: ["ruff check . || python -m flake8 ."]
+  typecheck: []
+  test: ["python -m pytest -q"]

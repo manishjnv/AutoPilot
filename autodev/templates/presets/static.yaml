@@ -1,0 +1,3 @@
+detect: [index.html]
+commands:
+  test: ["test -f index.html"]
