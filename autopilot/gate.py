@@ -11,18 +11,18 @@ from pathlib import Path
 from .proc import agent_env, run_proc
 
 SECRET_PATTERNS = [
-    (re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}"), "AWS access key"),
+    (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}"), "AWS access key"),
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "private key"),
-    (re.compile(r"sk-(?:ant-|proj-)?[A-Za-z0-9_\-]{20,}"), "OpenAI/Anthropic API key"),
-    (re.compile(r"xai-[A-Za-z0-9]{20,}"), "xAI API key"),
-    (re.compile(r"hf_[A-Za-z0-9]{30,}"), "Hugging Face token"),
-    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "GitHub token"),
-    (re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"), "GitHub token"),
-    (re.compile(r"glpat-[A-Za-z0-9_\-]{20,}"), "GitLab token"),
+    (re.compile(r"\bsk-(?:ant-|proj-)?[A-Za-z0-9_\-]{20,}"), "OpenAI/Anthropic API key"),
+    (re.compile(r"\bxai-[A-Za-z0-9]{20,}"), "xAI API key"),
+    (re.compile(r"\bhf_[A-Za-z0-9]{30,}"), "Hugging Face token"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "GitHub token"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"), "GitHub token"),
+    (re.compile(r"\bglpat-[A-Za-z0-9_\-]{20,}"), "GitLab token"),
     (re.compile(r"AIza[A-Za-z0-9_\-]{30,}"), "Google API key"),
-    (re.compile(r"GOCSPX-[A-Za-z0-9_\-]{20,}"), "Google OAuth secret"),
-    (re.compile(r"[rs]k_live_[A-Za-z0-9]{20,}"), "Stripe live key"),
-    (re.compile(r"xox[abprs]-[A-Za-z0-9-]{10,}"), "Slack token"),
+    (re.compile(r"\bGOCSPX-[A-Za-z0-9_\-]{20,}"), "Google OAuth secret"),
+    (re.compile(r"\b[rs]k_live_[A-Za-z0-9]{20,}"), "Stripe live key"),
+    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), "Slack token"),
     (re.compile(r"hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+"), "Slack webhook"),
     (re.compile(r"\b\d{8,10}:AA[A-Za-z0-9_\-]{33}\b"), "Telegram bot token"),
     (re.compile(r"(?i)(password|secret|api_key|apikey|token)\s*[:=]\s*['\"][^'\"\s]{12,}['\"]"), "hardcoded credential"),
@@ -37,6 +37,9 @@ SETTINGS_REMOVED_RX = re.compile(r'addopts|testpaths|python_files|"test"\s*:|tes
 SETTINGS_ADDED_RX = re.compile(r"--ignore|--deselect|(^|\s)-k\s|testPathIgnorePatterns|modulePathIgnorePatterns|"
                                r"--passWithNoTests|\|\|\s*true|exit 0")
 PROTECTED = [".agent/plan.yaml", ".agent/project.yaml"]
+# CI runs with repository secrets on push: adding, editing or deleting a pipeline is never routine task work
+CI_GLOBS = [".github/workflows/**", ".gitlab-ci.yml", ".circleci/**", "Jenkinsfile", "azure-pipelines.yml",
+            "bitbucket-pipelines.yml", ".buildkite/**"]
 
 
 @dataclass
@@ -115,14 +118,17 @@ def _added(git, path: str) -> list[str]:
 
 
 def test_tamper(cfg, git, allow: bool = False) -> list[str]:
-    """Weakened tests in the staged diff vs HEAD. New files never count; `allow` only labels the findings."""
+    """Weakened tests or CI changes in the staged diff vs HEAD. New test files never count; `allow` only labels."""
     tests = cfg.get("gate.test_globs") or TEST_GLOBS
     protected = cfg.get("gate.protected") or []
+    ci = cfg.get("gate.ci_files") or CI_GLOBS
     out, tag = [], "(allowed) " if allow else ""
     status = git.run("-c", "core.quotepath=false", "diff", "--cached", "--name-status", "-M")
     for line in status.splitlines():
         st, *paths = line.split("\t")
         st, old, new = st[0], paths[0], paths[-1]
+        if _match(old, ci) or _match(new, ci):
+            out.append(f"{tag}CI pipeline file {dict(A='added', C='added', D='deleted').get(st, 'changed')}: {new}")
         if st == "A" or st == "C":
             if st == "A" and _match(new, tests):
                 out += [f"{tag}skip/focus marker added in {new}: {l.strip()[:80]}" for l in _added(git, new) if SKIP_RX.search(l)]

@@ -50,9 +50,17 @@ def tamper(root, allow=False):
 def test_clean_and_additions_not_flagged(repo):
     put(repo, "tests/test_y.py", "def test_new():\n    pass\n")
     put(repo, "tests/test_x.py", TESTS2 + "\n\ndef test_c():\n    pass\n")
-    put(repo, ".github/workflows/new.yml", CI)
     put(repo, "src/app.py", "x = 1\n")
     assert tamper(repo) == []
+
+
+def test_new_ci_workflow_flagged(repo):
+    put(repo, ".github/workflows/new.yml", CI)
+    assert any("CI pipeline file added" in f for f in tamper(repo))
+
+
+def test_secret_scan_ignores_kebab_identifiers():
+    assert scan_secrets(['cls = "task-list-item-container-wide"', 'url = "/ask-question-and-answer-now"']) == []
 
 
 def test_deleted_test_file(repo):
@@ -83,12 +91,12 @@ def test_skip_marker_in_new_test_file(repo):
 
 def test_workflow_edit_flagged(repo):
     put(repo, ".github/workflows/ci.yml", CI + "# changed\n")
-    assert any("protected" in f and "ci.yml" in f for f in tamper(repo))
+    assert any("CI pipeline file changed" in f and "ci.yml" in f for f in tamper(repo))
 
 
 def test_workflow_delete_flagged(repo):
     (repo / ".github/workflows/ci.yml").unlink()
-    assert any("protected" in f and "deleted" in f for f in tamper(repo))
+    assert any("CI pipeline file deleted" in f for f in tamper(repo))
 
 
 def test_package_json_test_script_changed(repo):

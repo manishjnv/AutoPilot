@@ -30,9 +30,15 @@ gate:
     - "*.spec.*"
     - "**/__tests__/**"
     - "src/test/**"
-  protected:              # editing/deleting these fails the gate (CI and test-runner config)
+  ci_files:               # adding/editing/deleting a CI pipeline fails the gate (pipelines run with repo secrets)
     - ".github/workflows/**"
     - ".gitlab-ci.yml"
+    - ".circleci/**"
+    - "Jenkinsfile"
+    - "azure-pipelines.yml"
+    - "bitbucket-pipelines.yml"
+    - ".buildkite/**"
+  protected:              # editing/deleting these fails the gate (test-runner config)
     - "pytest.ini"
     - "tox.ini"
     - "jest.config.*"
