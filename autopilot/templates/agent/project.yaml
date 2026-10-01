@@ -81,6 +81,13 @@ models:
   unstick: sonnet         # diagnoses a stuck task (may search the web) before anyone is asked
   decide: opus            # weighs 2-3 approaches before risky work (see decide:)
   research: sonnet        # web research for a task's `research:` topics (see research:)
+  verifier: sonnet        # the per-phase functional check (see functional:)
+
+functional:               # when a phase closes, one read-only session runs each of its `features:` journeys once
+  enabled: true
+  init: ""                # command that starts the app (e.g. ./init.sh); empty = the checker works it out
+  effort: medium
+  mcp_config: ""          # e.g. .agent/mcp.json with a Playwright MCP server, for UI journeys (run headless)
 
 research:                 # a task's `research: [topics]` -> one web-only session per new topic -> research.dir/<topic>.md
   enabled: true

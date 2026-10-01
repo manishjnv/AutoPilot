@@ -314,7 +314,7 @@ class Orchestrator:
     # ------------------------------------------------------------------ sessions
     def session(self, kind: str, prompt: str, model: str, *, task_id=None, phase=None, attempt=1,
                 read_only=False, label: str = "", resume: SessionResult | None = None, effort: str = "",
-                web_only: bool = False) -> SessionResult:
+                web_only: bool = False, mcp_config: str = "") -> SessionResult:
         self.check_stop()
         budget = self.session_budget(task_id)
         self._journal(current=label or " ".join(
@@ -326,7 +326,7 @@ class Orchestrator:
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
                              timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
                              budget_usd=budget, system_append=self.ctx.system_append(),
-                             read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort, web_only=web_only,
+                             read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort, web_only=web_only, mcp_config=mcp_config,
                              resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {})
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
         try:
@@ -759,6 +759,8 @@ class Orchestrator:
                            phase_id=phase.id, checked="The failing checks and one corrective phase", why=err[-300:],
                            suggestion="Tell me what to change, or whether to skip these checks.")
             return
+        if self.functional_check(phase):
+            return  # a feature failed: the phase closes after its corrective phase
         note = self.deploy_phase(phase) if phase.deploy and any(
             self.state.task(t.id)["status"] == "done" for t in phase.tasks) else ""
         self.state.set_phase(phase.id, status=status, completed_at=now())
@@ -775,6 +777,58 @@ class Orchestrator:
             self.audit("periodic", phase.id)
         if self.cfg.get("replan.enabled") and replan_n and closed % replan_n == 0:
             self.replan(f"after {phase.id}")
+
+    # ------------------------------------------------------------------ L4: one functional check per phase
+    def functional_check(self, phase) -> bool:
+        """Run the phase's user journeys once in a read-only session. True = keep the phase open (a feature failed)."""
+        if phase.priority or not phase.features or not self.cfg.get("functional.enabled", True):
+            return False
+        fix = self.plan.phase_by_id.get(self.state.get_meta(f"featfix:{phase.id}") or "")
+        if fix and any(self.state.status_map().get(t.id) in ("pending", "running") for t in fix.tasks):
+            return True  # its corrective phase is still being built: don't pay for another check yet
+        res = self._isolated("verify", self.ctx.verify_prompt(phase, phase.features),
+                             self.cfg.get("models.verifier", "sonnet"), phase=phase.id,
+                             effort=self.cfg.get("functional.effort", "medium"),
+                             mcp_config=self.cfg.get("functional.mcp_config", ""), label=f"functional check {phase.id}")
+        got = {str(f.get("id")): f for f in (res.report.get("features") or [])
+               if isinstance(f, dict)} if res.ok and isinstance(res.report, dict) else {}
+        if not got:  # a broken check never holds the phase
+            log.warning("functional check of %s gave no results: %s", phase.id, (res.error or "")[:200])
+            return False
+        self._record_features(phase, got)
+        failing = [f for f in phase.features if got.get(f["id"], {}).get("passes") is False]  # unreported = unchecked
+        if not failing:
+            return False
+        evidence = {f["id"]: str(got[f["id"]].get("evidence") or "(none)") for f in failing}
+        pid = self.add_corrective_phase([{
+            "title": f"Make this feature work: {f['title']}", "kind": "bug", "risk": "medium",
+            "description": f"The functional check of phase {phase.id} ran this user journey and it failed.\n\n"
+                           f"Journey: {f['journey']}\n\nEvidence:\n{evidence[f['id']][-1500:]}",
+            "acceptance_criteria": [f"The journey works end to end: {f['journey']}",
+                                    "An automated test covers the journey"]} for f in failing],
+            f"functional check {phase.id}", once_key=f"featfix-{phase.id}")
+        if pid:
+            self.state.set_meta(f"featfix:{phase.id}", pid)
+            return True
+        self.state.set_phase(phase.id, status="failed")  # failed again after its corrective phase
+        self.needs_you("phase", f"{phase.id} features still fail",
+                       f"These features still fail their check after a repair attempt: "
+                       f"{', '.join(f['id'] for f in failing)}. How should we proceed?", phase_id=phase.id,
+                       checked="The functional check, one corrective phase and a second check",
+                       why=evidence[failing[0]["id"]][-300:],
+                       suggestion="Tell me what the feature should do, or whether to drop it.")
+        return True
+
+    def _record_features(self, phase, got: dict):
+        """.agent/features.json: every planned feature with its last result. Only the orchestrator writes it."""
+        seen = self.state.get_meta("features", {})
+        for f in phase.features:
+            if f["id"] in got:
+                seen[f["id"]] = {"passes": got[f["id"]].get("passes") is True, "checked_at": now(),
+                                 "evidence": str(got[f["id"]].get("evidence") or "")[:500]}
+        self.state.set_meta("features", seen)
+        rows = [{**f, "phase": p.id, **seen.get(f["id"], {"passes": None})} for p in self.plan.phases for f in p.features]
+        (self.ad / "features.json").write_text(json.dumps({"features": rows}, indent=1), encoding="utf-8")
 
     def deploy_phase(self, phase) -> str:
         notes = []

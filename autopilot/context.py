@@ -101,6 +101,12 @@ class ContextBuilder:
                       acceptance=bullets(task.acceptance_criteria), scope=bullets(task.files_in_scope, "(not restricted)"),
                       brain=self.brain(), decisions=self.decisions(), research_block=self.research_block(task))
 
+    def verify_prompt(self, phase, features: list[dict]) -> str:
+        init = self.cfg.get("functional.init", "")
+        return render("verify.md", phase_id=phase.id, phase_title=phase.title, goal=self.plan.goal or "(see BRAIN.md)",
+                      brain=self.brain(), features="\n".join(f"- `{f['id']}` {f['title']}: {f['journey']}" for f in features),
+                      init=f"Run `{init}`." if init else "Work it out from the brain, the README and the project files.")
+
     def research_prompt(self, task, topic: str) -> str:
         return render("research.md", topic=topic, task_id=task.id, task_title=task.title,
                       goal=self.plan.goal or "(see BRAIN.md)", description=task.description or task.title,

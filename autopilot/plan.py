@@ -43,6 +43,7 @@ class Phase:
     tasks: list[Task]
     deploy: bool = True
     priority: bool = False   # corrective phases jump the queue
+    features: list[dict] = field(default_factory=list)  # L4: {id, title, journey} checked once when the phase closes
 
     @property
     def max_risk(self) -> str:
@@ -55,6 +56,18 @@ def _as_list(v) -> list:
     if v is None:
         return []
     return list(v) if isinstance(v, (list, tuple)) else [v]
+
+
+def _features(pid: str, raw) -> list[dict]:
+    """Phase `features:` items, a string (the journey) or {id, title, journey} -> normalised dicts with stable ids."""
+    out = []
+    for i, f in enumerate(_as_list(raw), 1):
+        f = f if isinstance(f, dict) else {"journey": str(f)}
+        journey = str(f.get("journey") or f.get("title") or "").strip()
+        if journey:
+            out.append({"id": str(f.get("id") or f"{pid}-F{i:02d}"), "title": str(f.get("title") or journey)[:120],
+                        "journey": journey})
+    return out
 
 
 class Plan:
@@ -103,7 +116,8 @@ class Plan:
                 ))
             phases.append(Phase(id=pid, title=str(p.get("title", pid)), goal=str(p.get("goal", "") or ""),
                                 order=pi, depends_on=[str(d) for d in deps], tasks=tasks,
-                                deploy=bool(p.get("deploy", True)), priority=bool(p.get("priority", False))))
+                                deploy=bool(p.get("deploy", True)), priority=bool(p.get("priority", False)),
+                                features=_features(pid, p.get("features"))))
             prev_id = pid
         plan = cls(str(data.get("goal", "") or ""), phases)
         errors += plan._validate_refs()

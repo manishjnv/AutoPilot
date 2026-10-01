@@ -28,6 +28,7 @@ class FakeBackend:
         self.unsticks = unsticks or {}       # task_id -> unstick report (default: technical diagnosis)
         self.calls = []
         self.prompts = []                    # (task_id, prompt) of every task session
+        self.failing_features = set()        # feature ids the functional check reports as failing
 
     def run(self, req):
         cwd = Path(req.cwd)
@@ -65,6 +66,11 @@ class FakeBackend:
             (cwd / "AUDITOR_SCRIBBLE.txt").write_text("should be discarded")
             rep = self.audits.pop(0) if self.audits else {"complete": True, "completion_pct": 100, "gaps": []}
             return SessionResult(ok=True, cost=0.5, report=rep)
+        if req.prompt.startswith("# Assignment: functional check of phase"):
+            self.calls.append(("verify", req.model))
+            ids = re.findall(r"^- `(\S+)`", req.prompt, re.M)
+            return SessionResult(ok=True, cost=0.1, report={"features": [
+                {"id": i, "passes": i not in self.failing_features, "evidence": f"ran {i}"} for i in ids]})
         r = re.search(r'^# Assignment: research "(.+)" for task', req.prompt, re.M)
         if r:
             self.calls.append(("research", req.model))

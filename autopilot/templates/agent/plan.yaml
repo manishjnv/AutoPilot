@@ -10,6 +10,10 @@ phases:
   - id: P01
     title: Foundation
     goal: Project skeleton, CI-able test setup, health endpoint.
+    features:                         # user journeys checked once, on the running app, when the phase closes
+      - id: P01-F01
+        title: Health check
+        journey: "Start the app; GET /health returns 200 with {\"status\":\"ok\"}"
     tasks:
       - id: P01-T01
         title: Create project skeleton

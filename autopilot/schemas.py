@@ -26,6 +26,8 @@ REPORTS = {  # session kind -> schema of its final report
     "replan": obj(["summary"], summary=S, changed=A, added=A, removed=A, reopened=A),
     "research": obj(["summary", "sources"], topic=S, summary=S, findings=A, pitfalls=A, recommendation=S,
                     sources={"type": "array", "items": obj(["url"], title=S, url=S)}),
+    "verify": obj(["features"], summary=S, features={"type": "array", "items": obj(
+        ["id", "passes"], id=S, passes={"type": "boolean"}, evidence=S)}),
     "decide": obj(["title", "options", "decision"], title=S, context=S, criteria=A, decision=S, rationale=S,
                   consequences=A, options={"type": "array", "items": obj(["name"], name=S, summary=S, pros=A, cons=A,
                                                                           score={"type": "number"})}),

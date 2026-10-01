@@ -75,6 +75,7 @@ class SessionRequest:
     schema: dict | None = None                              # JSON Schema of the final report (schemas.REPORTS)
     effort: str = ""                                        # overrides agent.effort for this session
     web_only: bool = False                                  # research: only web search/fetch and reading files
+    mcp_config: str = ""                                    # MCP servers for this session only (e.g. Playwright)
 
 
 @dataclass

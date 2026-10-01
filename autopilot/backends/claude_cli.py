@@ -106,6 +106,8 @@ class ClaudeCLIBackend:
                "--permission-mode", c.get("agent.permission_mode", "bypassPermissions")]
         if req.resume:
             cmd += ["--resume", req.resume]
+        if req.mcp_config:  # only these servers, not the project's own .mcp.json
+            cmd += ["--mcp-config", req.mcp_config, "--strict-mcp-config"]
         if int(c.get("agent.max_turns", 0) or 0):
             cmd += ["--max-turns", str(int(c.get("agent.max_turns")))]
         if req.budget_usd:
