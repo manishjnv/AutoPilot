@@ -76,6 +76,7 @@ class SessionRequest:
     effort: str = ""                                        # overrides agent.effort for this session
     web_only: bool = False                                  # research: only web search/fetch and reading files
     mcp_config: str = ""                                    # MCP servers for this session only (e.g. Playwright)
+    no_tools: bool = False                                  # triage of untrusted text: no file, shell, web or MCP tools
 
 
 @dataclass

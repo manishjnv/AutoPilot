@@ -102,6 +102,17 @@ check either: a failing main or phase gate becomes a corrective phase first.
 - Corrective (FIX) tasks must add a regression test (bugs) and report a root cause. Entries land in `docs/RCA.md` (symptom, root cause, fix, prevention), committed with the fix; main-branch repairs add a lenient entry.
 - `.agent/run.json` is the live run journal; `REPORT.md` has a **This run** section with the next action.
 
+## Bug intake from GitHub
+With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start and then every `intake.poll_minutes`:
+- **Issues labelled `autopilot`** (`intake.label`). On GitHub only people with triage access can add labels, so the
+  label is the trust gate. Each issue is read once by a triage session (Haiku) that has **no tools**. It rewrites a real
+  bug in its own words as a corrective task. The coding session sees only that rewrite, never the issue text. Autopilot
+  comments on the issue when the task is queued, and closes it when the fix is merged. If it gets stuck, it comments
+  and asks you in `docs/NEEDS-YOU.md`. Questions, feature requests and text that tries to instruct the agent are
+  declined with a comment.
+- **Failed CI on main** (`intake.ci`): the latest completed run of each workflow. A failure becomes one corrective task
+  with the log tail; while that fix is open, the workflow is not taken in again.
+
 ## Running unattended on a VPS
 
 1. Use an **API key or LiteLLM gateway** (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`) for unattended runs. Check

@@ -12,6 +12,10 @@ from . import SessionRequest, SessionResult, detect_limit, parse_report, since
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
 # Deny-list, not --tools: --tools might also drop the synthetic tool that --json-schema relies on.
 WEB_ONLY_DENY = ["Bash", "Agent", "Task"]
+# Untrusted issue text: nothing to read (it could copy secrets into a committed task), run or fetch.
+NO_TOOLS_DENY = READ_ONLY_DENY + WEB_ONLY_DENY + [
+    "Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "NotebookRead", "TodoWrite", "MultiEdit", "BashOutput",
+    "KillShell", "Skill", "SlashCommand", "ExitPlanMode", "ListMcpResourcesTool", "ReadMcpResourceTool"]
 
 
 def _num(v, kind=int):
@@ -117,6 +121,8 @@ class ClaudeCLIBackend:
             cmd += ["--resume", req.resume]
         if req.mcp_config:  # only these servers, not the project's own .mcp.json
             cmd += ["--mcp-config", req.mcp_config, "--strict-mcp-config"]
+        elif req.no_tools:  # no MCP servers at all
+            cmd += ["--strict-mcp-config"]
         if int(c.get("agent.max_turns", 0) or 0):
             cmd += ["--max-turns", str(int(c.get("agent.max_turns")))]
         if req.budget_usd:
@@ -137,6 +143,8 @@ class ClaudeCLIBackend:
             denied += READ_ONLY_DENY
         if req.web_only:  # research reads untrusted pages: no shell, no subagents (removed even under bypass)
             denied += WEB_ONLY_DENY
+        if req.no_tools:
+            denied += NO_TOOLS_DENY
         if denied:
             cmd += ["--disallowedTools", *denied]
         cmd += list(c.get("agent.extra_args", []))

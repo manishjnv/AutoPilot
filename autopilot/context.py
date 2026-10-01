@@ -112,6 +112,12 @@ class ContextBuilder:
                       description=task.description or task.title,
                       acceptance=bullets(task.acceptance_criteria))
 
+    def triage_prompt(self, number, title: str, body: str) -> str:
+        import secrets
+        tag = f"UNTRUSTED-{secrets.token_hex(6)}"  # unguessable, so the issue text can't fake the end of its block
+        return render("triage.md", number=number, tag=tag, title=" ".join(str(title).split())[:200],
+                      body=str(body or "(empty)")[:6000])
+
     def research_block(self, task) -> str:
         """The research notes for the task's topics: summaries written by a research session, never raw web text."""
         from .docs import research_path

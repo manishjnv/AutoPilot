@@ -28,6 +28,8 @@ REPORTS = {  # session kind -> schema of its final report
                     sources={"type": "array", "items": obj(["url"], title=S, url=S)}),
     "verify": obj(["features"], summary=S, features={"type": "array", "items": obj(
         ["id", "passes"], id=S, passes={"type": "boolean"}, evidence=S)}),
+    "triage": obj(["kind", "actionable", "reason"], kind={"type": "string", "enum": ["bug", "feature", "other"]},
+                  actionable={"type": "boolean"}, title=S, description=S, acceptance_criteria=A, risk=S, reason=S),
     "decide": obj(["title", "options", "decision"], title=S, context=S, criteria=A, decision=S, rationale=S,
                   consequences=A, options={"type": "array", "items": obj(["name"], name=S, summary=S, pros=A, cons=A,
                                                                           score={"type": "number"})}),

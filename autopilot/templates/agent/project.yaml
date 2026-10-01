@@ -86,6 +86,7 @@ models:
     audit: high
     replan: high
     onboard: high
+    triage: low
   subagent: ""            # e.g. haiku: model for subagents inside sessions (CLAUDE_CODE_SUBAGENT_MODEL; all of them)
   fixer: [sonnet, opus, opus]   # repair attempt N uses entry N (a single model also works)
   replanner: opus
@@ -95,6 +96,14 @@ models:
   decide: opus            # weighs 2-3 approaches before risky work (see decide:)
   research: sonnet        # web research for a task's `research:` topics (see research:)
   verifier: sonnet        # the per-phase functional check (see functional:)
+  triage: haiku           # turns a GitHub issue into a task, with no tools (see intake:)
+
+intake:                   # GitHub issues and failing CI on main -> corrective (FIX) tasks; needs `gh` logged in
+  enabled: false
+  label: autopilot        # only open issues with this label (on GitHub only people with triage access can add labels)
+  ci: true                # also the latest failed run of each CI workflow on main
+  poll_minutes: 30        # at run start, then at most this often
+  max_per_poll: 5         # new issues triaged per poll
 
 functional:               # when a phase closes, one read-only session runs each of its `features:` journeys once
   enabled: true
