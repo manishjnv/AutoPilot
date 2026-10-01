@@ -6,7 +6,7 @@ import os
 import shutil
 from pathlib import Path
 
-from ..proc import agent_env, run_proc
+from ..proc import agent_env, stream_proc
 from . import SessionRequest, SessionResult, detect_limit, parse_report, since
 
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
@@ -39,6 +39,53 @@ def parse_usage(data: dict, model: str) -> dict:
     return {}
 
 
+def _events(raw: str):
+    for line in raw.splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(ev, dict):
+            yield ev
+
+
+def result_event(raw: str) -> dict:
+    """The final `result` event of a stream-json run (or a plain JSON result); {} when there is none."""
+    for ev in reversed(list(_events(raw))):
+        if ev.get("type", "result") == "result":
+            return ev
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except ValueError:
+        return {}
+
+
+def first_session_id(raw: str) -> str:
+    return next((str(ev["session_id"]) for ev in _events(raw) if ev.get("session_id")), "")
+
+
+def stuck_watch(limit: int):
+    """on_line hook: a reason once the agent makes the same tool call `limit` times in a row (0 = never)."""
+    last, count = [None], [0]
+
+    def watch(line: str) -> str:
+        if not limit or '"tool_use"' not in line:
+            return ""
+        ev = next(_events(line), {})
+        content = (ev.get("message") or {}).get("content") if ev.get("type") == "assistant" else None
+        for c in content if isinstance(content, list) else []:
+            if isinstance(c, dict) and c.get("type") == "tool_use":
+                key = json.dumps([c.get("name"), c.get("input")], sort_keys=True, default=str)
+                count[0] = count[0] + 1 if key == last[0] else 1
+                last[0] = key
+                if count[0] >= limit:
+                    return (f"stuck: the agent repeated the same action {limit} times in a row: "
+                            f"{c.get('name')} {json.dumps(c.get('input'), default=str)[:300]}")
+        return ""
+    return watch
+
+
 class ClaudeCLIBackend:
     supports_resume = True
 
@@ -53,7 +100,7 @@ class ClaudeCLIBackend:
 
     def build_cmd(self, req: SessionRequest) -> list[str]:
         c = self.cfg
-        cmd = [self.binary, "-p", "--output-format", "json", "--model", req.model,
+        cmd = [self.binary, "-p", "--output-format", "stream-json", "--verbose", "--model", req.model,
                "--permission-mode", c.get("agent.permission_mode", "bypassPermissions")]
         if req.resume:
             cmd += ["--resume", req.resume]
@@ -79,26 +126,36 @@ class ClaudeCLIBackend:
     def run(self, req: SessionRequest) -> SessionResult:
         cmd = self.build_cmd(req)
         prompt = f"{req.system_append}\n\n---\n\n{req.prompt}" if req.system_append and self.shim else req.prompt
+        watch = stuck_watch(int(self.cfg.get("agent.stuck_repeats", 4) or 0))
+        log = None
+        if req.log_path:  # written live: `tail -f` shows what a running session does
+            Path(req.log_path).parent.mkdir(parents=True, exist_ok=True)
+            log = open(req.log_path, "w", encoding="utf-8")  # noqa: SIM115
+            log.write(f"$ {' '.join(cmd[:10])} ...\n\nSTDOUT:\n")
+
+        def on_line(line: str) -> str:
+            if log:
+                log.write(line)
+                log.flush()
+            return watch(line)
+
+        p = None
         try:
-            p = run_proc(cmd, input=prompt, cwd=req.cwd, env=agent_env(self.cfg), timeout=req.timeout_sec)
+            p = stream_proc(cmd, input=prompt, cwd=req.cwd, env=agent_env(self.cfg), timeout=req.timeout_sec,
+                            on_line=on_line)
         except OSError as exc:
             return SessionResult(ok=False, error=f"cannot start claude ({self.binary}): {exc}")
+        finally:
+            if log:
+                log.write(f"\n\nSTDERR:\n{p.stderr if p else ''}")
+                log.close()
         if p.timed_out:
             return SessionResult(ok=False, error=f"session timed out after {req.timeout_sec}s", timed_out=True)
+        if p.stopped:
+            return SessionResult(ok=False, error=p.stopped, stuck=True, session_id=first_session_id(p.stdout))
 
         raw = p.stdout.strip()
-        if req.log_path:
-            Path(req.log_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(req.log_path).write_text(f"$ {' '.join(cmd[:8])} ...\n\nSTDOUT:\n{raw}\n\nSTDERR:\n{p.stderr}",
-                                          encoding="utf-8")
-        data = {}
-        try:
-            data = json.loads(raw.splitlines()[-1]) if raw else {}
-        except (json.JSONDecodeError, IndexError):
-            try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                data = {}
+        data = result_event(raw)
         text = str(data.get("result", "") or raw)
         cost = float(data.get("total_cost_usd") or data.get("cost_usd") or 0.0)
         is_error = bool(data.get("is_error")) or p.rc != 0 or not data

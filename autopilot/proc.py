@@ -5,6 +5,8 @@ import contextlib
 import os
 import signal
 import subprocess
+import tempfile
+import threading
 from dataclasses import dataclass
 
 WINDOWS = os.name == "nt"
@@ -30,6 +32,7 @@ class Proc:
     stdout: str
     stderr: str
     timed_out: bool = False
+    stopped: str = ""      # stream_proc: why on_line killed it
 
 
 def safe_env(passthrough=(), extra: dict | None = None) -> dict:
@@ -73,6 +76,54 @@ def run_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: floa
     except BaseException:  # Ctrl+C / SystemExit: never leave an orphaned agent behind
         _kill_tree(p)
         raise
+
+
+def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: float | None = None,
+                on_line=None) -> Proc:
+    """run_proc for long agent sessions: stdout is read line by line as it arrives, and when `on_line(line)` returns a
+    reason the whole tree is killed and the reason lands in `Proc.stopped`. stderr goes to a temp file (no pipe deadlock)."""
+    group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS else {"start_new_session": True}
+    with tempfile.TemporaryFile() as errf:
+        p = subprocess.Popen(cmd, cwd=cwd, env=env, text=True, encoding="utf-8", errors="replace",
+                             stdin=subprocess.DEVNULL if input is None else subprocess.PIPE,
+                             stdout=subprocess.PIPE, stderr=errf, **group)
+        lines: list[str] = []
+        stopped: list[str] = []
+
+        def feed():
+            with contextlib.suppress(OSError):  # the agent may exit before reading everything
+                p.stdin.write(input)
+                p.stdin.close()
+
+        def read():
+            for line in p.stdout:
+                lines.append(line)
+                why = on_line(line) if on_line and not stopped else ""
+                if why:
+                    stopped.append(why)
+                    _kill_tree(p)
+
+        threads = [threading.Thread(target=read, daemon=True)]
+        if input is not None:
+            threads.append(threading.Thread(target=feed, daemon=True))
+        for t in threads:
+            t.start()
+        timed_out = False
+        try:
+            p.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_tree(p)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                p.wait(timeout=15)
+        except BaseException:  # Ctrl+C / SystemExit: never leave an orphaned agent behind
+            _kill_tree(p)
+            raise
+        threads[0].join(15)  # ponytail: a detached grandchild may still hold stdout; keep what was read
+        errf.seek(0)
+        err = errf.read().decode("utf-8", "replace")
+    rc = 124 if timed_out else (p.returncode if p.returncode is not None else -1)
+    return Proc(rc, "".join(lines), err, timed_out=timed_out, stopped=stopped[0] if stopped else "")
 
 
 @contextlib.contextmanager

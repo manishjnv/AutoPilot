@@ -51,6 +51,7 @@ agent:
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
   permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing
   session_timeout_sec: 3600
+  stuck_repeats: 4        # abort a session that makes the same tool call this many times in a row (0 = off)
   effort: ""              # low | medium | high | xhigh | max  (empty = CLI default)
   allowed_tools: []
   disallowed_tools:

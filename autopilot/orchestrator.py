@@ -421,11 +421,11 @@ class Orchestrator:
                 else:
                     last_error = gate.report()
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
-            chain, chain_model = (res, model) if self.can_resume and not res.timed_out else (None, "")
+            chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
             self.git.discard()
             fail_err = last_error or ""
             if (self.cfg.get("unstick.enabled", True) and not self.state.get_meta(f"unstick:{task.id}", False)
-                    and (agent_blocked or attempts >= int(self.cfg.get("unstick.after_attempts", 2)))):
+                    and (agent_blocked or res.stuck or attempts >= int(self.cfg.get("unstick.after_attempts", 2)))):
                 kind, text, rep = self.unstick(task, phase, fail_err)
                 if kind == "owner":
                     self._park(task, branch, attempts, fail_err)
