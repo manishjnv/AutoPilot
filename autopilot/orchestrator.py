@@ -567,6 +567,7 @@ class Orchestrator:
         self.notify.send("task_blocked", f"{task.id} {task.title} parked after {attempts} attempts: {error[:400]}")
         self._tell_issue(task, f"Autopilot could not fix this after {attempts} attempts (task {task.id}). "
                                "The project owner has been asked how to proceed.")
+        self._quality(task, self.state.task(task.id)["model"] or "?")
 
     def unstick(self, task, phase, error: str) -> tuple[str, str, dict]:
         """One read-only diagnosis session. -> (technical|spec|owner|skip, guidance text, report)."""
@@ -770,7 +771,28 @@ class Orchestrator:
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
         self._push()  # after `done`: a push failure stops the run, and the merged task must not be redone
         self._tell_issue(task, f"Fixed by Autopilot in {sha[:10]} (task {task.id}).", close=True)
+        self._quality(task, model)
         log.info("task %s done (%s, $%.2f)", task.id, model, cost)
+
+    def _quality(self, task, model: str):
+        """U8: one telemetry line per finished task; every `quality.every` finished tasks, ladder suggestions."""
+        from .report import _n, quality_tips
+        row = self.state.task(task.id)
+        attempts = int(row["attempts"] or 0)
+        tokens = self.state.db.execute("SELECT COALESCE(SUM(tokens_in + tokens_out + tokens_cache_read + "
+                                       "tokens_cache_write), 0) FROM sessions WHERE task_id=?", (task.id,)).fetchone()[0]
+        reworked = "Y" if attempts > 1 or row["status"] != "done" else "N"
+        line = f"{task.id} · {model} · {task.risk} · attempts {attempts} · reworked {reworked} · {_n(int(tokens))} tokens"
+        log.info("quality: %s", line)
+        self.state.event("quality", line)
+        every = int(self.cfg.get("quality.every", 20) or 0)
+        finished = len(self.state.tasks("done")) + len(self.state.tasks("blocked"))
+        if every and finished >= int(self.state.get_meta("quality_next", every)):
+            self.state.set_meta("quality_next", finished + every)
+            tips = quality_tips(self.cfg, self.plan, self.state)
+            if tips:
+                self.notify.send("quality", f"after {finished} tasks, model ladder suggestions (see REPORT.md):\n"
+                                 + "\n".join(f"- {t}" for t in tips))
 
     # ------------------------------------------------------------------ P3: independent tasks in parallel worktrees
     def parallel_batch(self, view: dict) -> list:
@@ -894,6 +916,7 @@ class Orchestrator:
         self.docs.status(self.plan, self.state.status_map())
         self.git.commit_all(f"[autopilot] docs for {task.id}: {task.title}")
         self._push()
+        self._quality(task, model)
         log.info("task %s done in parallel (%s)", task.id, model)
         return ""
 

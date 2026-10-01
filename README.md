@@ -101,6 +101,11 @@ check either: a failing main or phase gate becomes a corrective phase first.
 - When the CLI reports a usage limit with a reset time, the run sleeps until the window reopens (plus two minutes) and notifies you; that wait is never a task attempt and never counts toward the 30-in-a-row stop.
 - Corrective (FIX) tasks must add a regression test (bugs) and report a root cause. Entries land in `docs/RCA.md` (symptom, root cause, fix, prevention), committed with the fix; main-branch repairs add a lenient entry.
 - `.agent/run.json` is the live run journal; `REPORT.md` has a **This run** section with the next action.
+- **Quality:** every finished task logs one line, `task · model · risk · attempts · reworked Y/N · tokens` (event
+  `quality`). `REPORT.md` has a **Quality** table per risk tier (first-try pass rate, average attempts and tokens) and
+  the cache-read share. Every `quality.every` (20) finished tasks, you get rule-based suggestions for the model ladder,
+  such as "medium: 100% of 20 tasks passed on the first try with sonnet; a cheaper first model may hold". They are only
+  suggestions; you change `project.yaml` yourself.
 
 ## Bug intake from GitHub
 With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start and then every `intake.poll_minutes`:

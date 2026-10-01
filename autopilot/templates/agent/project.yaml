@@ -174,6 +174,9 @@ docs:
   status: docs/STATUS.md  # the plan as a checklist, regenerated at every commit ("" = off)
   backlog: docs/BACKLOG.md  # new ideas ("- " lines); one replan adds them to the plan ("" = off)
 
+quality:                  # one line per finished task (model, risk, attempts, reworked, tokens) in the events log
+  every: 20               # after this many finished tasks, suggest model ladder changes from the data (0 = never)
+
 replan:                   # rewrites stale pending tasks, reopens blocked ones, refreshes BRAIN.md
   enabled: true
   every_n_phases: 5
@@ -208,4 +211,4 @@ notify:
   slack_webhook_env: AUTOPILOT_SLACK_WEBHOOK
   webhook_env: AUTOPILOT_WEBHOOK
   ntfy_topic_env: AUTOPILOT_NTFY_TOPIC
-  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, needs_you, budget, stalled, run_done, fatal]
+  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, needs_you, budget, stalled, run_done, fatal, quality]

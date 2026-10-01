@@ -44,6 +44,77 @@ def _tokens_section(state) -> list[str]:
     return out
 
 
+# ---------- U8: quality telemetry ----------
+def task_quality(plan, state) -> dict[str, list[dict]]:
+    """risk -> one row per finished (done or blocked) task still in the plan: first model, attempts, first-try pass,
+    tokens. Everything comes from the sessions and tasks tables; nothing extra is stored."""
+    first = {}
+    for r in state.db.execute("SELECT task_id, model FROM sessions WHERE kind='task' AND attempt=1 ORDER BY id"):
+        first.setdefault(r["task_id"], r["model"])
+    toks = {r[0]: int(r[1] or 0) for r in state.db.execute(
+        "SELECT task_id, SUM(tokens_in + tokens_out + tokens_cache_read + tokens_cache_write) FROM sessions "
+        "WHERE task_id IS NOT NULL GROUP BY task_id")}
+    out: dict[str, list[dict]] = {}
+    for r in state.tasks():
+        t = plan.task_by_id.get(r["id"])
+        if t and r["status"] in ("done", "blocked"):
+            a = int(r["attempts"] or 0)
+            out.setdefault(t.risk, []).append({"id": t.id, "model": first.get(t.id) or r["model"] or "?", "attempts": a,
+                                               "first_try": r["status"] == "done" and a <= 1, "tokens": toks.get(t.id, 0)})
+    return out
+
+
+def cache_share(state) -> tuple[float, int]:
+    """(cache reads / all input-side tokens, input-side total)."""
+    i, rd, w = state.db.execute("SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_cache_read),0), "
+                                "COALESCE(SUM(tokens_cache_write),0) FROM sessions").fetchone()
+    total = int(i) + int(rd) + int(w)
+    return (int(rd) / total if total else 0.0), total
+
+
+def quality_tips(cfg, plan, state, min_tasks: int = 5) -> list[str]:
+    """Rule-based model ladder suggestions from the finished tasks. Advice only: the owner edits project.yaml."""
+    from collections import Counter
+
+    from .config import RISKS
+    from .orchestrator import model_rank
+    tips = []
+    for risk, rows in sorted(task_quality(plan, state).items(), key=lambda kv: RISKS.index(kv[0])):
+        if len(rows) < min_tasks:
+            continue
+        rate = sum(r["first_try"] for r in rows) / len(rows)
+        model = Counter(r["model"] for r in rows).most_common(1)[0][0]
+        head = f"{risk}: {round(100 * rate)}% of {len(rows)} tasks passed on the first try with {model}"
+        if rate >= 0.9 and model_rank(model) > 0:
+            tips.append(f"{head}; a cheaper first model may hold (models.ladder.{risk})")
+        elif rate < 0.5 and model_rank(model) < 2:
+            tips.append(f"{head}; failed attempts cost more than starting stronger (models.ladder.{risk})")
+    share, total = cache_share(state)
+    ttl = cfg.get("agent.cache_ttl", "")
+    if total >= 1_000_000 and share < 0.5:
+        tips.append(f"cache reads are only {round(100 * share)}% of input tokens"
+                    + ("; the pricier 1h cache writes may not pay off (agent.cache_ttl)" if ttl == "1h"
+                       else "; agent.cache_ttl: 1h may help when sessions alternate models"))
+    return tips
+
+
+def _quality_section(cfg, plan, state) -> list[str]:
+    rows = task_quality(plan, state)
+    if not rows:
+        return []
+    from .config import RISKS
+    out = ["", "## Quality", "", "| Risk | Finished | First try | Avg attempts | Avg tokens |", "|---|---|---|---|---|"]
+    for risk in sorted(rows, key=RISKS.index):
+        r = rows[risk]
+        out.append(f"| {risk} | {len(r)} | {round(100 * sum(x['first_try'] for x in r) / len(r))}% | "
+                   f"{sum(x['attempts'] for x in r) / len(r):.1f} | {_n(sum(x['tokens'] for x in r) // len(r))} |")
+    share, total = cache_share(state)
+    if total:
+        out += ["", f"Cache reads: {round(100 * share)}% of input tokens."]
+    tips = quality_tips(cfg, plan, state)
+    return out + (["", "Suggestions:"] + [f"- {t}" for t in tips] if tips else [])
+
+
 def _this_run(cfg, plan, state) -> list[str]:
     try:
         run = json.loads((cfg.agent_dir / "run.json").read_text(encoding="utf-8"))
@@ -86,7 +157,7 @@ def build_report(cfg, plan, state) -> str:
         lines.append(f"| {p.id}{' ⚑' if p.priority else ''} | {p.title[:40]} | {s.count('done')} | "
                      f"{s.count('blocked')} | {s.count('pending') + s.count('running')} | "
                      f"{row['status'] if row else 'open'} | {dep} |")
-    lines += _this_run(cfg, plan, state) + _tokens_section(state)
+    lines += _this_run(cfg, plan, state) + _tokens_section(state) + _quality_section(cfg, plan, state)
     open_d = state.decisions("OPEN")
     lines += ["", f"## Needs you ({len(open_d)} open)", ""]
     lines += [f"- **{d['id']}** {d['title']}: {' '.join((d['question'] or '').split())[:250]}" for d in open_d] or ["(none)"]
