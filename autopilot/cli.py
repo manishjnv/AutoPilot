@@ -102,6 +102,33 @@ def cmd_onboard(args):
     return cmd_validate(args)
 
 
+def cmd_quickstart(args):
+    """M5: init → (claude CLI check) → onboard → doctor → optionally run, in one command."""
+    from .doctor import FAIL, check_claude
+    root = Path(args.path).resolve()
+    if not (root / AGENT_DIR / "project.yaml").exists():
+        cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False))
+    if Config.load(root).get("agent.backend", "claude_cli") == "claude_cli":
+        bad = [r for r in check_claude() if r[0] == FAIL]
+        if bad:  # don't start onboarding on a CLI that can't run a session
+            print(f"FAIL  {bad[0][1]}: {bad[0][2]}")
+            return 1
+    if args.plan_doc and not Path(args.plan_doc).is_file():
+        print(f"plan document not found: {args.plan_doc}")
+        return 1
+    if cmd_onboard(args):  # onboard ends with validate: 1 = the plan or config it wrote is invalid
+        print("onboarding left an invalid plan or config: fix it (see above), then `autopilot doctor`")
+        return 1
+    print("\n--- doctor")
+    if cmd_doctor(args):
+        print("fix the FAIL lines, then `autopilot run`")
+        return 1
+    if not args.run:
+        print("next: review .agent/plan.yaml and .agent/BRAIN.md, then `autopilot run`")
+        return 0
+    return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
+
+
 def cmd_validate(args):
     root = Path(args.path).resolve()
     cfg = Config.load(root)
@@ -309,6 +336,9 @@ def main(argv=None):
     p.add_argument("--stack"); p.add_argument("--name"); p.add_argument("--force", action="store_true")
     p = add("onboard", cmd_onboard, "AI session: write BRAIN.md, commands and plan.yaml from a plan doc")
     p.add_argument("--plan-doc"); p.add_argument("--budget", default="15")
+    p = add("quickstart", cmd_quickstart, "one command: init, onboard from a plan doc, doctor, then optionally run")
+    p.add_argument("--plan-doc"); p.add_argument("--budget", default="15")
+    p.add_argument("--run", action="store_true", help="start the run when the doctor finds no problems")
     add("validate", cmd_validate, "validate project.yaml and plan.yaml")
     add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
     p = add("run", cmd_run, "run autonomously until the app is complete")

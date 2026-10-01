@@ -21,9 +21,13 @@ finished app, a changelog and a short list of decisions only you can make (`docs
 > Formerly **AutoDev**. Existing projects keep working: the `.agent/` folder is unchanged and the old `AUTODEV_*` environment variables are still read.
 
 ```
+autopilot quickstart --plan-doc docs/PLAN.md   # init + plan from your doc + doctor check (add --run to start)
+autopilot run             # runs until the app is complete
+
+# the same, step by step:
 autopilot init            # adds a .agent/ contract to any repo (stack auto-detected)
 autopilot onboard --plan-doc docs/PLAN.md   # AI converts your plan into phases/tasks + BRAIN.md
-autopilot run             # runs until the app is complete
+autopilot doctor          # checks the claude CLI, git, gh, notifications and config
 ```
 
 ## How it works
@@ -147,6 +151,11 @@ With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start
   `## Imported`, and the import is logged in `DECISIONS.md`. Agent sessions may not edit the backlog.
 
 ## Running unattended on a VPS
+
+One command sets it up: `sudo deploy/install.sh <name> <git-url>` from an Autopilot checkout. It builds the image,
+creates the `autopilot` user, clones the project to `/srv/autopilot/<name>`, writes an empty secrets file and installs
+the systemd unit, then prints the login, check and start commands. It never starts the run by itself and touches
+nothing outside those paths. The steps it automates:
 
 1. Log in once with your Claude subscription (see the comments in `deploy/autopilot@.service`), or use an **API key
    or LiteLLM gateway** (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`) and set `usage.billing: api`.
