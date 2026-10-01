@@ -108,6 +108,12 @@ class Documenter:
             f"### Consequences\n{bullets(rep.get('consequences'))}\n", encoding="utf-8")
         return path.relative_to(self.root)
 
+    def learning(self, task, text: str):
+        """One line in .agent/LEARNINGS.md: what fixed a task that failed first. Every later session reads it."""
+        line = " ".join(str(text).split())[:300]
+        _append(self.ad / "LEARNINGS.md", f"- [{today()}] [{task.id}] {line}\n",
+                "# Learnings\n\nWhat fixed tasks that failed first. Written by the orchestrator; read by every session.\n\n")
+
     def research(self, topic: str, rep: dict) -> Path:
         """Write a research note from a research session's report; returns its path relative to the project root."""
         path = research_path(self.cfg, topic)

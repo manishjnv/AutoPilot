@@ -462,7 +462,7 @@ class Orchestrator:
                     last_error = problem
                 elif gate.ok:
                     try:
-                        self._complete_task(task, phase, res, model, attempts, gate, branch)
+                        self._complete_task(task, phase, res, model, attempts, gate, branch, prior_error=last_error)
                         return True
                     except GitError as exc:
                         last_error = f"merge failed: {exc}"
@@ -704,7 +704,11 @@ class Orchestrator:
             self.main_red = False
             self.notify.send("main_fixed", "checks on main pass again")
 
-    def _complete_task(self, task, phase, res, model, attempt, gate: GateResult, branch):
+    def _complete_task(self, task, phase, res, model, attempt, gate: GateResult, branch, prior_error: str = ""):
+        if attempt > 1:  # it failed before: keep what fixed it for every later session (LEARNINGS.md)
+            first = next((l.strip() for l in (prior_error or "").splitlines() if l.strip()), "an earlier error")
+            self.docs.learning(task, str(res.report.get("learning") or "").strip()
+                               or f"failed first with: {first[:150]}; passed on attempt {attempt} with {model}")
         files = self.git.staged_files()
         status = dict(self.state.status_map(), **{task.id: "done"})
         nxt = self.plan.next_ready(status, self.cfg.get("scheduling.phase_dependency", "soft"))

@@ -167,9 +167,13 @@ class ContextBuilder:
 
     def system_append(self) -> str:
         """The rules plus the project context every session needs. U7: byte-identical for every session until
-        BRAIN.md or the goal changes, and it rides in the system prompt, which Claude Code caches; so later sessions
-        on the same model read it from the cache instead of paying for it again. No timestamps or task data here."""
-        return ((PROMPTS / "system.md").read_text(encoding="utf-8").rstrip()
+        BRAIN.md, LEARNINGS.md or the goal changes, and it rides in the system prompt, which Claude Code caches; so
+        later sessions on the same model read it from the cache. No timestamps or task data here."""
+        text = ((PROMPTS / "system.md").read_text(encoding="utf-8").rstrip()
                 + f"\n\n# Project context (the same for every session)\n\n## Project goal\n"
                   f"{self.plan.goal or '(see the project brain)'}\n\n"
                   f"## Project brain (architecture, conventions, invariants)\n{self.brain()}\n")
+        learned = read_capped(self.ad / "LEARNINGS.md", 4000, tail=True, default="")
+        if learned:
+            text += f"\n## Learnings from earlier failures (don't repeat them)\n{learned}\n"
+        return text

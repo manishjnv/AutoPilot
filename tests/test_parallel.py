@@ -87,3 +87,51 @@ def test_parallel_off_by_default(tmp_path):
     root = make_project(tmp_path, independent(3), {"audit": {"completion_audit": False}})
     Orchestrator(root, backend=fake, sleep=lambda s: None).run()
     assert "[autopilot] docs for" not in git(root, "log", "--format=%s")
+
+
+# ---------------------------------------------------------------- LEARNINGS.md
+class Learner(FakeBackend):
+    def run(self, req):
+        res = super().run(req)
+        if "implement task P01-T01" in req.prompt and "failed verification" in req.prompt:
+            res.report["learning"] = "BROKEN marker files fail the test command; never create them"
+        return res
+
+
+def test_a_task_that_passes_after_failing_leaves_a_learning(tmp_path):
+    cfg = {"audit": {"completion_audit": False}, "decide": {"enabled": False}}
+    root = make_project(tmp_path, independent(2), cfg)
+    fake = Learner(behaviours={"P01-T01": ["break", "ok"]})
+    Orchestrator(root, backend=fake, sleep=lambda s: None).run()
+    text = (root / ".agent" / "LEARNINGS.md").read_text(encoding="utf-8")
+    assert "[P01-T01] BROKEN marker files fail the test command" in text and "P01-T02" not in text
+    assert "LEARNINGS.md" in git(root, "ls-files", ".agent")  # committed with the task
+    retry = [p for t, p in fake.prompts if t == "P01-T01"][1]
+    assert 'add `"learning"`' in retry
+
+
+def test_learnings_reach_every_later_session_and_are_protected(tmp_path):
+    from autopilot.config import Config
+    from autopilot.gate import protected_files
+    cfg = {"audit": {"completion_audit": False}, "decide": {"enabled": False}}
+    root = make_project(tmp_path, independent(2), cfg)
+    (root / ".agent" / "LEARNINGS.md").write_text("# Learnings\n\n- [x] [P00] LEARN-MARK use utf-8\n", encoding="utf-8")
+
+    class Rec(FakeBackend):
+        systems = []
+
+        def run(self, req):
+            Rec.systems.append(req.system_append)
+            return super().run(req)
+
+    Orchestrator(root, backend=Rec(), sleep=lambda s: None).run()
+    assert Rec.systems and all("LEARN-MARK use utf-8" in s for s in Rec.systems)
+    assert ".agent/LEARNINGS.md" in protected_files(Config.load(root))
+
+
+def test_fallback_learning_without_agent_text(tmp_path):
+    cfg = {"audit": {"completion_audit": False}, "decide": {"enabled": False}}
+    root = make_project(tmp_path, independent(1), cfg)
+    Orchestrator(root, backend=FakeBackend(behaviours={"P01-T01": ["break", "ok"]}), sleep=lambda s: None).run()
+    text = (root / ".agent" / "LEARNINGS.md").read_text(encoding="utf-8")
+    assert "[P01-T01] failed first with:" in text and "passed on attempt 2 with" in text

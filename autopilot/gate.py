@@ -39,7 +39,8 @@ SETTINGS_FILES = {"pyproject.toml", "setup.cfg", "package.json", "tox.ini", "pyt
 SETTINGS_REMOVED_RX = re.compile(r'addopts|testpaths|python_files|"test"\s*:|testMatch|testPathIgnorePatterns')
 SETTINGS_ADDED_RX = re.compile(r"--ignore|--deselect|(^|\s)-k\s|testPathIgnorePatterns|modulePathIgnorePatterns|"
                                r"--passWithNoTests|\|\|\s*true|exit 0")
-PROTECTED = [".agent/plan.yaml", ".agent/project.yaml", ".agent/features.json"]  # features: only the orchestrator
+# features.json and LEARNINGS.md are written only by the orchestrator (LEARNINGS feeds every session's system prompt)
+PROTECTED = [".agent/plan.yaml", ".agent/project.yaml", ".agent/features.json", ".agent/LEARNINGS.md"]
 
 
 def protected_files(cfg) -> list[str]:
