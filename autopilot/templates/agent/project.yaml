@@ -68,6 +68,14 @@ agent:
   env_passthrough: []    # extra env var names sessions and checks may see (e.g. DATABASE_URL)
   env: {}                 # e.g. ANTHROPIC_BASE_URL: http://localhost:4000  (LiteLLM)
 
+# Network egress allowlist (P5) on Claude Code's own sandbox, passed with --settings to every session.
+# Shell commands reach only these hosts, and coding sessions lose WebFetch/WebSearch (the sandbox doesn't cover
+# them; research and read-only sessions keep them). Linux/WSL2 (needs bubblewrap + socat) and macOS only.
+# Autopilot's own gate and deploy commands run outside the sandbox.
+sandbox:
+  enabled: false
+  allowed_domains: []     # e.g. [pypi.org, files.pythonhosted.org, registry.npmjs.org, github.com]
+
 # Risk tier -> model ladder. Attempt N uses ladder[N] (last entry repeats).
 models:
   ladder:

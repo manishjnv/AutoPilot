@@ -16,6 +16,8 @@ WEB_ONLY_DENY = ["Bash", "Agent", "Task"]
 NO_TOOLS_DENY = READ_ONLY_DENY + WEB_ONLY_DENY + [
     "Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "NotebookRead", "TodoWrite", "MultiEdit", "BashOutput",
     "KillShell", "Skill", "SlashCommand", "ExitPlanMode", "ListMcpResourcesTool", "ReadMcpResourceTool"]
+WEB_TOOLS = ["WebFetch", "WebSearch"]
+FILE_READ_TOOLS = ["Read", "Glob", "Grep", "LS", "NotebookRead"]
 
 
 def _num(v, kind=int):
@@ -92,6 +94,13 @@ def stuck_watch(limit: int):
     return watch
 
 
+def sandbox_settings(cfg) -> dict:
+    """P5 egress allowlist on Claude Code's own sandbox: shell commands reach only `sandbox.allowed_domains`, with
+    no retry outside the sandbox and no silent fallback when bubblewrap/socat are missing."""
+    return {"sandbox": {"enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False,
+                        "network": {"allowedDomains": [str(d) for d in cfg.get("sandbox.allowed_domains", [])]}}}
+
+
 class ClaudeCLIBackend:
     supports_resume = True
 
@@ -121,7 +130,7 @@ class ClaudeCLIBackend:
             cmd += ["--resume", req.resume]
         if req.mcp_config:  # only these servers, not the project's own .mcp.json
             cmd += ["--mcp-config", req.mcp_config, "--strict-mcp-config"]
-        elif req.no_tools:  # no MCP servers at all
+        elif req.no_tools or c.get("sandbox.enabled"):  # no MCP servers at all (they'd run outside the sandbox)
             cmd += ["--strict-mcp-config"]
         if int(c.get("agent.max_turns", 0) or 0):
             cmd += ["--max-turns", str(int(c.get("agent.max_turns")))]
@@ -145,6 +154,10 @@ class ClaudeCLIBackend:
             denied += WEB_ONLY_DENY
         if req.no_tools:
             denied += NO_TOOLS_DENY
+        if c.get("sandbox.enabled"):
+            cmd += ["--settings", json.dumps(sandbox_settings(c), separators=(",", ":"))]
+            # The sandbox covers shell commands only, so a session gets the web or the repo, never both.
+            denied += FILE_READ_TOOLS if req.web_only else WEB_TOOLS
         if denied:
             cmd += ["--disallowedTools", *denied]
         cmd += list(c.get("agent.extra_args", []))

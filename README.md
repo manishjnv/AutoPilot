@@ -150,7 +150,13 @@ With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start
 4. Status page: `autopilot serve` shows the live report on `127.0.0.1:8765`. From your PC, open it through an SSH
    tunnel (`ssh -L 8765:127.0.0.1:8765 your-vps`). Serving on any other address needs `AUTOPILOT_STATUS_TOKEN`
    and the URL `http://host:8765/?token=...`; the page shows task errors and open decisions, so keep it private.
-5. Your only job is to answer `docs/NEEDS-YOU.md` and approve prod deploys when notified.
+5. Network allowlist (optional): `sandbox.enabled: true` with `sandbox.allowed_domains: [pypi.org, github.com]` turns
+   on Claude Code's own sandbox for every session, so shell commands can reach only those hosts (no retry outside
+   the sandbox). It needs Linux, WSL2 or macOS (Linux: `bubblewrap` and `socat`, already in the Docker image). The
+   sandbox does not cover web tools, so with it on, coding, audit and decide sessions lose WebFetch/WebSearch, and
+   research sessions keep the web but cannot read the repo. Project MCP servers are not loaded, and agents may not
+   edit `.claude/settings*.json` or `.mcp.json`. Autopilot's own gate and deploy commands run outside the sandbox.
+6. Your only job is to answer `docs/NEEDS-YOU.md` and approve prod deploys when notified.
 
 ## Writing plans that run well autonomously
 - Keep each task to one session (~1–3 files of real logic) and give it 2–5 **testable** acceptance criteria.

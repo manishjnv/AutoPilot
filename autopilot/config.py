@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,10 @@ from . import AGENT_DIR
 
 TEMPLATES = Path(__file__).parent / "templates"
 RISKS = ["low", "medium", "high", "critical"]
+NATIVE_WINDOWS = os.name == "nt"
+# CLI flags that could replace or widen the sandbox settings Autopilot passes (P5 egress allowlist)
+SANDBOX_UNSAFE_ARGS = ("--settings", "--setting-sources", "--mcp-config", "--dangerously-skip-permissions",
+                       "--allowedTools", "--allowed-tools")
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -89,7 +94,21 @@ class Config:
             errs.append("no verify commands (build/lint/typecheck/test) — the gate would pass anything")
         if self.get("usage.billing", "subscription") not in ("subscription", "api"):
             errs.append("usage.billing must be subscription or api")
-        return errs + self._git_errors()
+        return errs + self._git_errors() + self._sandbox_errors()
+
+    def _sandbox_errors(self) -> list[str]:
+        if not self.get("sandbox.enabled"):
+            return []
+        if self.get("agent.backend") != "claude_cli":
+            return ["sandbox.enabled needs agent.backend: claude_cli (it is Claude Code's own sandbox)"]
+        if NATIVE_WINDOWS:  # Claude Code's sandbox runs on Linux, WSL2 and macOS only
+            return ["sandbox.enabled is not supported on native Windows: run Autopilot in WSL2 or the Docker image"]
+        if not isinstance(self.get("sandbox.allowed_domains", []), list):
+            return ["sandbox.allowed_domains must be a list of host names"]
+        unsafe = [a for a in self.get("agent.extra_args", []) if str(a).split("=")[0] in SANDBOX_UNSAFE_ARGS]
+        if unsafe:
+            return [f"agent.extra_args {unsafe} would override the sandbox; remove them or set sandbox.enabled: false"]
+        return []
 
     def _git_errors(self) -> list[str]:
         mode = self.get("git.mode", "direct")
@@ -105,4 +124,4 @@ class Config:
                 if self.get(f"deploy.{e}.enabled") and not self.get(f"deploy.{e}.cmd")]
         if not self.get("gate.allow_no_checks") and not self.commands("build", "lint", "typecheck", "test"):
             errs.append("no verify commands (build/lint/typecheck/test) — the gate would pass anything")
-        return errs + self._git_errors()
+        return errs + self._git_errors() + self._sandbox_errors()

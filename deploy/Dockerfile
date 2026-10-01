@@ -6,7 +6,8 @@ FROM python:3.12-slim
 # Pinned Claude Code version: bump deliberately, after testing.
 ARG CLAUDE_CODE_VERSION=2.1.286
 
-RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates nodejs npm \
+# bubblewrap + socat: Claude Code's sandbox, used when the project sets sandbox.enabled (egress allowlist)
+RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates nodejs npm bubblewrap socat \
     && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
     && rm -rf /var/lib/apt/lists/*
 
