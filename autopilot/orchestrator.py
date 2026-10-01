@@ -28,7 +28,7 @@ from .gate import (TEST_GLOBS, GateResult, _match, main_gate, protected_files, r
 from .gitops import Git, GitError
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
-from .proc import exclusive_lock
+from .proc import exclusive_lock, run_proc
 from .report import token_footer
 from .schemas import REPORTS
 from .state import State, now
@@ -751,7 +751,10 @@ class Orchestrator:
         if phase.priority:
             self.docs.rca(task.id, task.title, res.report.get("rca"))
         self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}\n\nmodel: {model}, attempt {attempt}")
-        sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
+        if self.cfg.get("git.mode", "direct") == "pr":
+            sha = self._merge_pr(task, branch)
+        else:
+            sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
         self.git.delete_branch(branch)
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
         self._push()  # after `done`: a push failure stops the run, and the merged task must not be redone
@@ -764,7 +767,7 @@ class Orchestrator:
         n = int(self.cfg.get("scheduling.parallel", 1) or 1)
         if self.max_sessions:
             n = min(n, self.max_sessions - self.sessions_this_run)
-        if n < 2 or self.main_red:
+        if n < 2 or self.main_red or self.cfg.get("git.mode", "direct") == "pr":  # PR mode merges one task at a time
             return []
         view, picked = dict(view), []
         while len(picked) < n:
@@ -880,6 +883,42 @@ class Orchestrator:
         self._push()
         log.info("task %s done in parallel (%s)", task.id, model)
         return ""
+
+    # ------------------------------------------------------------------ P4: PR mode
+    def _gh(self, *args: str, check: bool = True, timeout: float = 120):
+        """The GitHub CLI, with the orchestrator's own environment (GH_TOKEN), never the agent's."""
+        try:
+            p = run_proc(["gh", *args], cwd=self.root, timeout=timeout)
+        except OSError as exc:
+            raise GitError(f"cannot run gh (GitHub CLI): {exc}") from exc
+        if check and p.rc != 0:
+            raise GitError(f"gh {' '.join(args[:2])} failed: {(p.stderr or p.stdout).strip()[-1500:]}")
+        return p
+
+    def _merge_pr(self, task, branch: str) -> str:
+        """Push the gated task branch, open a PR, wait for its CI checks, merge it on GitHub, then pull main.
+        Red or timed-out CI closes the PR and raises GitError, which the task loop treats as a failed attempt."""
+        remote = self.cfg.get("git.remote", "origin")
+        self.git.run("push", "-q", "-f", remote, f"refs/heads/{branch}:refs/heads/{branch}")
+        self._gh("pr", "create", "--base", self.main, "--head", branch, "--title", f"[autopilot] {task.id}: {task.title}",
+                 "--body", f"Task {task.id}, built by Autopilot. The local gate passed; merged when CI is green.")
+        minutes = float(self.cfg.get("git.pr_timeout_min", 30))
+        try:
+            p = self._gh("pr", "checks", branch, "--watch", "--fail-fast", check=False, timeout=minutes * 60)
+            out = (p.stdout + p.stderr).strip()
+            if p.timed_out:
+                raise GitError(f"CI on the pull request did not finish within {minutes:g} minutes")
+            if p.rc != 0 and "no checks reported" not in out:
+                raise GitError(f"CI failed on the pull request:\n{out[-2000:]}")
+            self._gh("pr", "merge", branch, "--merge")
+        except GitError:
+            self._gh("pr", "close", branch, check=False)
+            raise
+        finally:
+            self.git.run("push", "-q", remote, "--delete", branch, check=False)
+        self.git.checkout_main(self.main)
+        self.git.sync(remote, self.main)  # the merge commit was made on GitHub
+        return self.git.head()
 
     # ------------------------------------------------------------------ gated repair
     def _gated_change(self, kind: str, branch: str, prompt: str, model: str, message: str,

@@ -81,3 +81,63 @@ def test_push_reaches_the_remote(tmp_path):
     root, remote, _ = with_remote(tmp_path, {"git": {"push": True}})
     assert Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None).run() == "plan complete"
     assert git(remote, "rev-parse", "main") == git(root, "rev-parse", "main")
+
+
+# ---------------------------------------------------------------- PR mode
+class FakeGH:
+    """Stands in for the gh CLI: `pr merge` moves the remote's main to the branch, like GitHub's merge would."""
+
+    def __init__(self, root, checks=()):
+        self.root, self.checks, self.calls = root, list(checks), []
+
+    def __call__(self, *args, check=True, timeout=120):
+        from autopilot.gitops import GitError
+        from autopilot.proc import Proc
+        self.calls.append(" ".join(args[:2]))
+        rc, out = 0, ""
+        if args[:2] == ("pr", "checks"):
+            rc, out = self.checks.pop(0) if self.checks else (0, "all checks were successful")
+        elif args[:2] == ("pr", "merge"):
+            git(self.root, "push", "-q", "origin", f"refs/heads/{args[2]}:refs/heads/main")
+        if check and rc:
+            raise GitError(f"gh failed: {out}")
+        return Proc(rc, out, "")
+
+
+PR = {"git": {"push": True, "mode": "pr"}}
+
+
+def pr_run(tmp_path, checks=(), fake=None):
+    root, remote, _ = with_remote(tmp_path, PR)
+    orch = Orchestrator(root, backend=fake or FakeBackend(), sleep=lambda s: None)
+    orch._gh = FakeGH(root, checks)
+    return root, remote, orch, orch.run()
+
+
+def test_pr_mode_merges_on_github_when_ci_is_green(tmp_path):
+    root, remote, orch, outcome = pr_run(tmp_path)
+    assert outcome == "plan complete"
+    assert orch._gh.calls == ["pr create", "pr checks", "pr merge"] * 2  # P01-T01 and P01-T02
+    assert git(remote, "rev-parse", "main") == git(root, "rev-parse", "main")
+    assert "[autopilot] P01-T01" in git(root, "log", "--format=%s")
+    assert git(root, "ls-remote", "--heads", "origin", "autopilot/P01-T01") == ""  # branch cleaned up
+
+
+def test_red_ci_closes_the_pr_and_retries_with_the_ci_output(tmp_path):
+    fake = FakeBackend()
+    _, _, orch, outcome = pr_run(tmp_path, checks=[(1, "unit-tests\tfail\t1m2s")], fake=fake)
+    assert outcome == "plan complete" and orch.state.task("P01-T01")["attempts"] == 2
+    assert orch._gh.calls[:6] == ["pr create", "pr checks", "pr close", "pr create", "pr checks", "pr merge"]
+    retry = [p for t, p in fake.prompts if t == "P01-T01"][1]
+    assert "CI failed on the pull request" in retry and "unit-tests" in retry
+
+
+def test_no_checks_configured_counts_as_green(tmp_path):
+    _, _, orch, outcome = pr_run(tmp_path, checks=[(1, "no checks reported on the 'autopilot/P01-T01' branch")])
+    assert outcome == "plan complete" and orch._gh.calls[-1] == "pr merge"
+
+
+def test_pr_mode_without_push_is_refused(tmp_path):
+    root = make_project(tmp_path, phases_basic()[:1], {**BASE, "git": {"mode": "pr"}})
+    outcome = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None).run()
+    assert outcome.startswith("fatal: config:") and "git.mode: pr needs git.push: true" in outcome

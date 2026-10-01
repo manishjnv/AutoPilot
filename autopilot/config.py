@@ -87,7 +87,15 @@ class Config:
             errs.append("deploy.prod.max_auto_risk must be one of " + ", ".join(RISKS))
         if not self.commands("build", "lint", "typecheck", "test"):
             errs.append("no verify commands (build/lint/typecheck/test) — the gate would pass anything")
-        return errs
+        return errs + self._git_errors()
+
+    def _git_errors(self) -> list[str]:
+        mode = self.get("git.mode", "direct")
+        if mode not in ("direct", "pr"):
+            return [f"git.mode must be direct or pr, got {mode!r}"]
+        if mode == "pr" and not self.get("git.push"):  # else local bookkeeping commits make main diverge from GitHub
+            return ["git.mode: pr needs git.push: true (Autopilot's own plan and docs commits go straight to main)"]
+        return []
 
     def blocking_errors(self) -> list[str]:
         """The subset of validate() that must stop a run."""
@@ -95,4 +103,4 @@ class Config:
                 if self.get(f"deploy.{e}.enabled") and not self.get(f"deploy.{e}.cmd")]
         if not self.get("gate.allow_no_checks") and not self.commands("build", "lint", "typecheck", "test"):
             errs.append("no verify commands (build/lint/typecheck/test) — the gate would pass anything")
-        return errs
+        return errs + self._git_errors()

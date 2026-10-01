@@ -153,6 +153,9 @@ git:
   push: false             # push main (and Autopilot's tags) after each change; a push that fails twice stops the run
   pull: true              # fast-forward main from the remote at run start and before each task; diverged = stop
   remote: origin
+  mode: direct            # direct = merge task branches locally | pr = push the branch, open a PR with `gh`,
+                          # merge it on GitHub when its CI is green (needs push: true, gh logged in / GH_TOKEN)
+  pr_timeout_min: 30      # how long to wait for a PR's checks; red or late CI = a failed attempt
 
 docs:
   changelog: CHANGELOG.md
