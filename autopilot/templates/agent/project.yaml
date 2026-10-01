@@ -205,6 +205,10 @@ deploy:
     health_timeout_sec: 180
     rollback_cmd: ""
 
+chat:                     # owner commands from Telegram: status, answer D-003 <text>, approve <phase>, unblock <task>
+  enabled: false          # uses the notify.telegram_* bot; only your PRIVATE chat with the bot (its id = the chat
+                          # env) is obeyed. One bot per project: two runs polling one bot steal each other's messages.
+
 notify:
   telegram_token_env: AUTOPILOT_TG_TOKEN
   telegram_chat_env: AUTOPILOT_TG_CHAT

@@ -137,7 +137,10 @@ With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start
    deliberately. Keep prod secrets out of the agent's environment; the deploy commands should read them from CI or
    the server.
 3. Notifications: set `AUTOPILOT_TG_TOKEN`/`AUTOPILOT_TG_CHAT` (Telegram), `AUTOPILOT_SLACK_WEBHOOK`, `AUTOPILOT_NTFY_TOPIC`
-   or `AUTOPILOT_WEBHOOK`.
+   or `AUTOPILOT_WEBHOOK`. With `chat.enabled: true` you can also reply to the Telegram bot in your **private** chat
+   with it (`AUTOPILOT_TG_CHAT` = your user id): `status`, `answer D-003 use Stripe`, `approve P05`,
+   `unblock P04-T02`. A run that is waiting for your answers wakes up as soon as you send one. Messages sent before
+   the first run are ignored. Use one bot per project.
 4. Your only job is to answer `docs/NEEDS-YOU.md` and approve prod deploys when notified.
 
 ## Writing plans that run well autonomously

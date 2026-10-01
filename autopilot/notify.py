@@ -46,6 +46,34 @@ class Notifier:
             except Exception as exc:  # noqa: BLE001 — notifications must never break the run
                 log.warning("notify via %s failed: %s", name, exc)
 
+    def reply(self, text: str):
+        """A chat answer (P5): Telegram only, whatever `notify.events` says."""
+        try:
+            self._telegram("reply", f"[Autopilot · {self.project}] {text}")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("chat reply failed: %s", type(exc).__name__)
+
+    def telegram_commands(self, offset: int | None, timeout: int = 0) -> tuple[int | None, list[str]] | None:
+        """P5: (next offset, texts) from the owner's private chat with the bot, long-polling up to `timeout` seconds.
+        `offset` is the Bot API one: -1 = only the newest update (all older ones are dropped), 0/None = none sent.
+        Messages from any other chat, or from a group, are dropped. None = Telegram is not configured.
+        Raises on network errors; callers must never log the URL (it holds the bot token)."""
+        token, chat = self.env("telegram_token_env"), self.env("telegram_chat_env")
+        if not (token and chat):
+            return None
+        import urllib.parse
+        q = {"timeout": int(timeout), "allowed_updates": '["message"]', **({"offset": offset} if offset else {})}
+        url = f"https://api.telegram.org/bot{token}/getUpdates?{urllib.parse.urlencode(q)}"
+        data = json.loads(urllib.request.urlopen(url, timeout=int(timeout) + 15).read(2_000_000))  # 100 updates fit
+        texts, nxt = [], offset
+        for u in data.get("result") or []:
+            nxt = max(nxt or 0, int(u["update_id"]) + 1)
+            m = u.get("message") or {}
+            c = m.get("chat") or {}
+            if str(c.get("id")) == str(chat) and c.get("type") == "private" and isinstance(m.get("text"), str):
+                texts.append(m["text"])
+        return nxt, texts
+
     def _telegram(self, event, text):
         token, chat = self.env("telegram_token_env"), self.env("telegram_chat_env")
         if token and chat:

@@ -233,6 +233,7 @@ class Orchestrator:
         stall_replanned = False
         while True:
             self.check_stop()
+            self.chat()
             self.process_approvals()
             self.intake()
             self.intake_answers()
@@ -287,7 +288,7 @@ class Orchestrator:
                     self.state.set_meta("needs_you_digest", ids)
                     self.notify.send("needs_you", f"{len(ids)} decisions need you, see {path}: {', '.join(ids)}")
                 self._journal(current="waiting for answers")
-                self.sleep(float(self.cfg.get("needs_you.poll_minutes", 15)) * 60)
+                self._wait(float(self.cfg.get("needs_you.poll_minutes", 15)) * 60)
                 continue
             if pending or self.main_red:
                 return f"stalled: {len(pending)} tasks wait on skipped or blocked work"
@@ -305,6 +306,76 @@ class Orchestrator:
             if report.get("_new_phase"):
                 continue
             return "app complete" if report.get("complete") else "plan complete (audit found no actionable gaps)"
+
+    # ------------------------------------------------------------------ P5: owner commands from Telegram
+    def chat(self, wait: float = 0) -> bool | None:
+        """Handle owner commands from the configured private Telegram chat, long-polling up to `wait` seconds.
+        True = something changed; None = could not poll (off, not configured, network error)."""
+        if not self.cfg.get("chat.enabled"):
+            return None
+        offset = self.state.get_meta("tg_offset")
+        try:  # first poll: offset -1 = only the newest update, and Telegram forgets everything queued before it
+            got = self.notify.telegram_commands(-1 if offset is None else offset, int(wait))
+        except Exception as exc:  # noqa: BLE001 — never log the exception text: the request URL holds the bot token
+            log.warning("chat poll failed: %s", type(exc).__name__)
+            return None
+        if got is None:
+            return None
+        nxt, texts = got
+        self.state.set_meta("tg_offset", max(nxt or 0, 0))  # 0 = baseline taken, nothing received yet (never -1 again)
+        if offset is None:  # first poll ever: drop what queued up before (a stale "approve" must never deploy)
+            return False
+        changed = False
+        for text in texts:  # the offset is already stored: a command runs at most once, even after a crash
+            try:
+                reply, did = self.command(text[:2000])
+            except Exception as exc:  # noqa: BLE001 — a bad command never stops the run
+                log.warning("chat command failed: %r", exc)
+                reply, did = f"That command failed ({type(exc).__name__}); see the log.", False
+            changed |= did
+            self.notify.reply(reply)
+        return changed
+
+    def command(self, text: str) -> tuple[str, bool]:
+        """One owner command -> (reply, changed). The same effects as the `autopilot` CLI commands."""
+        parts = text.strip().lstrip("/").split(maxsplit=2)
+        verb = parts[0].split("@")[0].lower() if parts else ""  # "/status@my_bot" in group-style menus
+        arg = parts[1] if len(parts) > 1 else ""
+        if verb == "answer" and len(parts) == 3:
+            ok = self.state.answer_decision(arg.upper(), parts[2])
+            return (f"{arg.upper()} answered; applying it now." if ok else f"{arg} is not an open decision."), ok
+        if verb == "approve" and arg:
+            row = self.state.phase(arg) if arg in self.plan.phase_by_id else None
+            if not row or row["prod_status"] != "awaiting_approval":
+                return f"{arg} is not awaiting prod approval.", False
+            d = self.ad / "approvals"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / arg).write_text("approved via chat\n", encoding="utf-8")
+            return f"{arg} approved; it deploys to prod before the next task.", True
+        if verb == "unblock" and arg:
+            row = self.state.task(arg)
+            if not row or row["status"] != "blocked":
+                return f"{arg} is not blocked.", False
+            self.state.set_task(arg, status="pending", attempts=0, last_error=None, note="unblocked via chat")
+            self.state.set_meta(f"unstick:{arg}", False)
+            return f"{arg} is pending again.", True
+        if verb == "status":
+            open_d = sorted(d["id"] for d in self.state.decisions("OPEN"))
+            return (f"{progress_line(self.plan, self.state.status_map())}. Open decisions: {', '.join(open_d) or 'none'}. "
+                    f"Now: {self.run_info.get('current') or 'idle'}."), False
+        return "Commands: status · answer D-003 <your answer> · approve <phase> · unblock <task>", False
+
+    def _wait(self, secs: float):
+        """Sleep `secs`, but wake as soon as an owner command from chat changes something (P5)."""
+        end, left = time.time() + secs, secs
+        while left > 0:
+            got = self.chat(wait=min(50, left))
+            if got is None:
+                self.sleep(left)
+                return
+            if got:
+                return
+            left = end - time.time()
 
     def process_approvals(self):
         d = self.ad / "approvals"
