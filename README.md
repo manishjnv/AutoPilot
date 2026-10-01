@@ -1,8 +1,22 @@
 # Autopilot: autonomous development agent
 
-Autopilot runs **hundreds of Claude Code sessions back-to-back, without you**, to take any project from a phased plan
-to a finished, deployed app. Each session implements one task. A plain Python orchestrator owns everything else:
-the plan, state, git, verification, documentation, deployment, self-review and self-correction.
+**Autopilot builds your app overnight, and it proves the work is done.**
+
+Coding agents say "done" when the work isn't. They report passing tests they never ran, or they quietly weaken a
+test until it passes. Autopilot does not take the agent's word for it:
+
+- **It runs the checks itself.** After every task, a plain Python orchestrator (not the model) runs your build, lint,
+  typecheck and tests. Only a green result reaches `main`.
+- **The agent can't game the checks.** Deleting or skipping tests, lowering the test count, or editing test config,
+  CI files or the plan fails the gate. So do secrets and empty diffs.
+- **Features are tried, not just tested.** At the end of each phase, one session starts the app and walks through
+  its user journeys. A broken feature becomes a fix task.
+- **"Finished" is audited.** When the plan runs out, a completion audit asks whether the app is actually done. Any gap
+  becomes new work.
+
+It is made for a **solo developer**: write a plan, start a run on your PC or your own server, and come back to a
+finished app, a changelog and a short list of decisions only you can make (`docs/NEEDS-YOU.md`). It runs
+**alongside Claude Code**, with one fresh Claude Code session per task, and it never stops to wait for you.
 
 > Formerly **AutoDev**. Existing projects keep working: the `.agent/` folder is unchanged and the old `AUTODEV_*` environment variables are still read.
 
@@ -25,9 +39,9 @@ autopilot run             # runs until the app is complete
 │             N fails → park as BLOCKED, move on (never stop the run for one task)               │
 │ phase finished → phase gate (+phase_verify) → staging deploy → health/smoke → rollback on fail │
 │                  → prod (auto for low-risk phases, else queued for `autopilot approve`)         │
-│ every N phases → AUDIT: read-only review of the whole codebase vs the plan                     │
-│                  → gaps/bugs/regressions become a priority FIX phase  (self-correction)         │
-│                → REPLAN: rewrite stale pending tasks, reopen blocked ones, refresh BRAIN.md     │
+│ phase finished → FUNCTIONAL CHECK: start the app, run each feature's journey once → fix tasks  │
+│ stuck task → diagnose (may research) → decide → else ask in docs/NEEDS-YOU.md and move on      │
+│ optional, every N phases → AUDIT / REPLAN (off by default: one check per level)                │
 │ plan exhausted → COMPLETION AUDIT: "is the app actually done?" gaps → new tasks → loop again    │
 └────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
