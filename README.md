@@ -1,8 +1,13 @@
-# AutoDev: autonomous development agent
+# Autopilot: autonomous development agent
 
-AutoDev runs **hundreds of Claude Code sessions back-to-back, without you**, to take any project from a phased plan
+Autopilot runs **hundreds of Claude Code sessions back-to-back, without you**, to take any project from a phased plan
 to a finished, deployed app. Each session implements one task. A plain Python orchestrator owns everything else:
 the plan, state, git, verification, documentation, deployment, self-review and self-correction.
+
+> Autopilot was called **AutoDev**. Until the rename lands (roadmap step R), the code folder is `autodev/` and
+> the command is `autodev`.
+
+**Docs:** [Architecture (how it works, in simple steps)](docs/ARCHITECTURE.md) · [Roadmap (what's next)](docs/ROADMAP.md)
 
 ```
 autodev init            # adds a .agent/ contract to any repo (stack auto-detected)
@@ -29,7 +34,7 @@ autodev run             # runs until the app is complete
 └────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-| Concern | How AutoDev handles it |
+| Concern | How Autopilot handles it |
 |---|---|
 | Context rot over 100+ sessions | One task per fresh session. Memory lives in files: `BRAIN.md`, `DECISIONS.md`, `HANDOFF.md`, `history/` |
 | "Done" that isn't done | The orchestrator runs the checks itself; empty diffs, protected-file edits and secrets all fail |
@@ -106,3 +111,4 @@ All commands take `-C <project path>`.
 ```
 pip install -e '.[dev]' && pytest -q      # end-to-end tests with a scripted fake agent, no API calls
 ```
+Linux and macOS today. Windows support is roadmap step P1.
