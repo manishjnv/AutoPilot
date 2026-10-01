@@ -102,6 +102,14 @@ class Git:
         out = self.run("diff", "--cached", "-U0", "--no-color", "--no-textconv", "--no-ext-diff")
         return [l[1:] for l in out.splitlines() if l.startswith("+") and not l.startswith("+++")]
 
+    def change_size(self) -> tuple[list[str], int]:
+        """(files, added + deleted lines) of all uncommitted work. Stages it, like staged_files()."""
+        files, lines = self.staged_files(), 0
+        for row in self.run("diff", "--cached", "--numstat").splitlines():
+            added, deleted = (row.split("\t") + ["", ""])[:2]
+            lines += int(added) + int(deleted) if added.isdigit() and deleted.isdigit() else 0  # binary: "-"
+        return files, lines
+
     def log_oneline(self, n: int = 15) -> str:
         return self.run("log", f"-{n}", "--oneline", check=False)
 

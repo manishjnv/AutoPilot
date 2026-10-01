@@ -110,6 +110,12 @@ decide:                   # before risky work, one read-only session scores 2-3 
   risks: [high, critical] # plus any task with needs_decision: true; corrective (FIX) tasks never
   effort: high
 
+escalate:                 # move a failing task up its model ladder early on these signals (never down)
+  on_timeout: true        # the attempt timed out or got stuck in a loop
+  max_diff_lines: 300     # the failed attempt changed more lines than this (0 = off)
+  max_diff_files: 5       # ... or more files than this (0 = off)
+  load_bearing: []        # globs, e.g. ["src/auth/**", "migrations/**"]: tasks scoped there use the `high` ladder
+
 unstick:                  # a failing task first gets one read-only diagnosis session, then one more attempt
   enabled: true
   after_attempts: 2

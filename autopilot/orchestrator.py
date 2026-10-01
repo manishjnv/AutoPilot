@@ -36,6 +36,15 @@ from .state import State, now
 log = logging.getLogger("autopilot")
 
 
+MODEL_ORDER = ("haiku", "sonnet", "opus")
+
+
+def model_rank(model: str) -> int:
+    """haiku 0 < sonnet 1 < opus 2, by name (aliases or full ids). ponytail: an unknown name ranks as sonnet."""
+    m = str(model).lower()
+    return next((i for i, name in enumerate(MODEL_ORDER) if name in m), 1)
+
+
 class Stop(Exception):
     """Ends the run cleanly (budget, stop file, fatal condition)."""
 
@@ -357,9 +366,34 @@ class Orchestrator:
     def can_resume(self) -> bool:
         return bool(self.cfg.get("retries.resume", True)) and getattr(self.backend, "supports_resume", False)
 
-    def model_for(self, risk: str, attempt_index: int) -> str:
+    def model_for(self, risk: str, attempt_index: int, floor: int = -1) -> str:
+        """ladder[attempt], but never below `floor` (a model_rank): a task never moves down after failing higher."""
         ladder = self.cfg.get(f"models.ladder.{risk}") or self.cfg.get("models.ladder.medium")
-        return ladder[min(attempt_index, len(ladder) - 1)]
+        m = ladder[min(attempt_index, len(ladder) - 1)]
+        if model_rank(m) >= floor:
+            return m
+        return next((x for x in ladder if model_rank(x) >= floor), max(ladder, key=model_rank))
+
+    def effective_risk(self, task) -> str:
+        """U6: a task whose scope touches a load-bearing path uses at least the `high` ladder."""
+        lb = self.cfg.get("escalate.load_bearing") or []
+        if lb and RISKS.index(task.risk) < RISKS.index("high") and any(_match(s, lb) for s in task.files_in_scope):
+            return "high"
+        return task.risk
+
+    def escalation(self, res: SessionResult) -> str:
+        """U6: why a failed attempt should move up the ladder now ('' = no signal). Reads the work before discard."""
+        e = self.cfg.get
+        if e("escalate.on_timeout", True) and (res.timed_out or res.stuck):
+            return "timed out" if res.timed_out else "stuck in a loop"
+        files, lines = self.git.change_size()
+        max_lines, max_files = int(e("escalate.max_diff_lines", 300) or 0), int(e("escalate.max_diff_files", 5) or 0)
+        if (max_lines and lines > max_lines) or (max_files and len(files) > max_files):
+            return f"large change ({len(files)} files, {lines} lines)"
+        lb = e("escalate.load_bearing") or []
+        if lb and any(_match(f, lb) for f in files):
+            return "touched a load-bearing path"
+        return ""
 
     # ------------------------------------------------------------------ tasks
     def execute_task(self, task) -> bool:
@@ -376,6 +410,8 @@ class Orchestrator:
             self.decide(task, phase)
         extra, guidance, suggestion, fail_err = False, "", "", ""
         chain, chain_model = None, ""  # the last failed attempt's session, resumable by the next attempt
+        risk = self.effective_risk(task)
+        floor = model_rank(row["model"]) if attempts and row["model"] else -1  # U6: never route down
 
         while attempts < max_attempts:
             per_task = float(self.cfg.get("budget_usd.per_task", 0) or 0)
@@ -387,8 +423,8 @@ class Orchestrator:
                 self.state.set_task(task.id, status="pending")
                 raise Stop(f"phase {phase.id} budget ${per_phase} reached")
 
-            model = self.model_for(task.risk, attempts)
-            effort = self.cfg.get(f"models.effort.{task.risk}", "")
+            model = self.model_for(risk, attempts, floor)
+            effort = self.cfg.get(f"models.effort.{risk}", "")
             base = self.git.start_branch(branch, self.main)
             res = None
             if chain and chain.session_id and model == chain_model:  # same model: continue that session, cache warm
@@ -431,6 +467,10 @@ class Orchestrator:
                     last_error = gate.report()
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
             chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
+            why = self.escalation(res)
+            floor = max(floor, model_rank(model) + (1 if why else 0))
+            if why:
+                log.info("task %s escalates to a stronger model: %s", task.id, why)
             self.git.discard()
             fail_err = last_error or ""
             if (self.cfg.get("unstick.enabled", True) and not self.state.get_meta(f"unstick:{task.id}", False)
