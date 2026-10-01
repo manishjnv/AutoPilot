@@ -47,6 +47,33 @@ def parse_usage(data: dict, model: str) -> dict:
     return {}
 
 
+# ponytail: list prices per MTok (input, output) on 2026-10-01; cache reads 0.1x and cache writes 1.25x input.
+# Only used to estimate killed sessions (no result event); update when prices change.
+PRICES = {"opus": (4.0, 20.0), "sonnet": (2.0, 10.0), "haiku": (1.0, 5.0)}
+
+
+def partial_usage(raw: str, model: str) -> dict:
+    """model -> tokens and estimated cost of a session killed before its `result` event (stuck, timeout), from the
+    assistant messages' Messages-API `usage`. Undocumented in stream-json, so missing fields count as 0. A message
+    split over several events repeats its usage: the last one per message id counts."""
+    last = {}
+    for i, ev in enumerate(_events(raw)):
+        msg = ev.get("message") if ev.get("type") == "assistant" else None
+        if isinstance(msg, dict) and isinstance(msg.get("usage"), dict):
+            last[msg.get("id") or i] = (str(msg.get("model") or model), msg["usage"])
+    out: dict = {}
+    for m, u in last.values():
+        r = out.setdefault(m, {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "cost": 0.0})
+        for k, src in (("input", "input_tokens"), ("output", "output_tokens"),
+                       ("cache_read", "cache_read_input_tokens"), ("cache_write", "cache_creation_input_tokens")):
+            r[k] += _num(u.get(src))
+    for m, r in out.items():  # unknown model: priced as opus, so the window budget errs on the safe side
+        pin, pout = next((p for k, p in PRICES.items() if k in m.lower()), PRICES["opus"])
+        r["cost"] = round((r["input"] * pin + r["output"] * pout + r["cache_read"] * pin * 0.1
+                           + r["cache_write"] * pin * 1.25) / 1e6, 6)
+    return out
+
+
 def _events(raw: str):
     for line in raw.splitlines():
         try:
@@ -192,10 +219,13 @@ class ClaudeCLIBackend:
             if log:
                 log.write(f"\n\nSTDERR:\n{p.stderr if p else ''}")
                 log.close()
-        if p.timed_out:
-            return SessionResult(ok=False, error=f"session timed out after {req.timeout_sec}s", timed_out=True)
-        if p.stopped:
-            return SessionResult(ok=False, error=p.stopped, stuck=True, session_id=first_session_id(p.stdout))
+        if p.timed_out or p.stopped:  # killed: no result event, so tokens come from the messages seen so far
+            usage = partial_usage(p.stdout, req.model)
+            killed = dict(ok=False, session_id=first_session_id(p.stdout), usage=usage,
+                          cost=round(sum(u["cost"] for u in usage.values()), 6))
+            if p.timed_out:
+                return SessionResult(error=f"session timed out after {req.timeout_sec}s", timed_out=True, **killed)
+            return SessionResult(error=p.stopped, stuck=True, **killed)
 
         raw = p.stdout.strip()
         data = result_event(raw)
