@@ -91,9 +91,13 @@ All commands take `-C <project path>`.
 
 1. Use an **API key or LiteLLM gateway** (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`) for unattended runs. Check
    Anthropic's current terms before automating a consumer subscription.
-2. Run inside a sandbox, because sessions use `bypassPermissions`: `deploy/Dockerfile`, or a dedicated VM user
-   through `deploy/autopilot@.service`. Keep prod secrets out of the agent's environment; the deploy commands should
-   read them from CI or the server.
+2. Run inside a sandbox, because sessions use `bypassPermissions`. `deploy/autopilot@.service` runs the
+   `deploy/Dockerfile` image (`docker build -t autopilot -f deploy/Dockerfile .`) once per project: checkout at
+   `/srv/autopilot/<name>` (its own tree, so it never touches other apps on a shared server), secrets in
+   `/etc/autopilot/<name>.env` (mode 600). Start with `sudo systemctl enable --now autopilot@<name>` and follow
+   with `journalctl -u autopilot@<name> -f`. Claude Code is pinned in the image (`CLAUDE_CODE_VERSION`); bump it
+   deliberately. Keep prod secrets out of the agent's environment; the deploy commands should read them from CI or
+   the server.
 3. Notifications: set `AUTOPILOT_TG_TOKEN`/`AUTOPILOT_TG_CHAT` (Telegram), `AUTOPILOT_SLACK_WEBHOOK`, `AUTOPILOT_NTFY_TOPIC`
    or `AUTOPILOT_WEBHOOK`.
 4. Your only job is to look at the blocked queue and approvals when notified.
