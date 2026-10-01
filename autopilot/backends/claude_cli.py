@@ -1,4 +1,4 @@
-"""Claude Code headless backend: `claude -p --output-format json`, one fresh session per call."""
+"""Claude Code headless backend: `claude -p --output-format stream-json`, one session per call (fresh or resumed)."""
 from __future__ import annotations
 
 import json
