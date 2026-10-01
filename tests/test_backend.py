@@ -90,6 +90,18 @@ def test_shim_keeps_system_text_out_of_argv(tmp_path, monkeypatch):
     assert "--append-system-prompt" in ClaudeCLIBackend(cfg).build_cmd(req)
 
 
+def test_npm_cmd_shim_resolves_to_the_real_exe(tmp_path, monkeypatch):
+    shim = tmp_path / "claude.cmd"
+    shim.write_text("@echo off\n")
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", str(shim))
+    assert ClaudeCLIBackend.resolve_binary() == str(shim)  # no exe next to it: keep the shim
+    exe = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    be = ClaudeCLIBackend(Config.load(tmp_path))
+    assert be.binary == str(exe) and not be.shim  # full mode: --json-schema and --append-system-prompt
+
+
 def test_limit_text_inside_prose_is_not_a_limit():
     assert detect_limit("I stopped because the user may have hit your session limit · resets 3pm")[0] is False
     assert detect_limit("Retrying failed: API Error: 529 overloaded_error")[0] is False

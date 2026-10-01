@@ -137,7 +137,12 @@ class ClaudeCLIBackend:
 
     @staticmethod
     def resolve_binary() -> str:
-        return os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN") or shutil.which("claude") or "claude"
+        found = os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN") or shutil.which("claude")
+        if found and found.lower().endswith((".cmd", ".bat")):  # npm's Windows shim only calls this exe: skip cmd.exe
+            exe = Path(found).parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+            if exe.is_file():
+                return str(exe)
+        return found or "claude"
 
     @property
     def shim(self) -> bool:
