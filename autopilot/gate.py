@@ -118,7 +118,7 @@ def _match(path: str, globs) -> bool:
 
 
 def _added(git, path: str) -> list[str]:
-    diff = git.run("diff", "--cached", "-U0", "--no-color", "--", path).splitlines()
+    diff = git.run("diff", "--cached", "-U0", "--no-color", "--no-textconv", "--no-ext-diff", "--", path).splitlines()
     return [l[1:] for l in diff if l.startswith("+") and not l.startswith("+++")]
 
 
@@ -146,7 +146,8 @@ def test_tamper(cfg, git, allow: bool = False) -> list[str]:
             elif st == "R" and not _match(new, tests):
                 out.append(f"{tag}test file renamed to a non-test path: {old} -> {new}")
             else:
-                head, staged = git.run("show", f"HEAD:{old}", check=False), git.run("show", f":{new}", check=False)
+                head = git.run("cat-file", "blob", f"HEAD:{old}", check=False)  # plumbing: no textconv
+                staged = git.run("cat-file", "blob", f":{new}", check=False)
                 before, after = len(TEST_DEF_RX.findall(head)), len(TEST_DEF_RX.findall(staged))
                 if after < before:
                     out.append(f"{tag}test count dropped in {new}: {before} -> {after}")
@@ -157,7 +158,7 @@ def test_tamper(cfg, git, allow: bool = False) -> list[str]:
         if _match(old, protected):
             out.append(f"{tag}protected file {'deleted' if st == 'D' else 'modified'}: {old}")
         if st == "M" and new.rsplit("/", 1)[-1] in SETTINGS_FILES:
-            for l in git.run("diff", "--cached", "-U0", "--no-color", "--", new).splitlines():
+            for l in git.run("diff", "--cached", "-U0", "--no-color", "--no-textconv", "--no-ext-diff", "--", new).splitlines():
                 if l.startswith("-") and not l.startswith("---") and SETTINGS_REMOVED_RX.search(l):
                     out.append(f"{tag}test setting removed in {new}: {l[1:].strip()[:80]}")
                 elif l.startswith("+") and not l.startswith("+++") and SETTINGS_ADDED_RX.search(l[1:]):

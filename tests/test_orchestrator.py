@@ -85,11 +85,37 @@ def test_push_sends_only_autopilot_tags(tmp_path):
     orch = orch_for(root)
     assert orch.run() == "plan complete"
     git(root, "tag", "v1")
+    git(root, "tag", "autopilot-prod-forged")       # e.g. created by an agent session: must never be pushed
+    orch.git.tag("autopilot-staging-P01")
     orch.git.push("origin", "main")
     tags = git(root, "ls-remote", "--tags", "origin")
     assert "refs/tags/autopilot-staging-P01" in tags
-    assert "refs/tags/v1" not in tags
+    assert "refs/tags/v1" not in tags and "autopilot-prod-forged" not in tags
     assert git(remote, "rev-parse", "main").strip() == git(root, "rev-parse", "main").strip()
+
+
+def test_planted_hooks_and_filters_never_run(tmp_path):
+    root = make_project(tmp_path, phases_basic()[:1], NO_AUDIT)
+
+    class Planter(FakeBackend):
+        def run(self, req):
+            cwd = Path(req.cwd)
+            hook = "#!/bin/sh\necho hooked > HOOKED.txt\n"
+            for d in (cwd / "evil-hooks", cwd / ".git" / "hooks"):
+                d.mkdir(exist_ok=True)
+                for name in ("pre-commit", "post-commit", "post-merge", "post-checkout"):
+                    (d / name).write_text(hook, newline="\n")
+                    (d / name).chmod(0o755)
+            git(cwd, "config", "core.hooksPath", "evil-hooks")
+            git(cwd, "config", "filter.evil.clean", "python -c \"print('INJECTED')\"")
+            (cwd / ".gitattributes").write_text("*.txt filter=evil\n")
+            return super().run(req)
+
+    assert orch_for(root, Planter()).run() == "plan complete"
+    assert not (root / "HOOKED.txt").exists() and "HOOKED" not in git(root, "ls-files")
+    assert git(root, "show", "main:src/P01-T01.txt").strip() == "impl P01-T01"   # no filter rewrote the blob
+    assert git(root, "config", "--get", "filter.evil.clean").strip() == ""
+    assert git(root, "config", "--get", "core.hooksPath").strip() == ""
 
 
 def test_dirty_tree_with_secret_is_stashed(tmp_path):

@@ -1,9 +1,14 @@
 """Git operations. The orchestrator owns git; agent sessions never commit or switch branches."""
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
+# Agent sessions can write .git/ and the user's git config. Nothing they plant may run inside the orchestrator's own
+# git calls: hooks and fsmonitor are switched off per call, filters are removed after each session (guard_config).
+SAFE = ["-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false"]
+FILTER_RX = r"^filter\..+\.(clean|smudge|process)$"
 
 # Never committed, whatever the project's .gitignore says (written to .git/info/exclude).
 JUNK = ["__pycache__/", "*.py[cod]", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", "*.egg-info/",
@@ -18,17 +23,40 @@ class GitError(RuntimeError):
 class Git:
     def __init__(self, root: Path):
         self.root = Path(root)
+        self.new_tags: set[str] = set()   # pushed explicitly; tags an agent creates are never pushed
 
     def run(self, *args: str, check: bool = True) -> str:
-        p = subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True,
+        p = subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True, text=True,
                            encoding="utf-8", errors="replace")
         if check and p.returncode != 0:
             raise GitError(f"git {' '.join(args)} failed: {p.stderr.strip() or p.stdout.strip()}")
         return p.stdout.strip()
 
     def ok(self, *args: str) -> bool:
-        return subprocess.run(["git", *args], cwd=self.root, capture_output=True,
+        return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True,
                               encoding="utf-8", errors="replace").returncode == 0
+
+    # ---------- config guard (around agent sessions) ----------
+    def config_text(self) -> str:
+        p = self.root / ".git" / "config"
+        return p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
+
+    def guard_config(self, before: str) -> list[str]:
+        """Undo .git/config edits and remove clean/smudge filters (git-lfs excepted) planted at any config level.
+        Returns what was undone, for the log."""
+        undone = []
+        if self.config_text() != before:
+            (self.root / ".git" / "config").write_text(before, encoding="utf-8")
+            undone.append(".git/config restored")
+        out = self.run("config", "--show-origin", "--get-regexp", FILTER_RX, check=False)
+        for line in out.splitlines():
+            origin, _, rest = line.partition("\t")
+            key = rest.split(" ", 1)[0]
+            if key.startswith("filter.lfs.") or not origin.startswith("file:"):
+                continue
+            self.run("config", "--file", origin[5:], "--unset-all", key, check=False)
+            undone.append(f"removed {key} from {origin[5:]}")
+        return undone
 
     # ---------- setup ----------
     def ensure_repo(self, main: str):
@@ -71,7 +99,7 @@ class Git:
         return [l for l in out.splitlines() if l.strip()]
 
     def staged_added_lines(self) -> list[str]:
-        out = self.run("diff", "--cached", "-U0", "--no-color")
+        out = self.run("diff", "--cached", "-U0", "--no-color", "--no-textconv", "--no-ext-diff")
         return [l[1:] for l in out.splitlines() if l.startswith("+") and not l.startswith("+++")]
 
     def log_oneline(self, n: int = 15) -> str:
@@ -128,7 +156,10 @@ class Git:
 
     def tag(self, name: str, ref: str = "HEAD"):
         self.run("tag", "-f", name, ref)
+        self.new_tags.add(name)
 
     def push(self, remote: str, main: str):
-        self.run("push", "-q", remote, main)
-        self.run("push", "-q", "-f", remote, "refs/tags/autopilot-*:refs/tags/autopilot-*")
+        self.run("push", "-q", remote, f"refs/heads/{main}:refs/heads/{main}")
+        if self.new_tags:  # force: a phase redeploy moves its tag
+            self.run("push", "-q", "-f", remote, *(f"refs/tags/{t}:refs/tags/{t}" for t in sorted(self.new_tags)))
+            self.new_tags.clear()

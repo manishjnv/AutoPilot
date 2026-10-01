@@ -253,11 +253,14 @@ class Orchestrator:
                              timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
                              budget_usd=budget, system_append=self.ctx.system_append(),
                              read_only=read_only, log_path=str(log_path))
-        main_before = self.git.ref(self.main)
+        main_before, config_before = self.git.ref(self.main), self.git.config_text()
         try:
             res = self.backend.run(req)
         except Exception as exc:  # noqa: BLE001 — a backend crash is just a failed session
             res = SessionResult(ok=False, error=f"backend exception: {exc!r}")
+        undone = self.git.guard_config(config_before)  # e.g. husky's core.hooksPath: harmless, but never kept
+        if undone:
+            log.warning("session %s changed git config: %s", sid, "; ".join(undone))
         if self.git.ref(self.main, check=False) != main_before:  # moved or deleted
             self.git.set_ref(self.main, main_before)
             self.notify.send("main_guard", f"session moved {self.main}; restored")
@@ -560,9 +563,10 @@ class Orchestrator:
             missing = done_ids - set(candidate.task_by_id)
             if missing:
                 raise PlanError([f"replan removed completed tasks: {sorted(missing)}"])
-            fields = ("title", "description", "acceptance_criteria", "files_in_scope", "verify", "depends_on", "phase_id")
-            changed = sorted(i for i in done_ids if i in self.plan.task_by_id and any(
-                getattr(self.plan.task_by_id[i], f) != getattr(candidate.task_by_id[i], f) for f in fields))
+            def frozen(t):  # the whole definition of a done task, except its position in the plan
+                return {k: v for k, v in vars(t).items() if k not in ("order", "reopen")}
+            changed = sorted(i for i in done_ids if i in self.plan.task_by_id
+                             and frozen(self.plan.task_by_id[i]) != frozen(candidate.task_by_id[i]))
             if changed:
                 raise PlanError([f"replan changed the definition of completed tasks: {changed}"])
         except PlanError as e:
