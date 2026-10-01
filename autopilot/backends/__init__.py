@@ -70,6 +70,8 @@ class SessionRequest:
     system_append: str = ""
     read_only: bool = False
     log_path: str = ""
+    resume: str = ""                                        # continue this CLI session instead of starting fresh
+    resume_totals: dict = field(default_factory=dict)       # that session's totals so far (see SessionResult.totals)
 
 
 @dataclass
@@ -86,6 +88,18 @@ class SessionResult:
     usage: dict = field(default_factory=dict)   # model -> {input, output, cache_read, cache_write, cost}
     num_turns: int = 0
     duration_ms: int = 0
+    totals: dict = field(default_factory=dict)  # whole-session {cost, usage, num_turns, duration_ms}, for a later resume
+
+
+def since(totals: dict, base: dict) -> dict:
+    """A resumed CLI session reports whole-session totals; keep only what this run added (never below zero)."""
+    def sub(a, b):
+        return max(0, (a or 0) - (b or 0))
+    bu = base.get("usage") or {}
+    usage = {m: {k: sub(v, (bu.get(m) or {}).get(k)) for k, v in u.items()} for m, u in (totals.get("usage") or {}).items()}
+    return {"cost": sub(totals.get("cost"), base.get("cost")), "usage": usage,
+            "num_turns": sub(totals.get("num_turns"), base.get("num_turns")),
+            "duration_ms": sub(totals.get("duration_ms"), base.get("duration_ms"))}
 
 
 def parse_report(text: str) -> dict:

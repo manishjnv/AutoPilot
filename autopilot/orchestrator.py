@@ -312,7 +312,7 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ sessions
     def session(self, kind: str, prompt: str, model: str, *, task_id=None, phase=None, attempt=1,
-                read_only=False, label: str = "") -> SessionResult:
+                read_only=False, label: str = "", resume: SessionResult | None = None) -> SessionResult:
         self.check_stop()
         budget = self.session_budget(task_id)
         self._journal(current=label or " ".join(
@@ -324,7 +324,8 @@ class Orchestrator:
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
                              timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
                              budget_usd=budget, system_append=self.ctx.system_append(),
-                             read_only=read_only, log_path=str(log_path))
+                             read_only=read_only, log_path=str(log_path),
+                             resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {})
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
         try:
             res = self.backend.run(req)
@@ -349,6 +350,10 @@ class Orchestrator:
             self.rate_limit_streak = 0
         return res
 
+    @property
+    def can_resume(self) -> bool:
+        return bool(self.cfg.get("retries.resume", True)) and getattr(self.backend, "supports_resume", False)
+
     def model_for(self, risk: str, attempt_index: int) -> str:
         ladder = self.cfg.get(f"models.ladder.{risk}") or self.cfg.get("models.ladder.medium")
         return ladder[min(attempt_index, len(ladder) - 1)]
@@ -363,6 +368,7 @@ class Orchestrator:
         branch = f"autopilot/{task.id}"
         self.state.set_task(task.id, status="running", started_at=now())
         extra, guidance, suggestion, fail_err = False, "", "", ""
+        chain, chain_model = None, ""  # the last failed attempt's session, resumable by the next attempt
 
         while attempts < max_attempts:
             per_task = float(self.cfg.get("budget_usd.per_task", 0) or 0)
@@ -376,8 +382,16 @@ class Orchestrator:
 
             model = self.model_for(task.risk, attempts)
             base = self.git.start_branch(branch, self.main)
-            prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline())
-            res = self.session("task", prompt, model, task_id=task.id, phase=phase.id, attempt=attempts + 1)
+            res = None
+            if chain and chain.session_id and model == chain_model:  # same model: continue that session, cache warm
+                res = self.session("task", self.ctx.resume_prompt(task, attempts + 1, last_error), model,
+                                   task_id=task.id, phase=phase.id, attempt=attempts + 1, resume=chain)
+                if not res.ok and not res.num_turns and not res.rate_limited:  # the old session is gone: start fresh
+                    log.info("resume of %s failed (%s); starting fresh", chain.session_id, res.error[:200])
+                    res = None
+            if res is None:
+                prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline())
+                res = self.session("task", prompt, model, task_id=task.id, phase=phase.id, attempt=attempts + 1)
             if res.rate_limited:
                 self.git.discard()
                 continue  # not counted as an attempt
@@ -407,6 +421,7 @@ class Orchestrator:
                 else:
                     last_error = gate.report()
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
+            chain, chain_model = (res, model) if self.can_resume and not res.timed_out else (None, "")
             self.git.discard()
             fail_err = last_error or ""
             if (self.cfg.get("unstick.enabled", True) and not self.state.get_meta(f"unstick:{task.id}", False)

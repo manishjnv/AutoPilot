@@ -88,6 +88,7 @@ needs_you:                # what only the owner can decide goes here; everything
   poll_minutes: 15
 
 retries:
+  resume: true            # a retry on the same model continues the failed session (--resume): context and cache kept
   max_attempts_per_task: 3
   max_fixer_attempts: 3
   rate_limit_backoff_sec: [60, 300, 900, 1800, 3600]

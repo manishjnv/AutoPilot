@@ -21,6 +21,7 @@ autopilot run             # runs until the app is complete
 │        └─ gate run by the orchestrator: build · lint · typecheck · test · secret scan · scope  │
 │             pass → docs (history, decisions, changelog, handoff) → commit → merge to main       │
 │             fail → reset, retry with the error output on the next model in the ladder          │
+│                    (same model → the retry resumes the failed session: context + cache kept)   │
 │             N fails → park as BLOCKED, move on (never stop the run for one task)               │
 │ phase finished → phase gate (+phase_verify) → staging deploy → health/smoke → rollback on fail │
 │                  → prod (auto for low-risk phases, else queued for `autopilot approve`)         │

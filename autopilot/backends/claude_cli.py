@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from ..proc import agent_env, run_proc
-from . import SessionRequest, SessionResult, detect_limit, parse_report
+from . import SessionRequest, SessionResult, detect_limit, parse_report, since
 
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
 
@@ -40,6 +40,8 @@ def parse_usage(data: dict, model: str) -> dict:
 
 
 class ClaudeCLIBackend:
+    supports_resume = True
+
     def __init__(self, cfg):
         self.cfg = cfg
         self.binary = os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN") or shutil.which("claude") or "claude"
@@ -53,6 +55,8 @@ class ClaudeCLIBackend:
         c = self.cfg
         cmd = [self.binary, "-p", "--output-format", "json", "--model", req.model,
                "--permission-mode", c.get("agent.permission_mode", "bypassPermissions")]
+        if req.resume:
+            cmd += ["--resume", req.resume]
         if req.budget_usd:
             cmd += ["--max-budget-usd", f"{req.budget_usd:.2f}"]
         if c.get("models.fallback"):
@@ -101,9 +105,11 @@ class ClaudeCLIBackend:
         err = "" if not is_error else (text or p.stderr)[-3000:]
         report = data.get("structured_output") if isinstance(data.get("structured_output"), dict) else parse_report(text)
         limited, reset_at = detect_limit(text + "\n" + p.stderr) if is_error else (False, None)
+        totals = {"cost": cost, "usage": parse_usage(data, req.model),
+                  "num_turns": _num(data.get("num_turns")), "duration_ms": _num(data.get("duration_ms"))}
+        own = since(totals, req.resume_totals) if req.resume else totals
         return SessionResult(
-            ok=not is_error, text=text, cost=cost, session_id=str(data.get("session_id", "")),
-            report=report or {}, error=err,
-            rate_limited=limited, reset_at=reset_at, usage=parse_usage(data, req.model),
-            num_turns=_num(data.get("num_turns")), duration_ms=_num(data.get("duration_ms")),
+            ok=not is_error, text=text, cost=own["cost"], session_id=str(data.get("session_id", "")),
+            report=report or {}, error=err, rate_limited=limited, reset_at=reset_at, usage=own["usage"],
+            num_turns=own["num_turns"], duration_ms=own["duration_ms"], totals=totals,
         )

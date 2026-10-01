@@ -110,6 +110,11 @@ class ContextBuilder:
             git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
         )
 
+    def resume_prompt(self, task, attempt: int, last_error: str | None) -> str:
+        """Retry inside the failed attempt's own session: the brief is already in its context, so only the failure."""
+        return render("resume.md", task_id=task.id, task_title=task.title, verify_cmds=self.verify_cmds(task.verify),
+                      retry_block=render("retry.md", attempt=attempt - 1, errors=(last_error or "(none)")[-6000:]))
+
     def fixer_prompt(self, errors: str, git_log: str) -> str:
         return render("fixer.md", brain=self.brain(), decisions=self.decisions(), git_log=git_log,
                       errors=errors[-8000:], verify_cmds=self.verify_cmds())
