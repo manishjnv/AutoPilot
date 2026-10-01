@@ -6,3 +6,4 @@
 .agent/run.lock
 .agent/STOP
 .agent/REPORT.md
+.agent/approvals/

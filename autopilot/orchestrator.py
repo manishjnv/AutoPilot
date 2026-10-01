@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -20,8 +21,8 @@ from .config import RISKS, Config
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
 from .docs import Documenter
-from .gate import GateResult, PROTECTED, main_gate, run_commands, scan_secrets, task_gate
-from .gitops import Git
+from .gate import GateResult, PROTECTED, main_gate, run_commands, scan_secrets, task_gate, test_tamper
+from .gitops import Git, GitError
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .proc import exclusive_lock
@@ -61,6 +62,8 @@ class Orchestrator:
     def reload_plan(self):
         self.plan = Plan.load(self.ad / "plan.yaml")
         sync = self.state.sync_plan(self.plan)
+        if any(not self.plan.phase_of(i).priority for i in sync["added"]):
+            self.state.set_meta("completion_rounds", 0)
         if sync["reopened"]:
             clear_reopen_flags(self.ad / "plan.yaml", sync["reopened"])
             self.plan = Plan.load(self.ad / "plan.yaml")
@@ -90,14 +93,18 @@ class Orchestrator:
             raise SystemExit("another autopilot run is active for this project")
 
     def _run(self) -> str:
-        errs = self.cfg.validate()
-        if errs:
-            for e in errs:
+        blocking = self.cfg.blocking_errors()
+        if blocking:
+            msg = "; ".join(blocking)
+            self.notify.send("fatal", f"config: {msg}")
+            return "fatal: config: " + msg
+        for e in self.cfg.validate():
+            if e not in blocking:
                 log.warning("config: %s", e)
         self._prepare_repo()
         try:
             self.reload_plan()
-        except PlanError as e:
+        except (PlanError, FileNotFoundError) as e:
             self.notify.send("fatal", f"plan.yaml invalid: {e}")
             return "fatal: invalid plan"
         crashed = self.state.recover_crashed()
@@ -137,12 +144,20 @@ class Orchestrator:
         elif br != self.main:
             self.git.checkout_main(self.main)
         if not self.git.is_clean():
-            self.git.commit_all("[autopilot] snapshot of uncommitted changes found at run start")
+            self.git.staged_files()
+            found = scan_secrets(self.git.staged_added_lines())
+            if not found:
+                self.git.commit_all("[autopilot] snapshot of uncommitted changes found at run start")
+            else:
+                self.git.stash_all("autopilot: uncommitted changes found at run start")
+                self.notify.send("stashed", f"{len(found)} possible secret(s) in the uncommitted changes found at run "
+                                            "start; stashed instead of committed. Review them, then `git stash pop` to restore.")
 
     def loop(self) -> str:
         stall_replanned = False
         while True:
             self.check_stop()
+            self.process_approvals()
             status = self.state.status_map()
             task = self.plan.next_ready(status, self.cfg.get("scheduling.phase_dependency", "soft"))
             if task:
@@ -166,7 +181,7 @@ class Orchestrator:
             if not self.cfg.get("audit.enabled") or not self.cfg.get("audit.completion_audit"):
                 return "plan complete"
             rounds = self.state.get_meta("completion_rounds", 0)
-            if rounds >= int(self.cfg.get("audit.max_completion_rounds", 5)):
+            if rounds >= int(self.cfg.get("audit.max_completion_rounds", 2)):
                 return f"plan complete (completion audit limit {rounds} reached)"
             self.state.set_meta("completion_rounds", rounds + 1)
             report = self.audit("completion")
@@ -175,6 +190,14 @@ class Orchestrator:
             if report.get("_new_phase"):
                 continue
             return "app complete" if report.get("complete") else "plan complete (audit found no actionable gaps)"
+
+    def process_approvals(self):
+        d = self.ad / "approvals"
+        for f in sorted(d.iterdir()) if d.is_dir() else []:
+            row = self.state.phase(f.name)
+            if row and row["prod_status"] == "awaiting_approval":
+                self.deploy_prod(f.name, row["prod_ref"])
+            f.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------ guards
     def check_stop(self):
@@ -203,7 +226,10 @@ class Orchestrator:
             caps.append(float(b("budget_usd.daily")) - self.state.cost(today=True))
         if b("budget_usd.total"):
             caps.append(float(b("budget_usd.total")) - self.state.cost())
-        return max(0.5, min(caps))
+        left = min(caps)
+        if left < 0.01:
+            raise Stop("budget exhausted")
+        return left
 
     def backoff(self):
         steps = self.cfg.get("retries.rate_limit_backoff_sec", [60, 300, 900, 1800, 3600])
@@ -218,21 +244,29 @@ class Orchestrator:
     def session(self, kind: str, prompt: str, model: str, *, task_id=None, phase=None, attempt=1,
                 read_only=False) -> SessionResult:
         self.check_stop()
+        budget = self.session_budget(task_id)
         sid = self.state.start_session(kind, task_id, phase, attempt, model)
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
         log.info("session #%s %s %s model=%s attempt=%s", sid, kind, task_id or "", model, attempt)
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
                              timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
-                             budget_usd=self.session_budget(task_id), system_append=self.ctx.system_append(),
+                             budget_usd=budget, system_append=self.ctx.system_append(),
                              read_only=read_only, log_path=str(log_path))
+        main_before = self.git.ref(self.main)
         try:
             res = self.backend.run(req)
         except Exception as exc:  # noqa: BLE001 — a backend crash is just a failed session
             res = SessionResult(ok=False, error=f"backend exception: {exc!r}")
+        if self.git.ref(self.main, check=False) != main_before:  # moved or deleted
+            self.git.set_ref(self.main, main_before)
+            self.notify.send("main_guard", f"session moved {self.main}; restored")
+            res.ok, res.error = False, "session moved the main branch"
         self.state.end_session(sid, cost=res.cost, ok=res.ok, claude_session_id=res.session_id,
                                summary=str(res.report.get("summary", ""))[:2000], error=res.error,
                                log_path=str(log_path))
+        if task_id:
+            self.state.set_task(task_id, cost=self.state.cost(task_id=task_id))
         if res.rate_limited:
             self.backoff()
         else:
@@ -281,9 +315,15 @@ class Orchestrator:
             else:
                 gate = task_gate(self.cfg, self.git, task)
                 if gate.ok:
-                    self._complete_task(task, phase, res, model, attempts, gate, branch)
-                    return True
-                last_error = gate.report()
+                    try:
+                        self._complete_task(task, phase, res, model, attempts, gate, branch)
+                        return True
+                    except GitError as exc:
+                        last_error = f"merge failed: {exc}"
+                        self.git.discard()
+                        self.git.checkout_main(self.main)
+                else:
+                    last_error = gate.report()
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
             self.git.discard()
 
@@ -321,6 +361,7 @@ class Orchestrator:
             files = self.git.staged_files()
             problems = [f"modified protected file {f}" for f in files if f in PROTECTED]
             problems += scan_secrets(self.git.staged_added_lines())
+            problems += test_tamper(self.cfg, self.git)
             if problems:
                 err = "\n".join(problems)
             else:
@@ -359,10 +400,13 @@ class Orchestrator:
     def close_finished_phases(self):
         for p in self.plan.phases:
             row = self.state.phase(p.id)
-            if row and row["status"] in ("done", "partial"):
-                continue
             statuses = [self.state.status_map().get(t.id, "pending") for t in p.tasks]
-            if any(s in ("pending", "running") for s in statuses):
+            active = any(s in ("pending", "running") for s in statuses)
+            if row and row["status"] in ("done", "partial"):
+                if not active:
+                    continue
+                self.state.set_phase(p.id, status="open")  # reopened by replan / unblock: closes again later
+            if active:
                 continue
             self.close_phase(p, "done" if all(s in ("done", "skipped") for s in statuses) else "partial")
 
@@ -400,6 +444,9 @@ class Orchestrator:
                 self.notify.send("deploy_ok", f"staging {phase.id} {ref[:10]}")
             else:
                 self.notify.send("deploy_failed", f"staging {phase.id}: {res.detail[:600]}")
+                if f"deployfix-{phase.id}" in self.state.get_meta("once_keys", []):
+                    log.warning("staging failed again after its corrective phase: %s", phase.id)
+                    self.notify.send("deploy_failed", f"{phase.id}: staging failed again after its corrective phase")
                 self.add_corrective_phase([{
                     "title": f"Fix staging deployment failure after {phase.id}", "risk": "high",
                     "description": "The staging deployment failed. Diagnose and fix the application-side cause "
@@ -434,7 +481,8 @@ class Orchestrator:
             if once_key in done:
                 return None
             self.state.set_meta("once_keys", done + [once_key])
-        n = int(self.state.get_meta("fix_counter", 0)) + 1
+        known = [int(m.group(1)) for k in self.plan.phase_by_id if (m := re.fullmatch(r"FIX(\d+)", k))]
+        n = max(int(self.state.get_meta("fix_counter", 0)), *known, 0) + 1
         pid = f"FIX{n:03d}"
         tasks = []
         for i, g in enumerate(gaps, 1):
@@ -467,11 +515,15 @@ class Orchestrator:
 
     def audit(self, kind: str, phase_id: str | None = None) -> dict | None:
         """Read-only review of the whole implementation; actionable gaps become a priority FIX phase."""
-        self.git.checkout_main(self.main)
         max_new = int(self.cfg.get("audit.max_new_tasks", 15))
-        res = self.session("audit", self.ctx.auditor_prompt(kind, max_new), self.cfg.get("models.auditor", "opus"),
-                           phase=phase_id, read_only=True)
-        self.git.discard()  # read-only: drop anything it touched
+        self.git.start_branch("autopilot/audit", self.main)
+        try:
+            res = self.session("audit", self.ctx.auditor_prompt(kind, max_new), self.cfg.get("models.auditor", "opus"),
+                               phase=phase_id, read_only=True)
+        finally:  # read-only: drop anything it touched
+            self.git.discard()
+            self.git.checkout_main(self.main)
+            self.git.delete_branch("autopilot/audit")
         if not res.ok or not res.report:
             log.warning("audit produced no usable report: %s", res.error[:300])
             return None
@@ -488,13 +540,17 @@ class Orchestrator:
 
     def replan(self, reason: str) -> bool:
         """Let a session rewrite the remaining plan + BRAIN.md; validated before it is accepted."""
-        self.git.checkout_main(self.main)
         plan_path, brain_path = self.ad / "plan.yaml", self.ad / "BRAIN.md"
         before_plan = plan_path.read_text(encoding="utf-8")
-        res = self.session("replan", self.ctx.replanner_prompt(), self.cfg.get("models.replanner", "opus"))
-        new_plan = plan_path.read_text(encoding="utf-8")
-        new_brain = brain_path.read_text(encoding="utf-8") if brain_path.exists() else None
-        self.git.discard()  # drop everything, then re-apply only the two allowed files
+        self.git.start_branch("autopilot/replan", self.main)
+        try:
+            res = self.session("replan", self.ctx.replanner_prompt(), self.cfg.get("models.replanner", "opus"))
+            new_plan = plan_path.read_text(encoding="utf-8")
+            new_brain = brain_path.read_text(encoding="utf-8") if brain_path.exists() else None
+        finally:  # drop everything, then re-apply only the two allowed files on main
+            self.git.discard()
+            self.git.checkout_main(self.main)
+            self.git.delete_branch("autopilot/replan")
         if not res.ok:
             return False
         done_ids = {r["id"] for r in self.state.tasks("done")}
@@ -504,6 +560,11 @@ class Orchestrator:
             missing = done_ids - set(candidate.task_by_id)
             if missing:
                 raise PlanError([f"replan removed completed tasks: {sorted(missing)}"])
+            fields = ("title", "description", "acceptance_criteria", "files_in_scope", "verify", "depends_on", "phase_id")
+            changed = sorted(i for i in done_ids if i in self.plan.task_by_id and any(
+                getattr(self.plan.task_by_id[i], f) != getattr(candidate.task_by_id[i], f) for f in fields))
+            if changed:
+                raise PlanError([f"replan changed the definition of completed tasks: {changed}"])
         except PlanError as e:
             plan_path.write_text(before_plan, encoding="utf-8")
             log.warning("replan rejected: %s", e)

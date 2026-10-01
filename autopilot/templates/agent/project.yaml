@@ -109,9 +109,9 @@ replan:                   # rewrites stale pending tasks, reopens blocked ones, 
 
 audit:                    # reviews overall implementation vs plan -> corrective tasks (self-correction)
   enabled: true
-  every_n_phases: 3
+  every_n_phases: 0       # periodic audits off; one completion audit when the plan is done
   completion_audit: true  # when the plan is exhausted: is the app actually complete? gaps -> new tasks
-  max_completion_rounds: 5
+  max_completion_rounds: 2
   max_new_tasks: 15       # per audit, keeps self-correction bounded
 
 deploy:

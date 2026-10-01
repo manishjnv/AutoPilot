@@ -53,6 +53,12 @@ class Git:
     def head(self) -> str:
         return self.run("rev-parse", "HEAD")
 
+    def ref(self, name: str, check: bool = True) -> str:
+        return self.run("rev-parse", "--verify", "-q", f"refs/heads/{name}", check=check)
+
+    def set_ref(self, name: str, sha: str):
+        self.run("update-ref", f"refs/heads/{name}", sha)
+
     def branch(self) -> str:
         return self.run("rev-parse", "--abbrev-ref", "HEAD")
 
@@ -92,6 +98,10 @@ class Git:
         self.run("reset", "-q", "--hard")
         self.run("clean", "-q", "-fd")
 
+    def stash_all(self, message: str):
+        self.run("reset", "-q")
+        self.run("stash", "push", "--include-untracked", "-m", message)
+
     def commit_all(self, message: str) -> str | None:
         if not self.staged_files():
             return None
@@ -121,4 +131,4 @@ class Git:
 
     def push(self, remote: str, main: str):
         self.run("push", "-q", remote, main)
-        self.run("push", "-q", "-f", remote, "--tags")
+        self.run("push", "-q", "-f", remote, "refs/tags/autopilot-*:refs/tags/autopilot-*")

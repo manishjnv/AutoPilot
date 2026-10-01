@@ -12,6 +12,7 @@ import yaml
 from . import AGENT_DIR, __version__
 from .config import TEMPLATES, Config, load_yaml
 from .plan import Plan, PlanError
+from .proc import exclusive_lock
 
 AGENT_FILES = ["project.yaml", "plan.yaml", "BRAIN.md", "DECISIONS.md", "HANDOFF.md"]
 
@@ -104,8 +105,13 @@ def cmd_validate(args):
     root = Path(args.path).resolve()
     cfg = Config.load(root)
     ok = True
+    blocking = cfg.blocking_errors()
+    for e in blocking:
+        ok = False
+        print(f"config  ERROR {e}")
     for e in cfg.validate():
-        print(f"config  WARN  {e}")
+        if e not in blocking:
+            print(f"config  WARN  {e}")
     try:
         plan = Plan.load(root / AGENT_DIR / "plan.yaml")
         tasks = plan.all_tasks()
@@ -195,8 +201,15 @@ def cmd_approve(args):
     if not row or row["prod_status"] != "awaiting_approval":
         print(f"phase {args.phase} is not awaiting approval")
         return 1
-    orch.reload_plan()
-    print(orch.deploy_prod(args.phase, row["prod_ref"]))
+    try:
+        with exclusive_lock(root / AGENT_DIR / "run.lock"):
+            orch.reload_plan()
+            print(orch.deploy_prod(args.phase, row["prod_ref"]))
+    except BlockingIOError:
+        d = root / AGENT_DIR / "approvals"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / args.phase).write_text("approved\n")
+        print(f"a run is active; it will deploy {args.phase} to prod before its next task")
     _l.shutdown()
     return 0
 
