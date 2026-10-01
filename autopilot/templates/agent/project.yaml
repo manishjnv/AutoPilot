@@ -150,7 +150,8 @@ scheduling:
   worktree_dir: ""        # where worktrees live; empty = <temp>/autopilot-worktrees (always outside the repo)
 
 git:
-  push: false
+  push: false             # push main (and Autopilot's tags) after each change; a push that fails twice stops the run
+  pull: true              # fast-forward main from the remote at run start and before each task; diverged = stop
   remote: origin
 
 docs:

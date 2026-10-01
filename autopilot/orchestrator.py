@@ -98,11 +98,41 @@ class Orchestrator:
         self._push()
 
     def _push(self):
-        if self.cfg.get("git.push"):
-            try:
-                self.git.push(self.cfg.get("git.remote", "origin"), self.main)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("push failed: %s", exc)
+        """P4: a push that fails twice stops the run: GitHub must not silently fall behind the local main."""
+        if not self.cfg.get("git.push"):
+            return
+        remote = self.cfg.get("git.remote", "origin")
+        try:
+            self.git.push(remote, self.main)
+            return
+        except GitError as exc:
+            log.warning("push failed, retrying once: %s", exc)
+        self.sleep(30)
+        try:
+            self.git.push(remote, self.main)
+        except GitError as exc:
+            raise Stop(f"push to {remote} failed: {str(exc)[:500]}. Fix the remote or credentials, then run again.",
+                       fatal=True) from exc
+
+    def sync(self) -> bool:
+        """P4: GitHub is the source of truth. Fast-forward main to the remote before work; stop if they diverged.
+        No remote, or a fetch that fails (offline), only skips the sync. True = new commits were pulled."""
+        remote = self.cfg.get("git.remote", "origin")
+        if not self.cfg.get("git.pull", True) or not self.git.has_remote(remote):
+            return False
+        try:
+            how = self.git.sync(remote, self.main)
+        except GitError as exc:
+            if "diverged" in str(exc):
+                raise Stop(f"git: {exc}. Reconcile {self.main} by hand (merge or rebase), then run again.",
+                           fatal=True) from exc
+            log.info("git sync skipped: %s", str(exc)[:300])
+            return False
+        if how != "pulled":
+            return False
+        log.info("pulled new commits on %s from %s", self.main, remote)
+        self.reload_plan()  # the owner may have changed the plan or the config upstream
+        return True
 
     # ------------------------------------------------------------------ run
     def run(self) -> str:
@@ -145,15 +175,15 @@ class Orchestrator:
             self.notify.send("fatal", f"plan.yaml invalid: {e}")
             self._journal(status="finished", outcome="fatal: invalid plan", current="")
             return "fatal: invalid plan"
-        self.intake_answers()
-        self.apply_answers()
-        crashed = self.state.recover_crashed()
-        if crashed:
-            log.info("recovered crashed tasks: %s", crashed)
-        self.notify.send("run_start", progress_line(self.plan, self.state.status_map()))
-
         outcome = "interrupted"
-        try:
+        try:  # everything below may push, and a failed push or diverged history ends the run here (Stop)
+            self.sync()
+            self.intake_answers()
+            self.apply_answers()
+            crashed = self.state.recover_crashed()
+            if crashed:
+                log.info("recovered crashed tasks: %s", crashed)
+            self.notify.send("run_start", progress_line(self.plan, self.state.status_map()))
             setup = self.cfg.commands("setup")
             if setup:
                 bad = [r for r in run_commands(setup, self.root, int(self.cfg.get("verify_timeout_sec", 1200)))
@@ -210,6 +240,8 @@ class Orchestrator:
                             and not self.plan.phase_of(k).priority else v) for k, v in status.items()}
             else:
                 view = status
+            if self.plan.next_ready(view, self.cfg.get("scheduling.phase_dependency", "soft")) and self.sync():
+                continue  # P4: every task starts from GitHub's main; new commits may change the plan, so look again
             batch = self.parallel_batch(view)
             if batch:
                 self.run_parallel(batch)
@@ -721,8 +753,8 @@ class Orchestrator:
         self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}\n\nmodel: {model}, attempt {attempt}")
         sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
         self.git.delete_branch(branch)
-        self._push()
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
+        self._push()  # after `done`: a push failure stops the run, and the merged task must not be redone
         log.info("task %s done (%s, $%.2f)", task.id, model, cost)
 
     # ------------------------------------------------------------------ P3: independent tasks in parallel worktrees

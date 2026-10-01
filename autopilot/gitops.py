@@ -178,6 +178,24 @@ class Git:
         self.run("tag", "-f", name, ref)
         self.new_tags.add(name)
 
+    def has_remote(self, remote: str) -> bool:
+        return self.ok("remote", "get-url", remote)
+
+    def sync(self, remote: str, main: str) -> str:
+        """Bring local `main` up to `remote/main` (fast-forward only; must be on a clean main).
+        -> 'same' | 'ahead' (local has commits to push) | 'pulled'. Raises GitError when they diverged."""
+        self.run("fetch", "-q", remote, f"refs/heads/{main}")
+        theirs, ours = self.run("rev-parse", "FETCH_HEAD"), self.ref(main)
+        if theirs == ours:
+            return "same"
+        if self.ok("merge-base", "--is-ancestor", theirs, ours):
+            return "ahead"
+        if not self.ok("merge-base", "--is-ancestor", ours, theirs):
+            raise GitError(f"{main} and {remote}/{main} have diverged")
+        self.checkout_main(main)
+        self.run("merge", "-q", "--ff-only", theirs)
+        return "pulled"
+
     def push(self, remote: str, main: str):
         self.run("push", "-q", remote, f"refs/heads/{main}:refs/heads/{main}")
         if self.new_tags:  # force: a phase redeploy moves its tag
