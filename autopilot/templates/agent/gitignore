@@ -1,5 +1,5 @@
 
-# AutoDev runtime (not committed)
+# Autopilot runtime (not committed)
 .agent/state.db
 .agent/state.db-*
 .agent/logs/

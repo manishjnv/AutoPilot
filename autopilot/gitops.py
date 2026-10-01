@@ -33,17 +33,17 @@ class Git:
         if not (self.root / ".git").exists():
             self.run("init", "-q", "-b", main)
         if not self.ok("config", "user.email"):
-            self.run("config", "user.email", "autodev@localhost")
+            self.run("config", "user.email", "autopilot@localhost")
         if not self.ok("config", "user.name"):
-            self.run("config", "user.name", "AutoDev")
+            self.run("config", "user.name", "Autopilot")
         exclude = self.root / ".git" / "info" / "exclude"
         exclude.parent.mkdir(parents=True, exist_ok=True)
         current = exclude.read_text() if exclude.exists() else ""
-        if "# autodev junk" not in current:
-            exclude.write_text(current + "\n# autodev junk\n" + "\n".join(JUNK) + "\n")
+        if "# autopilot junk" not in current and "# autodev junk" not in current:
+            exclude.write_text(current + "\n# autopilot junk\n" + "\n".join(JUNK) + "\n")
         if not self.ok("rev-parse", "--verify", "HEAD"):
             self.run("add", "-A")
-            self.run("commit", "-q", "--allow-empty", "-m", "[autodev] initial commit")
+            self.run("commit", "-q", "--allow-empty", "-m", "[autopilot] initial commit")
         if not self.ok("rev-parse", "--verify", main):
             self.run("branch", main)
 

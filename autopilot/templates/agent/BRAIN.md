@@ -1,7 +1,7 @@
 # Project Brain
 
 > Read at the start of every autonomous session. Keep it short (< 300 lines) and current.
-> `autodev onboard` fills this in; the replanner keeps it up to date.
+> `autopilot onboard` fills this in; the replanner keeps it up to date.
 
 ## Product
 What it is, who it's for, the one-line value.

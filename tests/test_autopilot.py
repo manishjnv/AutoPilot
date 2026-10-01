@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from autodev.backends import SessionResult, parse_report
-from autodev.cli import main as cli_main
-from autodev.gate import scan_secrets
-from autodev.orchestrator import Orchestrator
-from autodev.plan import Plan, PlanError
+from autopilot.backends import SessionResult, parse_report
+from autopilot.cli import main as cli_main
+from autopilot.gate import scan_secrets
+from autopilot.orchestrator import Orchestrator
+from autopilot.plan import Plan, PlanError
 
 TEST_CMD = "python -c \"import pathlib,sys; sys.exit(1 if pathlib.Path('BROKEN').exists() else 0)\""
 
@@ -140,7 +140,7 @@ def test_full_run_retry_escalation_docs(tmp_path):
     assert not (root / "AUDITOR_SCRIBBLE.txt").exists()      # auditor is read-only
     assert git(root, "status", "--porcelain").strip() == ""
     assert "__pycache__" not in git(root, "ls-files")                 # junk never committed
-    assert "[autodev] merge P02-T01" in git(root, "log", "--oneline")
+    assert "[autopilot] merge P02-T01" in git(root, "log", "--oneline")
     assert git(root, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
 
 
@@ -174,7 +174,7 @@ def test_rate_limit_not_counted_and_fixer_repairs_main(tmp_path):
     root = make_project(tmp_path, phases_basic())
     first = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None, max_sessions=1)
     first.run()                                         # P01-T01 done -> no longer greenfield
-    (root / "BROKEN").write_text("breakage introduced outside autodev")
+    (root / "BROKEN").write_text("breakage introduced outside autopilot")
     fake = FakeBackend(behaviours={"P01-T02": ["ratelimit", "ok"]})
     sleeps = []
     orch = Orchestrator(root, backend=fake, sleep=sleeps.append)
@@ -229,7 +229,7 @@ def test_staging_deploy_failure_creates_corrective_phase(tmp_path):
     marker = tmp_path / "deploys.log"
     root = make_project(tmp_path, phases_basic()[:1], {
         "deploy": {"staging": {"enabled": True,
-                               "cmd": f"echo $AUTODEV_PHASE >> {marker}; test -f src/FIX001-T01.txt",
+                               "cmd": f"echo $AUTOPILOT_PHASE >> {marker}; test -f src/FIX001-T01.txt",
                                "health_url": ""}},
         "audit": {"completion_audit": False}})
     orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
@@ -242,18 +242,39 @@ def test_staging_deploy_failure_creates_corrective_phase(tmp_path):
 
 
 def test_claude_cli_backend_parses_output(tmp_path, monkeypatch):
-    from autodev.backends import SessionRequest
-    from autodev.backends.claude_cli import ClaudeCLIBackend
-    from autodev.config import Config
+    from autopilot.backends import SessionRequest
+    from autopilot.backends.claude_cli import ClaudeCLIBackend
+    from autopilot.config import Config
 
     stub = tmp_path / "claude"
     stub.write_text("#!/usr/bin/env python3\nimport json,sys\nsys.stdin.read()\n"
                     "print(json.dumps({'type':'result','is_error':False,'session_id':'s1','total_cost_usd':0.42,"
                     "'result':'done\\n```json\\n{\"status\":\"done\",\"summary\":\"ok\"}\\n```','args':sys.argv}))\n")
     stub.chmod(0o755)
-    monkeypatch.setenv("AUTODEV_CLAUDE_BIN", str(stub))
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", str(stub))
     be = ClaudeCLIBackend(Config.load(tmp_path))
     cmd = be.build_cmd(SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path), budget_usd=3, read_only=True))
     assert "--max-budget-usd" in cmd and "Write" in cmd and "bypassPermissions" in cmd
     res = be.run(SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path)))
     assert res.ok and res.cost == 0.42 and res.report["summary"] == "ok" and res.session_id == "s1"
+
+
+def test_leftover_old_prefix_branch_is_discarded(tmp_path):
+    root = make_project(tmp_path, phases_basic())
+    git(root, "add", "-A")
+    git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
+    git(root, "checkout", "-q", "-b", "autodev/P01-T01")
+    (root / "PARTIAL.txt").write_text("half done")
+    Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None).run()
+    assert "autodev/P01-T01" not in git(root, "branch", "--list")
+    assert not (root / "PARTIAL.txt").exists()
+    assert git(root, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
+
+
+def test_claude_bin_falls_back_to_old_env(tmp_path, monkeypatch):
+    from autopilot.backends.claude_cli import ClaudeCLIBackend
+    from autopilot.config import Config
+
+    monkeypatch.delenv("AUTOPILOT_CLAUDE_BIN", raising=False)
+    monkeypatch.setenv("AUTODEV_CLAUDE_BIN", "/old/claude")
+    assert ClaudeCLIBackend(Config.load(tmp_path)).binary == "/old/claude"

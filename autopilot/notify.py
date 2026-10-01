@@ -6,7 +6,7 @@ import logging
 import os
 import urllib.request
 
-log = logging.getLogger("autodev")
+log = logging.getLogger("autopilot")
 
 
 def _post(url: str, data: bytes, headers: dict):
@@ -23,10 +23,15 @@ class Notifier:
 
     def env(self, key: str) -> str:
         name = self.cfg.get(f"notify.{key}")
-        return os.environ.get(name, "") if name else ""
+        if not name:
+            return ""
+        val = os.environ.get(name, "")
+        if not val and name.startswith("AUTOPILOT_"):
+            val = os.environ.get("AUTODEV_" + name[10:], "")
+        return val
 
     def send(self, event: str, message: str):
-        text = f"[AutoDev · {self.project}] {event}: {message}"
+        text = f"[Autopilot · {self.project}] {event}: {message}"
         log.info(text)
         if self.state is not None:
             self.state.event(event, message)
@@ -62,4 +67,4 @@ class Notifier:
         topic = self.env("ntfy_topic_env")
         if topic:
             url = topic if topic.startswith("http") else f"https://ntfy.sh/{topic}"
-            _post(url, text.encode(), {"Title": f"AutoDev {event}"})
+            _post(url, text.encode(), {"Title": f"Autopilot {event}"})

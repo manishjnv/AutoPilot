@@ -1,4 +1,4 @@
-"""Human-readable status report (.agent/REPORT.md and `autodev status`)."""
+"""Human-readable status report (.agent/REPORT.md and `autopilot status`)."""
 from __future__ import annotations
 
 from .context import progress_line
@@ -6,7 +6,7 @@ from .context import progress_line
 
 def build_report(cfg, plan, state) -> str:
     status = state.status_map()
-    lines = [f"# AutoDev report — {cfg.get('name', cfg.root.name)}", "",
+    lines = [f"# Autopilot report — {cfg.get('name', cfg.root.name)}", "",
              f"**Progress:** {progress_line(plan, status)}",
              f"**Cost:** total ${state.cost():.2f} · today ${state.cost(today=True):.2f} · "
              f"sessions {state.session_count()}", "", "## Phases", "",

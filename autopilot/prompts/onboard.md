@@ -1,4 +1,4 @@
-# Assignment: onboard this repository into AutoDev
+# Assignment: onboard this repository into Autopilot
 
 Prepare the project so hundreds of autonomous sessions can build it without human help.
 You MAY edit: `.agent/plan.yaml`, `.agent/BRAIN.md`, `.agent/project.yaml`, `CLAUDE.md`. Do not change application code.

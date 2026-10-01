@@ -27,7 +27,7 @@ from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .state import State, now
 
-log = logging.getLogger("autodev")
+log = logging.getLogger("autopilot")
 
 
 class Stop(Exception):
@@ -64,7 +64,7 @@ class Orchestrator:
         if sync["reopened"]:
             clear_reopen_flags(self.ad / "plan.yaml", sync["reopened"])
             self.plan = Plan.load(self.ad / "plan.yaml")
-            self._commit_main("[autodev] reopen " + ", ".join(sync["reopened"]))
+            self._commit_main("[autopilot] reopen " + ", ".join(sync["reopened"]))
         self.ctx = ContextBuilder(self.cfg, self.plan, self.state)
         return sync
 
@@ -87,7 +87,7 @@ class Orchestrator:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise SystemExit("another autodev run is active for this project")
+            raise SystemExit("another autopilot run is active for this project")
         try:
             return self._run()
         finally:
@@ -135,14 +135,14 @@ class Orchestrator:
     def _prepare_repo(self):
         self.git.ensure_repo(self.main)
         br = self.git.branch()
-        if br.startswith("autodev/"):          # crashed mid-session: throw away the partial work
+        if br.startswith(("autopilot/", "autodev/")):          # crashed mid-session: throw away the partial work
             self.git.discard()
             self.git.checkout_main(self.main)
             self.git.delete_branch(br)
         elif br != self.main:
             self.git.checkout_main(self.main)
         if not self.git.is_clean():
-            self.git.commit_all("[autodev] snapshot of uncommitted changes found at run start")
+            self.git.commit_all("[autopilot] snapshot of uncommitted changes found at run start")
 
     def loop(self) -> str:
         stall_replanned = False
@@ -255,7 +255,7 @@ class Orchestrator:
         attempts = int(row["attempts"] or 0)
         last_error = row["last_error"] if attempts else None
         max_attempts = int(self.cfg.get("retries.max_attempts_per_task", 3))
-        branch = f"autodev/{task.id}"
+        branch = f"autopilot/{task.id}"
         self.state.set_task(task.id, status="running", started_at=now())
 
         while attempts < max_attempts:
@@ -307,8 +307,8 @@ class Orchestrator:
         self.docs.task_done(task, phase, res.report, model=model, attempt=attempt, cost=cost,
                             gate_warnings=gate.warnings, files=files, next_task=nxt.id if nxt else None)
         summary = str(res.report.get("summary", "")).strip()
-        self.git.commit_all(f"[autodev] {task.id}: {task.title}\n\n{summary}\n\nmodel: {model}, attempt {attempt}")
-        sha = self.git.merge(branch, self.main, f"[autodev] merge {task.id}: {task.title}")
+        self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}\n\nmodel: {model}, attempt {attempt}")
+        sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
         self.git.delete_branch(branch)
         self._push()
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
@@ -351,9 +351,9 @@ class Orchestrator:
         self.notify.send("main_red", f"verification failing on {self.main} — starting fixer")
         for i in range(int(self.cfg.get("retries.max_fixer_attempts", 3))):
             prompt = self.ctx.fixer_prompt(errors, self.git.log_oneline())
-            ok, detail = self._gated_change("fixer", "autodev/fixer", prompt,
+            ok, detail = self._gated_change("fixer", "autopilot/fixer", prompt,
                                             self.cfg.get("models.fixer", "opus"),
-                                            "[autodev] fix: repair main branch", phase_checks)
+                                            "[autopilot] fix: repair main branch", phase_checks)
             if ok:
                 self.notify.send("main_fixed", detail[:300])
                 return True
@@ -379,7 +379,7 @@ class Orchestrator:
             self.state.task(t.id)["status"] == "done" for t in phase.tasks) else ""
         self.state.set_phase(phase.id, status=status, completed_at=now())
         self.docs.phase_done(phase, self.state, status, note)
-        self._commit_main(f"[autodev] close phase {phase.id} ({status})")
+        self._commit_main(f"[autopilot] close phase {phase.id} ({status})")
         self.notify.send("phase_done", f"{phase.id} {phase.title}: {status}. "
                                        f"{progress_line(self.plan, self.state.status_map())}. {note}")
         if phase.priority:  # corrective phases don't count toward review cadence
@@ -400,7 +400,7 @@ class Orchestrator:
             res = deploy(self.cfg, "staging", ref, phase.id, self.state.last_staging_ref(exclude=phase.id))
             staging_ok = res.ok
             if res.ok:
-                self.git.tag(f"autodev-staging-{phase.id}", ref)
+                self.git.tag(f"autopilot-staging-{phase.id}", ref)
                 self.state.set_phase(phase.id, staging_ref=ref)
                 self.notify.send("deploy_ok", f"staging {phase.id} {ref[:10]}")
             else:
@@ -420,7 +420,7 @@ class Orchestrator:
                 notes.append(self.deploy_prod(phase.id, ref))
             else:
                 self.state.set_phase(phase.id, prod_status="awaiting_approval", prod_ref=ref)
-                self.notify.send("approval_needed", f"{phase.id} ready for prod: run `autodev approve {phase.id}`")
+                self.notify.send("approval_needed", f"{phase.id} ready for prod: run `autopilot approve {phase.id}`")
                 notes.append("prod awaiting approval")
         return "; ".join(notes)
 
@@ -428,7 +428,7 @@ class Orchestrator:
         res = deploy(self.cfg, "prod", ref, phase_id, self.state.last_prod_ref())
         self.state.set_phase(phase_id, prod_status="deployed" if res.ok else "failed", prod_ref=ref)
         if res.ok:
-            self.git.tag(f"autodev-prod-{phase_id}", ref)
+            self.git.tag(f"autopilot-prod-{phase_id}", ref)
         self.notify.send("deploy_ok" if res.ok else "deploy_failed", f"prod {phase_id}: {res.detail[:600]}")
         return res.detail.splitlines()[0]
 
@@ -466,7 +466,7 @@ class Orchestrator:
             log.warning("could not add corrective phase: %s", e)
             return None
         self.state.set_meta("fix_counter", n)
-        self._commit_main(f"[autodev] add corrective phase {pid} ({label})")
+        self._commit_main(f"[autopilot] add corrective phase {pid} ({label})")
         self.reload_plan()
         return pid
 
@@ -486,7 +486,7 @@ class Orchestrator:
         report["_new_phase"] = new_phase
         self.docs.audit(kind, report, phase_id, new_phase)
         self.docs.consume_followups()
-        self._commit_main(f"[autodev] {kind} audit: {len(gaps)} gaps")
+        self._commit_main(f"[autopilot] {kind} audit: {len(gaps)} gaps")
         self.notify.send("audit", f"{kind} audit: {report.get('completion_pct', '?')}% complete, "
                                   f"{len(gaps)} corrective tasks ({new_phase or 'none'})")
         return report
@@ -517,7 +517,7 @@ class Orchestrator:
         if new_brain is not None:
             brain_path.write_text(new_brain, encoding="utf-8")
         self.docs.consume_followups()
-        self._commit_main(f"[autodev] replan ({reason}): {str(res.report.get('summary', ''))[:200]}")
+        self._commit_main(f"[autopilot] replan ({reason}): {str(res.report.get('summary', ''))[:200]}")
         sync = self.reload_plan()
         self.notify.send("replan", f"{reason}: added {len(sync['added'])}, removed {len(sync['removed'])}, "
                                    f"reopened {len(sync['reopened'])}")

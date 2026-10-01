@@ -15,7 +15,7 @@ READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
 class ClaudeCLIBackend:
     def __init__(self, cfg):
         self.cfg = cfg
-        self.binary = os.environ.get("AUTODEV_CLAUDE_BIN") or shutil.which("claude") or "claude"
+        self.binary = os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN") or shutil.which("claude") or "claude"
 
     def build_cmd(self, req: SessionRequest) -> list[str]:
         c = self.cfg

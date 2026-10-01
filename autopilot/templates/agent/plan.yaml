@@ -1,4 +1,4 @@
-# AutoDev plan. Generate from your plan doc with:  autodev onboard --plan-doc docs/PLAN.md
+# Autopilot plan. Generate from your plan doc with:  autopilot onboard --plan-doc docs/PLAN.md
 # Phases depend on the previous phase unless `depends_on` is given ([] = independent).
 # Task ids must be unique and stable — the state DB tracks progress by id.
 

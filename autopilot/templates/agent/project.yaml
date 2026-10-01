@@ -1,8 +1,8 @@
-# AutoDev project contract — one file per repo, same shape for every project type.
-# Everything here is optional except `name`; unset keys fall back to AutoDev defaults.
+# Autopilot project contract — one file per repo, same shape for every project type.
+# Everything here is optional except `name`; unset keys fall back to Autopilot defaults.
 
 name: my-project
-stack: generic            # python | node | go | rust | java | static | docker | generic (set by `autodev init`)
+stack: generic            # python | node | go | rust | java | static | docker | generic (set by `autopilot init`)
 main_branch: main
 
 # Commands the orchestrator runs itself. The agent's own "done" is never trusted.
@@ -13,13 +13,13 @@ commands:
   typecheck: []
   test: []
   phase_verify: []        # extra, slower checks at the end of each phase (e2e, integration)
-  smoke: []               # after each deploy (can use $AUTODEV_ENV / $AUTODEV_URL)
+  smoke: []               # after each deploy (can use $AUTOPILOT_ENV / $AUTOPILOT_URL)
 verify_timeout_sec: 1200
 
 agent:
   backend: claude_cli     # claude_cli | command
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
-  permission_mode: bypassPermissions      # run AutoDev inside a VM/container when bypassing
+  permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing
   session_timeout_sec: 3600
   effort: ""              # low | medium | high | xhigh | max  (empty = CLI default)
   allowed_tools: []
@@ -86,13 +86,13 @@ audit:                    # reviews overall implementation vs plan -> corrective
 deploy:
   staging:
     enabled: false
-    cmd: ""               # gets $AUTODEV_REF, $AUTODEV_PHASE, $AUTODEV_ENV
+    cmd: ""               # gets $AUTOPILOT_REF, $AUTOPILOT_PHASE, $AUTOPILOT_ENV
     health_url: ""
     health_timeout_sec: 180
-    rollback_cmd: ""      # gets $AUTODEV_PREV_REF (last good deploy)
+    rollback_cmd: ""      # gets $AUTOPILOT_PREV_REF (last good deploy)
   prod:
     enabled: false
-    auto: false           # false = queued; run `autodev approve <phase>`; the run keeps going
+    auto: false           # false = queued; run `autopilot approve <phase>`; the run keeps going
     max_auto_risk: medium # auto-deploy only phases whose riskiest task is <= this
     cmd: ""
     health_url: ""
@@ -100,9 +100,9 @@ deploy:
     rollback_cmd: ""
 
 notify:
-  telegram_token_env: AUTODEV_TG_TOKEN
-  telegram_chat_env: AUTODEV_TG_CHAT
-  slack_webhook_env: AUTODEV_SLACK_WEBHOOK
-  webhook_env: AUTODEV_WEBHOOK
-  ntfy_topic_env: AUTODEV_NTFY_TOPIC
+  telegram_token_env: AUTOPILOT_TG_TOKEN
+  telegram_chat_env: AUTOPILOT_TG_CHAT
+  slack_webhook_env: AUTOPILOT_SLACK_WEBHOOK
+  webhook_env: AUTOPILOT_WEBHOOK
+  ntfy_topic_env: AUTOPILOT_NTFY_TOPIC
   events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, budget, stalled, run_done, fatal]

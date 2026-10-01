@@ -18,8 +18,9 @@ class CommandBackend:
         cmd = self.template.format(model=shlex.quote(req.model), budget=req.budget_usd or 0,
                                    read_only=int(req.read_only))
         env = {**os.environ, **{k: str(v) for k, v in (self.cfg.get("agent.env", {}) or {}).items()},
-               "AUTODEV_MODEL": req.model, "AUTODEV_READ_ONLY": str(int(req.read_only)),
-               "AUTODEV_SYSTEM_APPEND": req.system_append}
+               "AUTOPILOT_MODEL": req.model, "AUTOPILOT_READ_ONLY": str(int(req.read_only)),
+               "AUTOPILOT_SYSTEM_APPEND": req.system_append}
+        env.update({"AUTODEV_" + k[10:]: v for k, v in list(env.items()) if k.startswith("AUTOPILOT_")})
         try:
             p = subprocess.run(cmd, shell=True, input=req.prompt, cwd=req.cwd, capture_output=True,
                                text=True, timeout=req.timeout_sec, env=env)

@@ -32,8 +32,9 @@ def health_check(url: str, timeout: int) -> bool:
 
 def deploy(cfg, env_name: str, ref: str, phase_id: str, prev_ref: str | None) -> DeployResult:
     c = f"deploy.{env_name}"
-    env = {"AUTODEV_ENV": env_name, "AUTODEV_REF": ref, "AUTODEV_PHASE": phase_id,
-           "AUTODEV_PREV_REF": prev_ref or "", "AUTODEV_URL": cfg.get(f"{c}.health_url", "")}
+    env = {"AUTOPILOT_ENV": env_name, "AUTOPILOT_REF": ref, "AUTOPILOT_PHASE": phase_id,
+           "AUTOPILOT_PREV_REF": prev_ref or "", "AUTOPILOT_URL": cfg.get(f"{c}.health_url", "")}
+    env.update({"AUTODEV_" + k[10:]: v for k, v in list(env.items())})
     timeout = int(cfg.get("verify_timeout_sec", 1200))
 
     res = run_commands([cfg.get(f"{c}.cmd")], cfg.root, timeout, env)

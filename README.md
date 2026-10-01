@@ -4,13 +4,12 @@ Autopilot runs **hundreds of Claude Code sessions back-to-back, without you**, t
 to a finished, deployed app. Each session implements one task. A plain Python orchestrator owns everything else:
 the plan, state, git, verification, documentation, deployment, self-review and self-correction.
 
-> Autopilot was called **AutoDev**. Until the rename lands (roadmap step R), the code folder is `autodev/` and
-> the command is `autodev`.
+> Formerly **AutoDev**. Existing projects keep working: the `.agent/` folder is unchanged and the old `AUTODEV_*` environment variables are still read.
 
 ```
-autodev init            # adds a .agent/ contract to any repo (stack auto-detected)
-autodev onboard --plan-doc docs/PLAN.md   # AI converts your plan into phases/tasks + BRAIN.md
-autodev run             # runs until the app is complete
+autopilot init            # adds a .agent/ contract to any repo (stack auto-detected)
+autopilot onboard --plan-doc docs/PLAN.md   # AI converts your plan into phases/tasks + BRAIN.md
+autopilot run             # runs until the app is complete
 ```
 
 ## How it works
@@ -18,13 +17,13 @@ autodev run             # runs until the app is complete
 ```
 ┌─────────────────────────── orchestrator loop (deterministic Python) ───────────────────────────┐
 │ next ready task (deps + phase order, corrective phases first)                                  │
-│   └─ fresh session on branch autodev/<task>   ← context pack: BRAIN + DECISIONS + HANDOFF + spec│
+│   └─ fresh session on branch autopilot/<task> ← context pack: BRAIN + DECISIONS + HANDOFF + spec│
 │        └─ gate run by the orchestrator: build · lint · typecheck · test · secret scan · scope  │
 │             pass → docs (history, decisions, changelog, handoff) → commit → merge to main       │
 │             fail → reset, retry with the error output on the next model in the ladder          │
 │             N fails → park as BLOCKED, move on (never stop the run for one task)               │
 │ phase finished → phase gate (+phase_verify) → staging deploy → health/smoke → rollback on fail │
-│                  → prod (auto for low-risk phases, else queued for `autodev approve`)           │
+│                  → prod (auto for low-risk phases, else queued for `autopilot approve`)         │
 │ every N phases → AUDIT: read-only review of the whole codebase vs the plan                     │
 │                  → gaps/bugs/regressions become a priority FIX phase  (self-correction)         │
 │                → REPLAN: rewrite stale pending tasks, reopen blocked ones, refresh BRAIN.md     │
@@ -75,16 +74,16 @@ set `agent.backend: command`.
 
 | Command | Purpose |
 |---|---|
-| `autodev init [--stack X]` | Create `.agent/`, `.gitignore` entries and a `CLAUDE.md` pointer |
-| `autodev onboard --plan-doc PLAN.md` | AI session writes BRAIN.md, real commands and plan.yaml |
-| `autodev validate` | Schema, dependency and cycle check; warns about weak acceptance criteria |
-| `autodev next -n 20` | Preview the execution order and models |
-| `autodev run [--max-sessions N]` | Autonomous run until the completion audit passes |
-| `autodev status` | Progress, cost, blocked tasks with reasons, pending approvals |
-| `autodev unblock T1 T2` / `skip T3` | Clear the blocked queue whenever you like (edit the task spec first) |
-| `autodev approve P05` | Deploy a queued phase to prod |
-| `autodev review --kind periodic\|completion\|replan` | Force a review now |
-| `autodev stop` / `resume` | Graceful stop before the next session |
+| `autopilot init [--stack X]` | Create `.agent/`, `.gitignore` entries and a `CLAUDE.md` pointer |
+| `autopilot onboard --plan-doc PLAN.md` | AI session writes BRAIN.md, real commands and plan.yaml |
+| `autopilot validate` | Schema, dependency and cycle check; warns about weak acceptance criteria |
+| `autopilot next -n 20` | Preview the execution order and models |
+| `autopilot run [--max-sessions N]` | Autonomous run until the completion audit passes |
+| `autopilot status` | Progress, cost, blocked tasks with reasons, pending approvals |
+| `autopilot unblock T1 T2` / `skip T3` | Clear the blocked queue whenever you like (edit the task spec first) |
+| `autopilot approve P05` | Deploy a queued phase to prod |
+| `autopilot review --kind periodic\|completion\|replan` | Force a review now |
+| `autopilot stop` / `resume` | Graceful stop before the next session |
 
 All commands take `-C <project path>`.
 
@@ -93,17 +92,17 @@ All commands take `-C <project path>`.
 1. Use an **API key or LiteLLM gateway** (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`) for unattended runs. Check
    Anthropic's current terms before automating a consumer subscription.
 2. Run inside a sandbox, because sessions use `bypassPermissions`: `deploy/Dockerfile`, or a dedicated VM user
-   through `deploy/autodev@.service`. Keep prod secrets out of the agent's environment; the deploy commands should
+   through `deploy/autopilot@.service`. Keep prod secrets out of the agent's environment; the deploy commands should
    read them from CI or the server.
-3. Notifications: set `AUTODEV_TG_TOKEN`/`AUTODEV_TG_CHAT` (Telegram), `AUTODEV_SLACK_WEBHOOK`, `AUTODEV_NTFY_TOPIC`
-   or `AUTODEV_WEBHOOK`.
+3. Notifications: set `AUTOPILOT_TG_TOKEN`/`AUTOPILOT_TG_CHAT` (Telegram), `AUTOPILOT_SLACK_WEBHOOK`, `AUTOPILOT_NTFY_TOPIC`
+   or `AUTOPILOT_WEBHOOK`.
 4. Your only job is to look at the blocked queue and approvals when notified.
 
 ## Writing plans that run well autonomously
 - Keep each task to one session (~1–3 files of real logic) and give it 2–5 **testable** acceptance criteria.
 - Put the real invariants in BRAIN.md: auth model, tenant isolation, API contracts.
 - Put slow end-to-end checks in `commands.phase_verify`, not in the per-task gate.
-- Treat `blocked` as a signal that the spec was unclear. Fix the spec, then run `autodev unblock`.
+- Treat `blocked` as a signal that the spec was unclear. Fix the spec, then run `autopilot unblock`.
 
 ## Development
 ```

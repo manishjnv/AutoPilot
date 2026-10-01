@@ -1,4 +1,4 @@
-"""autodev CLI."""
+"""autopilot CLI."""
 from __future__ import annotations
 
 import argparse
@@ -19,7 +19,7 @@ AGENT_FILES = ["project.yaml", "plan.yaml", "BRAIN.md", "DECISIONS.md", "HANDOFF
 def setup_logging(root: Path, verbose: bool):
     logdir = root / AGENT_DIR / "logs"
     logdir.mkdir(parents=True, exist_ok=True)
-    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(logdir / "autodev.log")]
+    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(logdir / "autopilot.log")]
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, handlers=handlers,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
@@ -68,11 +68,11 @@ def cmd_init(args):
             fh.write(snippet)
     cm = root / "CLAUDE.md"
     cm_snip = (TEMPLATES / "agent" / "CLAUDE.md.snippet").read_text(encoding="utf-8")
-    if not cm.exists() or "AutoDev" not in cm.read_text(encoding="utf-8"):
+    if not cm.exists() or "## Autopilot (autonomous sessions)" not in (t := cm.read_text(encoding="utf-8")) and "## AutoDev (autonomous sessions)" not in t:
         with open(cm, "a", encoding="utf-8") as fh:
             fh.write(cm_snip)
-    print(f"\nstack: {stack}\nnext:  autodev onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
-          f"       autodev validate && autodev run")
+    print(f"\nstack: {stack}\nnext:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
+          f"       autopilot validate && autopilot run")
 
 
 def cmd_onboard(args):
@@ -120,7 +120,7 @@ def cmd_validate(args):
             print(f"plan    ERROR {err}")
     except FileNotFoundError:
         ok = False
-        print("plan    ERROR .agent/plan.yaml not found — run `autodev init`")
+        print("plan    ERROR .agent/plan.yaml not found — run `autopilot init`")
     return 0 if ok else 1
 
 
@@ -204,14 +204,14 @@ def cmd_approve(args):
 def cmd_stop(args):
     p = Path(args.path).resolve() / AGENT_DIR / "STOP"
     p.write_text("stop requested\n")
-    print("the run will stop before its next session (remove with `autodev resume`)")
+    print("the run will stop before its next session (remove with `autopilot resume`)")
 
 
 def cmd_resume(args):
     p = Path(args.path).resolve() / AGENT_DIR / "STOP"
     if p.exists():
         p.unlink()
-    print("stop flag cleared — start again with `autodev run`")
+    print("stop flag cleared — start again with `autopilot run`")
 
 
 def cmd_review(args):
@@ -232,7 +232,7 @@ def cmd_review(args):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="autodev", description="Autonomous plan-driven development with Claude Code")
+    ap = argparse.ArgumentParser(prog="autopilot", description="Autonomous plan-driven development with Claude Code")
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd", required=True)
 

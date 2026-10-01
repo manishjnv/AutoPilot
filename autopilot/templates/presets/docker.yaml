@@ -1,4 +1,4 @@
 detect: [docker-compose.yml, compose.yaml, Dockerfile]
 commands:
-  build: ["docker compose build || docker build -t autodev-app ."]
+  build: ["docker compose build || docker build -t autopilot-app ."]
   test: []
