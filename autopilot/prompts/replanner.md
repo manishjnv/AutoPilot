@@ -10,6 +10,8 @@ In `.agent/plan.yaml`:
 - For each BLOCKED task: if it can now succeed with a better spec, rewrite it and add `reopen: true`;
   otherwise leave it blocked.
 - New task ids must be unique (e.g. P07-T05b). Keep dependencies valid and acyclic.
+- For each NEW IDEA below: if the plan already covers it, leave it out. Otherwise plan it as new pending tasks with
+  acceptance criteria, in the open phase it fits or in a new phase at the end. List the new task ids in `added`.
 In `.agent/BRAIN.md`: update architecture/conventions to reflect what actually exists (keep < 300 lines).
 
 ## Plan status
@@ -23,6 +25,9 @@ In `.agent/BRAIN.md`: update architecture/conventions to reflect what actually e
 
 ## Follow-ups reported by sessions
 {{followups}}
+
+## New ideas from the backlog (docs/BACKLOG.md)
+{{backlog}}
 
 ## Final report (required)
 ```json

@@ -92,6 +92,8 @@ class Orchestrator:
         if self.git.branch() != self.main:
             self.git.checkout_main(self.main)
         before = self.git.head()
+        if self.plan:
+            self.docs.status(self.plan, self.state.status_map())  # L7: docs/STATUS.md rides along with every commit
         self.git.commit_all(message)
         if self.main_red and self.main_checked == before:  # our own docs/plan commits don't change the gate result
             self.main_checked = self.git.head()
@@ -235,6 +237,7 @@ class Orchestrator:
             self.intake()
             self.intake_answers()
             self.apply_answers()
+            self.import_backlog()
             self.recheck_main()
             status = self.state.status_map()
             if self.main_red:  # only corrective (priority) work may run until main is green again
@@ -757,6 +760,7 @@ class Orchestrator:
         summary = str(res.report.get("summary", "")).strip()
         if phase.priority:
             self.docs.rca(task.id, task.title, res.report.get("rca"))
+        self.docs.status(self.plan, status)
         self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}\n\nmodel: {model}, attempt {attempt}")
         if self.cfg.get("git.mode", "direct") == "pr":
             sha = self._merge_pr(task, branch)
@@ -887,6 +891,7 @@ class Orchestrator:
         nxt = self.plan.next_ready(self.state.status_map(), self.cfg.get("scheduling.phase_dependency", "soft"))
         self.docs.task_done(task, phase, res.report, model=model, attempt=1, cost=self.state.cost(task_id=task.id),
                             gate_warnings=gate.warnings, files=files, next_task=nxt.id if nxt else None)
+        self.docs.status(self.plan, self.state.status_map())
         self.git.commit_all(f"[autopilot] docs for {task.id}: {task.title}")
         self._push()
         log.info("task %s done in parallel (%s)", task.id, model)
@@ -970,6 +975,12 @@ class Orchestrator:
             criteria = [" ".join(str(x).split())[:300] for x in (rep.get("acceptance_criteria") or [])[:8]]
             kind = rep.get("kind") if rep.get("kind") in ("bug", "feature") else "other"
             problem = self._laundered([title, desc, *criteria], f"{r.get('title', '')}\n{r.get('body') or ''}")
+            if kind == "feature" and title and desc and not problem and self.cfg.get("docs.backlog"):  # L7
+                self.docs.backlog_add(f"{title}: {' '.join(desc.split())[:300]} (GitHub issue #{n})")
+                self._commit_main(f"[autopilot] backlog: idea from issue #{n}")
+                self._comment(n, "Autopilot triage: added to the project's backlog as an idea. It is planned (or "
+                                 "dropped as already covered) at the next replan.")
+                continue
             if not (rep.get("actionable") is True and kind == "bug" and title and desc) or problem:
                 log.info("issue #%s not queued: %s", n, problem or f"triaged as {kind}")
                 self._comment(n, f"Autopilot triage: not queued (read as: {kind}"
@@ -1330,13 +1341,21 @@ class Orchestrator:
                                   f"{len(gaps)} corrective tasks ({new_phase or 'none'})")
         return report
 
-    def replan(self, reason: str) -> bool:
+    def import_backlog(self):
+        """L7: new ideas in docs/BACKLOG.md reach the plan through one replan, which drops what the plan already has."""
+        items = self.docs.backlog()
+        if not items or not self.cfg.get("replan.enabled") or self.state.get_meta("backlog_tried") == items:
+            return
+        self.state.set_meta("backlog_tried", items)  # a rejected import is tried again only once the backlog changes
+        self.replan("backlog", backlog=items)
+
+    def replan(self, reason: str, backlog: list[str] | None = None) -> bool:
         """Let a session rewrite the remaining plan + BRAIN.md; validated before it is accepted."""
         plan_path, brain_path = self.ad / "plan.yaml", self.ad / "BRAIN.md"
         before_plan = plan_path.read_text(encoding="utf-8")
         self.git.start_branch("autopilot/replan", self.main)
         try:
-            res = self.session("replan", self.ctx.replanner_prompt(), self.cfg.get("models.replanner", "opus"))
+            res = self.session("replan", self.ctx.replanner_prompt(backlog), self.cfg.get("models.replanner", "opus"))
             new_plan = plan_path.read_text(encoding="utf-8")
             new_brain = brain_path.read_text(encoding="utf-8") if brain_path.exists() else None
         finally:  # drop everything, then re-apply only the two allowed files on main
@@ -1366,7 +1385,12 @@ class Orchestrator:
         if new_brain is not None:
             brain_path.write_text(new_brain, encoding="utf-8")
         self.docs.consume_followups()
-        self._commit_main(f"[autopilot] replan ({reason}): {str(res.report.get('summary', ''))[:200]}")
+        summary = " ".join(str(res.report.get("summary", "")).split())
+        if backlog:
+            self.docs.backlog_imported(backlog)
+            added = ", ".join(str(x) for x in res.report.get("added") or []) or "none (already planned)"
+            self._record_decision(f"backlog: {len(backlog)} idea(s) planned by a replan; new tasks: {added}. {summary[:300]}")
+        self._commit_main(f"[autopilot] replan ({reason}): {summary[:200]}")
         sync = self.reload_plan()
         self.notify.send("replan", f"{reason}: added {len(sync['added'])}, removed {len(sync['removed'])}, "
                                    f"reopened {len(sync['reopened'])}")

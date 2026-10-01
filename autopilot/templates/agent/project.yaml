@@ -171,6 +171,8 @@ docs:
   history_dir: .agent/history
   rca: docs/RCA.md        # root-cause log; corrective tasks and repairs append an entry
   adr_dir: docs/adr       # architecture decision records (MADR) from the decide session
+  status: docs/STATUS.md  # the plan as a checklist, regenerated at every commit ("" = off)
+  backlog: docs/BACKLOG.md  # new ideas ("- " lines); one replan adds them to the plan ("" = off)
 
 replan:                   # rewrites stale pending tasks, reopens blocked ones, refreshes BRAIN.md
   enabled: true

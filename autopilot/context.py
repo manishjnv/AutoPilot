@@ -166,10 +166,11 @@ class ContextBuilder:
         return render("auditor.md", audit_kind=kind, plan_status=plan_status(self.plan, self.state),
                       decisions=self.decisions(), followups=self.followups(), completion_check=completion, max_new=max_new)
 
-    def replanner_prompt(self) -> str:
+    def replanner_prompt(self, backlog: list[str] | None = None) -> str:
         blocked = [f"{r['id']}: {(r['last_error'] or '')[:500]}" for r in self.state.tasks("blocked")]
         return render("replanner.md", plan_status=plan_status(self.plan, self.state, include_criteria=False),
-                      blocked=bullets(blocked), decisions=self.decisions(), followups=self.followups())
+                      blocked=bullets(blocked), decisions=self.decisions(), followups=self.followups(),
+                      backlog=bullets([i[:500] for i in backlog or []][:30]))
 
     def system_append(self) -> str:
         """The rules plus the project context every session needs. U7: byte-identical for every session until

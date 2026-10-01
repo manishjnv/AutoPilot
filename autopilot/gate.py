@@ -45,7 +45,8 @@ PROTECTED = [".agent/plan.yaml", ".agent/project.yaml", ".agent/features.json", 
 
 def protected_files(cfg) -> list[str]:
     """Files no agent session may change: the plan, the config and the owner's answers (it would answer itself)."""
-    return PROTECTED + [str(cfg.get("needs_you.path", "docs/NEEDS-YOU.md")).replace("\\", "/")]
+    owner = [cfg.get("needs_you.path", "docs/NEEDS-YOU.md"), cfg.get("docs.backlog", "docs/BACKLOG.md")]  # L7: ideas
+    return PROTECTED + [str(p).replace("\\", "/") for p in owner if p]
 # CI runs with repository secrets on push: adding, editing or deleting a pipeline is never routine task work
 CI_GLOBS = [".github/workflows/**", ".gitlab-ci.yml", ".circleci/**", "Jenkinsfile", "azure-pipelines.yml",
             "bitbucket-pipelines.yml", ".buildkite/**"]

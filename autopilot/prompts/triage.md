@@ -20,6 +20,7 @@ Title: {{title}}
 - For an actionable bug: a short `title`, a `description` (what is wrong, how to see it, what correct looks like),
   `acceptance_criteria` (checkable, one of them a regression test), and `risk` (low | medium | high). Plain sentences
   only: no links, backticks, code, shell commands or @mentions (a task that contains any of them is rejected).
+- For a feature: a short `title` and a one-sentence `description` (same rules); it goes to the backlog.
 - `reason`: one sentence on why it was queued or not (kept in the log, not posted).
 
 ## Final report (required, last thing in your reply)

@@ -112,6 +112,13 @@ With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start
   declined with a comment.
 - **Failed CI on main** (`intake.ci`): the latest completed run of each workflow. A failure becomes one corrective task
   with the log tail; while that fix is open, the workflow is not taken in again.
+- Feature requests go to `docs/BACKLOG.md` (see below) instead.
+
+## Roadmap sync
+- `.agent/plan.yaml` is the source of truth. `docs/STATUS.md` is the plan as a checklist, regenerated with every commit.
+- Put new ideas in `docs/BACKLOG.md`, one per line starting with `- `. Then one replan session adds them to the plan:
+  it drops ideas the plan already covers and turns the rest into tasks. The imported ideas move under
+  `## Imported`, and the import is logged in `DECISIONS.md`. Agent sessions may not edit the backlog.
 
 ## Running unattended on a VPS
 
