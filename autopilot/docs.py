@@ -5,6 +5,7 @@ import datetime as dt
 from pathlib import Path
 
 from .context import bullets
+from .gate import verify_commands
 
 
 def _append(path: Path, text: str, header: str = ""):
@@ -40,7 +41,9 @@ class Documenter:
             f"## Acceptance criteria\n{bullets(task.acceptance_criteria)}\n\n"
             f"## Files changed\n{bullets(files)}\n\n## Tests added\n{bullets(report.get('tests_added'))}\n\n"
             f"## Docs updated\n{bullets(report.get('docs_updated'))}\n\n## Decisions\n{bullets(decisions)}\n\n"
-            f"## Follow-ups\n{bullets(followups)}\n\n## Gate warnings\n{bullets(gate_warnings)}\n",
+            f"## Follow-ups\n{bullets(followups)}\n\n## Gate warnings\n{bullets(gate_warnings)}\n\n"
+            f"## How to verify\n{bullets([f'`{c}`' for c in verify_commands(self.cfg, task.verify)], '(no commands configured)')}\n\n"
+            f"## Rollback\nRevert the merge commit `[autopilot] merge {task.id}`: `git revert -m 1 <sha>`\n",
             encoding="utf-8")
 
         # 2. decision log
@@ -63,6 +66,14 @@ class Documenter:
             f"# Handoff\n\nLast completed: **{task.id} — {task.title}** ({today()})\n\n{summary}\n\n"
             f"Files: {', '.join(files[:25]) or '(none)'}\n\nFollow-ups noted:\n{bullets(followups)}\n\n"
             f"Next planned task: {next_task or '(none)'}\n", encoding="utf-8")
+
+    def rca(self, ident: str, title: str, rca: dict):
+        """Append a root-cause entry to the RCA log; missing fields are marked, never rejected."""
+        rca = rca if isinstance(rca, dict) else {}
+        f = lambda k: " ".join(str(rca.get(k) or "").split()) or "(not reported)"  # noqa: E731
+        _append(self.root / self.cfg.get("docs.rca", "docs/RCA.md"),
+                f"## {today()} · {ident} {title}\n- Symptom: {f('symptom')}\n- Root cause: {f('root_cause')}\n"
+                f"- Fix: {f('fix')}\n- Prevention: {f('prevention')}\n\n", "# RCA log\n\n")
 
     def phase_done(self, phase, state, status: str, deploy_note: str = ""):
         lines = [f"# Phase {phase.id} — {phase.title}\n", f"- Closed: {today()}", f"- Status: {status}",

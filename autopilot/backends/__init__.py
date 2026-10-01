@@ -83,6 +83,9 @@ class SessionResult:
     rate_limited: bool = False
     reset_at: float | None = None
     timed_out: bool = False
+    usage: dict = field(default_factory=dict)   # model -> {input, output, cache_read, cache_write, cost}
+    num_turns: int = 0
+    duration_ms: int = 0
 
 
 def parse_report(text: str) -> dict:

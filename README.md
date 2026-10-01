@@ -94,6 +94,12 @@ Only what truly needs you (credentials, a paid account, a business or legal call
 write your answer after "Your answer:" in the file and commit it while no run is active. The run never stops for a red
 check either: a failing main or phase gate becomes a corrective phase first.
 
+## Usage, pacing and the RCA log
+- Every session's tokens (input, output, cache read/write) and cost are stored per model. `.agent/REPORT.md` (and `autopilot status`) has a **Tokens** section with per-model and per-kind totals and the verification share (fixer, audit and unstick sessions); above 20% it warns that checks use more than intended. The `run_done` notification ends with a one-line token footer.
+- When the CLI reports a usage limit with a reset time, the run sleeps until the window reopens (plus two minutes) and notifies you; that wait is never a task attempt and never counts toward the 30-in-a-row stop.
+- Corrective (FIX) tasks must add a regression test (bugs) and report a root cause. Entries land in `docs/RCA.md` (symptom, root cause, fix, prevention), committed with the fix; main-branch repairs add a lenient entry.
+- `.agent/run.json` is the live run journal; `REPORT.md` has a **This run** section with the next action.
+
 ## Running unattended on a VPS
 
 1. Use an **API key or LiteLLM gateway** (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`) for unattended runs. Check

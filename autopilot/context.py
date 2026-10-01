@@ -4,6 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 PROMPTS = Path(__file__).parent / "prompts"
+FIX_RULES = ("This is a corrective task. 1) Add a regression test that fails before your fix and passes after it. "
+             "2) Include `rca` (symptom, root_cause, fix, prevention) in your final report.")
 
 
 def render(name: str, **vars) -> str:
@@ -92,7 +94,7 @@ class ContextBuilder:
                       acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
                       brain=self.brain(), decisions=self.decisions(), error=(error or "(none)")[-6000:])
 
-    def task_prompt(self, task, attempt: int, last_error: str | None) -> str:
+    def task_prompt(self, task, attempt: int, last_error: str | None, git_log: str = "") -> str:
         phase = self.plan.phase_of(task)
         retry = ""
         if attempt > 1 and last_error:
@@ -105,6 +107,7 @@ class ContextBuilder:
             brain=self.brain(), decisions=self.decisions(), handoff=self.handoff(),
             progress=progress_line(self.plan, self.state.status_map()), retry_block=retry,
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
+            git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
         )
 
     def fixer_prompt(self, errors: str, git_log: str) -> str:

@@ -36,6 +36,13 @@ Risk tier: {{risk}}
 
 {{retry_block}}
 
+{{fix_rules}}
+
+## Recent commits
+```
+{{git_log}}
+```
+
 ## How to work
 1. Read the relevant existing code first. Follow the existing conventions in BRAIN.md.
 2. Implement the task completely — no stubs, TODOs or placeholder logic for anything in the acceptance criteria.
@@ -46,6 +53,7 @@ Risk tier: {{risk}}
 6. If the task is genuinely impossible (missing external dependency, contradictory spec), stop and report "blocked" with a precise reason — do not fake it.
 
 ## Final report (required, last thing in your reply)
+`rca` is only for corrective tasks; leave it out otherwise.
 ```json
 {
   "status": "done | blocked",
@@ -55,6 +63,7 @@ Risk tier: {{risk}}
   "docs_updated": ["path", "..."],
   "decisions": ["decision — reason (only architecture/interface/convention choices later sessions must follow)"],
   "followups": ["work you noticed that is out of scope for this task"],
+  "rca": {"symptom": "...", "root_cause": "...", "fix": "file:line — what changed", "prevention": "the test or check that stops a repeat"},
   "blocker": "only when status is blocked"
 }
 ```

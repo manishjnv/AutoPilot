@@ -27,11 +27,15 @@ CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, kind TEXT, message TEXT
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS session_models (
+  session_id INTEGER, model TEXT, input INTEGER, output INTEGER, cache_read INTEGER, cache_write INTEGER, cost REAL
+);
 CREATE TABLE IF NOT EXISTS decisions (
   id TEXT PRIMARY KEY, kind TEXT, task_id TEXT, phase_id TEXT, title TEXT, question TEXT, checked TEXT, why TEXT,
   suggestion TEXT, blocks TEXT, status TEXT, answer TEXT, created_at TEXT, answered_at TEXT
 );
 """
+SESSION_COLS = ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write", "num_turns", "duration_ms")
 
 
 def now() -> str:
@@ -46,6 +50,10 @@ class State:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        have = {r["name"] for r in self.db.execute("PRAGMA table_info(sessions)")}
+        for col in SESSION_COLS:  # older databases predate the token ledger
+            if col not in have:
+                self.db.execute(f"ALTER TABLE sessions ADD COLUMN {col} INTEGER DEFAULT 0")
 
     def close(self):
         self.db.close()
@@ -107,10 +115,38 @@ class State:
         return int(cur.lastrowid)
 
     def end_session(self, sid: int, *, cost: float, ok: bool, claude_session_id: str = "",
-                    summary: str = "", error: str = "", log_path: str = ""):
+                    summary: str = "", error: str = "", log_path: str = "", usage: dict | None = None,
+                    num_turns: int = 0, duration_ms: int = 0):
+        usage = usage or {}
+        tot = {k: sum(int(u.get(k) or 0) for u in usage.values()) for k in ("input", "output", "cache_read", "cache_write")}
         self.db.execute(
-            "UPDATE sessions SET ended_at=?, cost=?, ok=?, claude_session_id=?, summary=?, error=?, log_path=? WHERE id=?",
-            (now(), cost, int(ok), claude_session_id, summary[:4000], error[:4000], log_path, sid))
+            "UPDATE sessions SET ended_at=?, cost=?, ok=?, claude_session_id=?, summary=?, error=?, log_path=?, "
+            "tokens_in=?, tokens_out=?, tokens_cache_read=?, tokens_cache_write=?, num_turns=?, duration_ms=? WHERE id=?",
+            (now(), cost, int(ok), claude_session_id, summary[:4000], error[:4000], log_path, tot["input"], tot["output"],
+             tot["cache_read"], tot["cache_write"], num_turns, duration_ms, sid))
+        for m, u in usage.items():
+            self.db.execute("INSERT INTO session_models VALUES(?,?,?,?,?,?,?)",
+                            (sid, m, *(int(u.get(k) or 0) for k in ("input", "output", "cache_read", "cache_write")),
+                             float(u.get("cost") or 0)))
+
+    def next_session_id(self) -> int:
+        return int(self.db.execute("SELECT COALESCE(MAX(id),0)+1 FROM sessions").fetchone()[0])
+
+    def token_totals(self, by: str, since_session: int = 0) -> list[tuple[str, dict]]:
+        """[(key, {input, output, cache_read, cache_write, total, cost})] for by in model|kind|task|phase|day, biggest first."""
+        if by == "model":
+            q = ("SELECT model k, SUM(input) i, SUM(output) o, SUM(cache_read) r, SUM(cache_write) w, SUM(cost) c "
+                 "FROM session_models WHERE session_id >= ? GROUP BY model")
+        else:
+            key = {"kind": "kind", "task": "task_id", "phase": "phase", "day": "substr(started_at, 1, 10)"}[by]
+            q = (f"SELECT COALESCE({key}, '(none)') k, SUM(tokens_in) i, SUM(tokens_out) o, SUM(tokens_cache_read) r, "
+                 "SUM(tokens_cache_write) w, SUM(cost) c FROM sessions WHERE id >= ? GROUP BY k")
+        out = []
+        for r in self.db.execute(q, (since_session,)):
+            i, o, rd, w = (int(r[x] or 0) for x in "iorw")
+            out.append((r["k"] or "(unknown)", {"input": i, "output": o, "cache_read": rd, "cache_write": w,
+                                                "total": i + o + rd + w, "cost": float(r["c"] or 0)}))
+        return sorted(out, key=lambda kv: -kv[1]["total"])
 
     def cost(self, *, task_id: str | None = None, phase: str | None = None, today: bool = False) -> float:
         q, args = "SELECT COALESCE(SUM(cost),0) FROM sessions WHERE 1=1", []

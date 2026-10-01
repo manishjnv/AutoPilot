@@ -16,6 +16,9 @@ from autopilot.plan import Plan, PlanError
 TEST_CMD = "python -c \"import pathlib,sys; sys.exit(1 if pathlib.Path('BROKEN').exists() else 0)\""
 
 
+RCA = {"symptom": "s", "root_cause": "r", "fix": "f.py:1 — changed", "prevention": "a test"}
+
+
 class FakeBackend:
     """Behaves like an agent: writes files for tasks, returns JSON reports."""
 
@@ -55,7 +58,8 @@ class FakeBackend:
             (cwd / "src" / "__pycache__" / "junk.pyc").write_text("junk")
             return SessionResult(ok=True, cost=0.25, report={
                 "status": "done", "summary": f"built {tid}", "decisions": [f"{tid} uses txt files"],
-                "followups": [], "files_changed": [f"src/{tid}.txt"]})
+                "followups": [], "files_changed": [f"src/{tid}.txt"],
+                **({"rca": RCA} if tid.startswith("FIX") else {})})
         if "implementation audit" in req.prompt:
             self.calls.append(("audit", req.model))
             (cwd / "AUDITOR_SCRIBBLE.txt").write_text("should be discarded")

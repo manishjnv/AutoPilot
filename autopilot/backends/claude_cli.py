@@ -12,6 +12,33 @@ from . import SessionRequest, SessionResult, detect_limit, parse_report
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
 
 
+def _num(v, kind=int):
+    try:
+        return kind(v or 0)
+    except (TypeError, ValueError):
+        return kind(0)
+
+
+def parse_usage(data: dict, model: str) -> dict:
+    """model -> token counts and cost from the CLI's JSON result; {} when absent or odd."""
+    try:
+        mu = data.get("modelUsage")
+        if isinstance(mu, dict) and mu:
+            return {str(m): {"input": _num(u.get("inputTokens")), "output": _num(u.get("outputTokens")),
+                             "cache_read": _num(u.get("cacheReadInputTokens")),
+                             "cache_write": _num(u.get("cacheCreationInputTokens")), "cost": _num(u.get("costUSD"), float)}
+                    for m, u in mu.items() if isinstance(u, dict)}
+        u = data.get("usage")
+        if isinstance(u, dict):
+            return {model: {"input": _num(u.get("input_tokens")), "output": _num(u.get("output_tokens")),
+                            "cache_read": _num(u.get("cache_read_input_tokens")),
+                            "cache_write": _num(u.get("cache_creation_input_tokens")),
+                            "cost": _num(data.get("total_cost_usd"), float)}}
+    except Exception:  # noqa: BLE001  odd shapes never break a run
+        pass
+    return {}
+
+
 class ClaudeCLIBackend:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -77,5 +104,6 @@ class ClaudeCLIBackend:
         return SessionResult(
             ok=not is_error, text=text, cost=cost, session_id=str(data.get("session_id", "")),
             report=report or {}, error=err,
-            rate_limited=limited, reset_at=reset_at,
+            rate_limited=limited, reset_at=reset_at, usage=parse_usage(data, req.model),
+            num_turns=_num(data.get("num_turns")), duration_ms=_num(data.get("duration_ms")),
         )

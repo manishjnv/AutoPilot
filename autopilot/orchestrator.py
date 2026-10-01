@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -22,11 +23,13 @@ from .config import RISKS, Config
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
 from .docs import Documenter
-from .gate import GateResult, main_gate, protected_files, run_commands, scan_secrets, task_gate, test_tamper
+from .gate import (TEST_GLOBS, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
+                   test_tamper)
 from .gitops import Git, GitError
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .proc import exclusive_lock
+from .report import token_footer
 from .state import State, now
 
 log = logging.getLogger("autopilot")
@@ -56,6 +59,8 @@ class Orchestrator:
         self.max_sessions = limit or None
         self.sessions_this_run = 0
         self.rate_limit_streak = 0
+        self.run_info: dict = {}
+        self.first_session = 0
         self.plan: Plan | None = None
         self.ctx: ContextBuilder | None = None
         self.main_red, self.main_checked, self.main_error = False, None, ""
@@ -98,6 +103,19 @@ class Orchestrator:
         except BlockingIOError:
             raise SystemExit("another autopilot run is active for this project")
 
+    def _journal(self, **kw):
+        """.agent/run.json: what this run is doing right now. A write failure never breaks the run."""
+        try:
+            self.run_info.update(kw, sessions=self.sessions_this_run, updated_at=now())
+            tmp = self.ad / "run.json.tmp"
+            tmp.write_text(json.dumps(self.run_info, indent=1), encoding="utf-8")
+            os.replace(tmp, self.ad / "run.json")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("run journal failed: %s", exc)
+
+    def _footer(self) -> str:
+        return token_footer(self.state, self.first_session)
+
     def _run(self) -> str:
         blocking = self.cfg.blocking_errors()
         if blocking:
@@ -107,11 +125,15 @@ class Orchestrator:
         for e in self.cfg.validate():
             if e not in blocking:
                 log.warning("config: %s", e)
+        self.first_session = self.state.next_session_id()
+        self._journal(run_id=f"{dt.datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}", pid=os.getpid(), started_at=now(),
+                      status="running", outcome="", current="starting", first_session=self.first_session)
         self._prepare_repo()
         try:
             self.reload_plan()
         except (PlanError, FileNotFoundError) as e:
             self.notify.send("fatal", f"plan.yaml invalid: {e}")
+            self._journal(status="finished", outcome="fatal: invalid plan", current="")
             return "fatal: invalid plan"
         self.intake_answers()
         self.apply_answers()
@@ -120,6 +142,7 @@ class Orchestrator:
             log.info("recovered crashed tasks: %s", crashed)
         self.notify.send("run_start", progress_line(self.plan, self.state.status_map()))
 
+        outcome = "interrupted"
         try:
             setup = self.cfg.commands("setup")
             if setup:
@@ -134,12 +157,14 @@ class Orchestrator:
             outcome = self.loop()
         except Stop as s:
             outcome = s.reason
-            self.notify.send("fatal" if s.fatal else "budget" if "budget" in s.reason else "run_done", s.reason)
+            self.notify.send("fatal" if s.fatal else "budget" if "budget" in s.reason else "run_done",
+                             f"{s.reason}\n{self._footer()}")
             return outcome
         finally:
+            self._journal(status="finished", outcome=outcome, current="")
             self.write_report()
         self.notify.send("run_done", f"{outcome} — {progress_line(self.plan, self.state.status_map())}, "
-                                     f"total cost ${self.state.cost():.2f}")
+                                     f"total cost ${self.state.cost():.2f}\n{self._footer()}")
         return outcome
 
     def _prepare_repo(self):
@@ -209,6 +234,7 @@ class Orchestrator:
                 if self.state.get_meta("needs_you_digest") != ids:
                     self.state.set_meta("needs_you_digest", ids)
                     self.notify.send("needs_you", f"{len(ids)} decisions need you, see {path}: {', '.join(ids)}")
+                self._journal(current="waiting for answers")
                 self.sleep(float(self.cfg.get("needs_you.poll_minutes", 15)) * 60)
                 continue
             if pending or self.main_red:
@@ -268,7 +294,14 @@ class Orchestrator:
             raise Stop("budget exhausted")
         return left
 
-    def backoff(self):
+    def backoff(self, res):
+        if res.reset_at:  # the CLI said when the window reopens: sleep until then; not a streak, not an attempt
+            secs = min(max(60, res.reset_at - time.time() + 120), 8 * 86400)
+            wake = dt.datetime.fromtimestamp(time.time() + secs)
+            when = wake.strftime("%H:%M") if wake.date() == dt.date.today() else wake.strftime("%Y-%m-%d %H:%M")
+            self.notify.send("rate_limit", f"usage limit reached — sleeping until {when}")
+            self.sleep(secs)
+            return
         steps = self.cfg.get("retries.rate_limit_backoff_sec", [60, 300, 900, 1800, 3600])
         self.rate_limit_streak += 1
         if self.rate_limit_streak > 30:
@@ -279,9 +312,11 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ sessions
     def session(self, kind: str, prompt: str, model: str, *, task_id=None, phase=None, attempt=1,
-                read_only=False) -> SessionResult:
+                read_only=False, label: str = "") -> SessionResult:
         self.check_stop()
         budget = self.session_budget(task_id)
+        self._journal(current=label or " ".join(
+            x for x in (kind, task_id, f"attempt {attempt}" if kind == "task" else "") if x))
         sid = self.state.start_session(kind, task_id, phase, attempt, model)
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
@@ -304,11 +339,12 @@ class Orchestrator:
             res.ok, res.error = False, "session moved the main branch"
         self.state.end_session(sid, cost=res.cost, ok=res.ok, claude_session_id=res.session_id,
                                summary=str(res.report.get("summary", ""))[:2000], error=res.error,
-                               log_path=str(log_path))
+                               log_path=str(log_path), usage=res.usage, num_turns=res.num_turns,
+                               duration_ms=res.duration_ms)
         if task_id:
             self.state.set_task(task_id, cost=self.state.cost(task_id=task_id))
         if res.rate_limited:
-            self.backoff()
+            self.backoff(res)
         else:
             self.rate_limit_streak = 0
         return res
@@ -340,7 +376,7 @@ class Orchestrator:
 
             model = self.model_for(task.risk, attempts)
             base = self.git.start_branch(branch, self.main)
-            prompt = self.ctx.task_prompt(task, attempts + 1, last_error)
+            prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline())
             res = self.session("task", prompt, model, task_id=task.id, phase=phase.id, attempt=attempts + 1)
             if res.rate_limited:
                 self.git.discard()
@@ -357,7 +393,10 @@ class Orchestrator:
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 gate = task_gate(self.cfg, self.git, task)
-                if gate.ok:
+                problem = self._fix_problem(task, phase, res.report) if gate.ok else ""
+                if problem:
+                    last_error = problem
+                elif gate.ok:
                     try:
                         self._complete_task(task, phase, res, model, attempts, gate, branch)
                         return True
@@ -394,6 +433,23 @@ class Orchestrator:
             self.needs_you("task", f"{task.id} {task.title}", self.GENERIC_QUESTION, task_id=task.id,
                            checked=f"{attempts} attempts by the agent", why=(fail_err or last_error or "")[-300:])
         return False
+
+    RCA_FIELDS = ("symptom", "root_cause", "fix", "prevention")
+
+    def _fix_problem(self, task, phase, report: dict) -> str:
+        """Extra gate for corrective tasks: a complete RCA and, for bugs, a regression test."""
+        if not phase.priority:
+            return ""
+        rca = report.get("rca") if isinstance(report.get("rca"), dict) else {}
+        missing = [k for k in self.RCA_FIELDS if not str(rca.get(k) or "").strip()]
+        if missing:
+            return (f"RCA incomplete: missing {', '.join(missing)}. "
+                    "Corrective tasks must report symptom, root_cause, fix and prevention.")
+        globs = self.cfg.get("gate.test_globs") or TEST_GLOBS
+        if (task.description or "").lstrip().lower().startswith(("[bug]", "[regression]")) \
+                and not any(_match(f, globs) for f in self.git.staged_files()):
+            return "a bug fix must add or update a regression test"
+        return ""
 
     GENERIC_QUESTION = "I could not finish this feature and cannot decide how to proceed on my own. What should I do?"
 
@@ -525,6 +581,8 @@ class Orchestrator:
         self.docs.task_done(task, phase, res.report, model=model, attempt=attempt, cost=cost,
                             gate_warnings=gate.warnings, files=files, next_task=nxt.id if nxt else None)
         summary = str(res.report.get("summary", "")).strip()
+        if phase.priority:
+            self.docs.rca(task.id, task.title, res.report.get("rca"))
         self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}\n\nmodel: {model}, attempt {attempt}")
         sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
         self.git.delete_branch(branch)
@@ -551,6 +609,9 @@ class Orchestrator:
                 gate = main_gate(self.cfg, phase=phase_checks)
                 if gate.ok:
                     summary = str(res.report.get("summary", ""))
+                    if kind == "fixer":
+                        rca = res.report.get("rca") if isinstance(res.report.get("rca"), dict) else {}
+                        self.docs.rca("fixer", "repair main branch", {"root_cause": res.report.get("root_cause"), **rca})
                     self.git.commit_all(f"{message}\n\n{summary}")
                     self.git.merge(branch, self.main, f"{message} (merge)")
                     self.git.delete_branch(branch)
@@ -725,7 +786,7 @@ class Orchestrator:
         self.git.start_branch("autopilot/audit", self.main)
         try:
             res = self.session("audit", self.ctx.auditor_prompt(kind, max_new), self.cfg.get("models.auditor", "opus"),
-                               phase=phase_id, read_only=True)
+                               phase=phase_id, read_only=True, label=f"audit {kind}")
         finally:  # read-only: drop anything it touched
             self.git.discard()
             self.git.checkout_main(self.main)

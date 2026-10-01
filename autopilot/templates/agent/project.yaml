@@ -111,6 +111,7 @@ git:
 docs:
   changelog: CHANGELOG.md
   history_dir: .agent/history
+  rca: docs/RCA.md        # root-cause log; corrective tasks and repairs append an entry
 
 replan:                   # rewrites stale pending tasks, reopens blocked ones, refreshes BRAIN.md
   enabled: true

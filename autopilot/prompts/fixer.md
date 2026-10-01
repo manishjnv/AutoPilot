@@ -25,5 +25,5 @@ Verify commands (run them until green):
 
 ## Final report (required)
 ```json
-{"status": "done | blocked", "summary": "what was broken and what you changed", "root_cause": "...", "decisions": [], "blocker": ""}
+{"status": "done | blocked", "summary": "what was broken and what you changed", "root_cause": "...", "rca": {"symptom": "...", "root_cause": "...", "fix": "file:line — what changed", "prevention": "the test or check that stops a repeat"}, "decisions": [], "blocker": ""}
 ```

@@ -6,7 +6,7 @@ from autopilot.cli import main as cli_main
 from autopilot.decisions import parse_answers
 from autopilot.orchestrator import Orchestrator
 from autopilot.plan import Plan
-from test_autopilot import FakeBackend, git, make_project, phases_basic
+from test_autopilot import RCA, FakeBackend, git, make_project, phases_basic
 
 NO_AUDIT = {"audit": {"completion_audit": False}}
 OWNER = {"class": "owner", "question": "Which payment provider?", "checked": "Stripe and Razorpay docs",
@@ -179,7 +179,7 @@ def test_red_main_at_start_runs_corrective_phase_first(tmp_path):
             if "implement task FIX001-T01" in req.prompt:
                 self.calls.append(("FIX001-T01", req.model))
                 (Path(req.cwd) / "BROKEN").unlink()
-                return SessionResult(ok=True, cost=0.1, report={"status": "done", "summary": "removed BROKEN"})
+                return SessionResult(ok=True, cost=0.1, report={"status": "done", "summary": "removed BROKEN", "rca": RCA})
             return super().run(req)
 
     fake = GivesUp()
