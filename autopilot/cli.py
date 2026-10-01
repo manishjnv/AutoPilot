@@ -179,9 +179,21 @@ def cmd_unblock(args):
             print(f"unknown task {tid}")
             continue
         state.set_task(tid, status="pending", attempts=0, last_error=None, note=args.note or "unblocked by user")
+        state.set_meta(f"unstick:{tid}", False)
         print(f"{tid} -> pending")
     if args.note:
         print("note: add hints for the agent to the task description in plan.yaml or to .agent/BRAIN.md")
+
+
+def cmd_answer(args):
+    from .state import State
+    state = State(Path(args.path).resolve() / AGENT_DIR / "state.db")
+    if state.answer_decision(args.decision_id, args.text):
+        print(f"{args.decision_id} answered; the run applies it on its next loop (or at the next `autopilot run`)")
+        return 0
+    row = state.decision(args.decision_id)
+    print(f"unknown decision {args.decision_id}" if not row else f"{args.decision_id} is not open (status {row['status']})")
+    return 1
 
 
 def cmd_skip(args):
@@ -270,6 +282,8 @@ def main(argv=None):
     p = add("next", cmd_next, "preview the next tasks in execution order"); p.add_argument("-n", type=int, default=15)
     p = add("unblock", cmd_unblock, "reset blocked task(s) to pending")
     p.add_argument("task_ids", nargs="+"); p.add_argument("--note")
+    p = add("answer", cmd_answer, "answer an open decision from docs/NEEDS-YOU.md")
+    p.add_argument("decision_id"); p.add_argument("text")
     p = add("skip", cmd_skip, "skip task(s)"); p.add_argument("task_ids", nargs="+")
     p = add("approve", cmd_approve, "deploy an approved phase to prod"); p.add_argument("phase")
     add("stop", cmd_stop, "graceful stop before the next session")

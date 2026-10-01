@@ -229,3 +229,8 @@ def test_secret_messages_redacted_and_placeholders_skipped():
     assert msgs and key not in msgs[0]
     assert scan_secrets(['password = "changeme-please-123"', 'token = "${API_TOKEN_FROM_ENV}"']) == []
     assert scan_secrets(['password = "hunter2hunter2hunter2"'])
+
+
+def test_needs_you_file_is_protected(tmp_path):
+    from autopilot.gate import protected_files
+    assert "docs/NEEDS-YOU.md" in protected_files(Config.load(tmp_path))   # an agent must not answer its own decision

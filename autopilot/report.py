@@ -21,6 +21,9 @@ def build_report(cfg, plan, state) -> str:
         lines.append(f"| {p.id}{' ⚑' if p.priority else ''} | {p.title[:40]} | {s.count('done')} | "
                      f"{s.count('blocked')} | {s.count('pending') + s.count('running')} | "
                      f"{row['status'] if row else 'open'} | {dep} |")
+    open_d = state.decisions("OPEN")
+    lines += ["", f"## Needs you ({len(open_d)} open)", ""]
+    lines += [f"- **{d['id']}** {d['title']}: {' '.join((d['question'] or '').split())[:250]}" for d in open_d] or ["(none)"]
     blocked = state.tasks("blocked")
     lines += ["", f"## Blocked tasks ({len(blocked)})", ""]
     for r in blocked:

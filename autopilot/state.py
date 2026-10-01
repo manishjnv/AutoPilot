@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, kind TEXT, message TEXT
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS decisions (
+  id TEXT PRIMARY KEY, kind TEXT, task_id TEXT, phase_id TEXT, title TEXT, question TEXT, checked TEXT, why TEXT,
+  suggestion TEXT, blocks TEXT, status TEXT, answer TEXT, created_at TEXT, answered_at TEXT
+);
 """
 
 
@@ -62,6 +66,7 @@ class State:
                 if t.reopen and row["status"] in ("blocked", "skipped"):
                     self.set_task(t.id, status="pending", attempts=0, last_error=None,
                                   note="reopened by replanner")
+                    self.set_meta(f"unstick:{t.id}", False)
                     reopened.append(t.id)
         for tid, row in existing.items():
             if tid not in plan.task_by_id and row["status"] == "pending":
@@ -145,6 +150,42 @@ class State:
         row = self.db.execute(
             "SELECT prod_ref FROM phases WHERE prod_status='deployed' ORDER BY completed_at DESC LIMIT 1").fetchone()
         return row[0] if row else None
+
+    # ---------- owner decisions (docs/NEEDS-YOU.md) ----------
+    def add_decision(self, **f) -> str:
+        n = max((int(r[0][2:]) for r in self.db.execute("SELECT id FROM decisions")), default=0) + 1
+        did = f"D-{n:03d}"
+        f.setdefault("blocks", [])
+        f["blocks"] = json.dumps(f["blocks"]) if isinstance(f["blocks"], list) else f["blocks"]
+        f.update(id=did, status="OPEN", created_at=now())
+        self.db.execute(f"INSERT INTO decisions({', '.join(f)}) VALUES({', '.join('?' * len(f))})", tuple(f.values()))
+        return did
+
+    def decisions(self, status: str | None = None) -> list[sqlite3.Row]:
+        if status:
+            return list(self.db.execute("SELECT * FROM decisions WHERE status=? ORDER BY rowid DESC", (status,)))
+        return list(self.db.execute("SELECT * FROM decisions ORDER BY rowid DESC"))
+
+    def decision(self, did: str) -> sqlite3.Row | None:
+        return self.db.execute("SELECT * FROM decisions WHERE id=?", (did,)).fetchone()
+
+    def set_decision(self, did: str, **f):
+        if isinstance(f.get("blocks"), list):
+            f["blocks"] = json.dumps(f["blocks"])
+        cols = ", ".join(f"{k}=?" for k in f)
+        self.db.execute(f"UPDATE decisions SET {cols} WHERE id=?", (*f.values(), did))
+
+    def answer_decision(self, did: str, text: str) -> bool:
+        cur = self.db.execute("UPDATE decisions SET status='ANSWERED', answer=?, answered_at=? WHERE id=? AND status='OPEN'",
+                              (text, now(), did))
+        return cur.rowcount > 0
+
+    def open_decision(self, task_id: str | None = None, kind: str | None = None, phase_id: str | None = None):
+        q, args = "SELECT * FROM decisions WHERE status='OPEN'", []
+        for col, val in (("task_id", task_id), ("kind", kind), ("phase_id", phase_id)):
+            if val is not None:
+                q += f" AND {col}=?"; args.append(val)
+        return self.db.execute(q + " ORDER BY rowid DESC", args).fetchone()
 
     # ---------- meta & events ----------
     def get_meta(self, key: str, default=None):

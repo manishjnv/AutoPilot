@@ -25,6 +25,9 @@ Risk tier: {{risk}}
 ## Recent decisions (stay consistent)
 {{decisions}}
 
+## Owner answers (follow these exactly)
+{{owner_answers}}
+
 ## Previous session handoff
 {{handoff}}
 

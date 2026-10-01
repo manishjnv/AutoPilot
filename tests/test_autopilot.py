@@ -19,16 +19,24 @@ TEST_CMD = "python -c \"import pathlib,sys; sys.exit(1 if pathlib.Path('BROKEN')
 class FakeBackend:
     """Behaves like an agent: writes files for tasks, returns JSON reports."""
 
-    def __init__(self, behaviours=None, audits=None):
+    def __init__(self, behaviours=None, audits=None, unsticks=None):
         self.behaviours = behaviours or {}   # task_id -> list of actions per attempt
         self.audits = list(audits or [])     # queued audit reports
+        self.unsticks = unsticks or {}       # task_id -> unstick report (default: technical diagnosis)
         self.calls = []
+        self.prompts = []                    # (task_id, prompt) of every task session
 
     def run(self, req):
         cwd = Path(req.cwd)
+        u = re.search(r"^# Assignment: unstick task (\S+)", req.prompt, re.M)
+        if u:
+            self.calls.append(("unstick", req.model))
+            rep = self.unsticks.get(u.group(1), {"class": "technical", "diagnosis": "fix it"})
+            return SessionResult(ok=True, cost=0.1, report=rep)
         m = re.search(r"implement task (\S+)", req.prompt)
         if m:
             tid = m.group(1)
+            self.prompts.append((tid, req.prompt))
             n = sum(1 for c in self.calls if c[0] == tid)
             self.calls.append((tid, req.model))
             actions = self.behaviours.get(tid, ["ok"])
@@ -71,7 +79,8 @@ def make_project(tmp_path: Path, phases: list[dict], extra_cfg: dict | None = No
     root.mkdir()
     assert cli_main(["init", "-C", str(root), "--stack", "generic"]) == 0
     cfg = {"name": "demo", "commands": {"test": [TEST_CMD]}, "audit": {"every_n_phases": 0},
-           "replan": {"every_n_phases": 0}, "budget_usd": {"wait_for_next_day": False}}
+           "replan": {"every_n_phases": 0}, "budget_usd": {"wait_for_next_day": False},
+           "needs_you": {"wait": False}}
     if extra_cfg:
         for k, v in extra_cfg.items():
             cfg[k] = {**cfg.get(k, {}), **v} if isinstance(v, dict) else v

@@ -81,6 +81,17 @@ class ContextBuilder:
         from .gate import verify_commands
         return bullets([f"`{c}`" for c in verify_commands(self.cfg, extra)], "(no commands configured)")
 
+    def owner_answers(self, task_id: str) -> str:
+        import json
+        rows = [d for d in self.state.decisions("APPLIED") if task_id in json.loads(d["blocks"] or "[]")]
+        return bullets([f"{d['id']}: {d['question']} → {d['answer']}" for d in reversed(rows)])
+
+    def unstick_prompt(self, task, error: str) -> str:
+        phase = self.plan.phase_of(task)
+        return render("unstick.md", task_id=task.id, task_title=task.title, description=task.description or task.title,
+                      acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
+                      brain=self.brain(), decisions=self.decisions(), error=(error or "(none)")[-6000:])
+
     def task_prompt(self, task, attempt: int, last_error: str | None) -> str:
         phase = self.plan.phase_of(task)
         retry = ""
@@ -93,7 +104,7 @@ class ContextBuilder:
             scope=bullets(task.files_in_scope, "(not restricted)"), docs=bullets(task.docs, "(whatever this change affects)"),
             brain=self.brain(), decisions=self.decisions(), handoff=self.handoff(),
             progress=progress_line(self.plan, self.state.status_map()), retry_block=retry,
-            verify_cmds=self.verify_cmds(task.verify),
+            verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
         )
 
     def fixer_prompt(self, errors: str, git_log: str) -> str:

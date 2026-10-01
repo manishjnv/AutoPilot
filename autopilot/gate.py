@@ -40,6 +40,11 @@ SETTINGS_REMOVED_RX = re.compile(r'addopts|testpaths|python_files|"test"\s*:|tes
 SETTINGS_ADDED_RX = re.compile(r"--ignore|--deselect|(^|\s)-k\s|testPathIgnorePatterns|modulePathIgnorePatterns|"
                                r"--passWithNoTests|\|\|\s*true|exit 0")
 PROTECTED = [".agent/plan.yaml", ".agent/project.yaml"]
+
+
+def protected_files(cfg) -> list[str]:
+    """Files no agent session may change: the plan, the config and the owner's answers (it would answer itself)."""
+    return PROTECTED + [str(cfg.get("needs_you.path", "docs/NEEDS-YOU.md")).replace("\\", "/")]
 # CI runs with repository secrets on push: adding, editing or deleting a pipeline is never routine task work
 CI_GLOBS = [".github/workflows/**", ".gitlab-ci.yml", ".circleci/**", "Jenkinsfile", "azure-pipelines.yml",
             "bitbucket-pipelines.yml", ".buildkite/**"]
@@ -175,7 +180,7 @@ def task_gate(cfg, git, task) -> GateResult:
     files = git.staged_files()
     if not files and not task.allow_no_changes:
         gate.problems.append("the session produced no file changes")
-    touched_protected = [f for f in files if f in PROTECTED]
+    touched_protected = [f for f in files if f in protected_files(cfg)]
     if touched_protected:
         gate.problems.append(f"session modified protected files: {touched_protected}")
     (gate.warnings if task.allow_test_changes else gate.problems).extend(test_tamper(cfg, git, task.allow_test_changes))

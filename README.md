@@ -81,11 +81,18 @@ set `agent.backend: command`.
 | `autopilot run [--max-sessions N]` | Autonomous run until the completion audit passes |
 | `autopilot status` | Progress, cost, blocked tasks with reasons, pending approvals |
 | `autopilot unblock T1 T2` / `skip T3` | Clear the blocked queue whenever you like (edit the task spec first) |
+| `autopilot answer D-003 "text"` | Answer a decision from `docs/NEEDS-YOU.md` (works while a run is active) |
 | `autopilot approve P05` | Deploy a queued phase to prod |
 | `autopilot review --kind periodic\|completion\|replan` | Force a review now |
 | `autopilot stop` / `resume` | Graceful stop before the next session |
 
 All commands take `-C <project path>`.
+
+**Needs you.** A stuck task first gets one read-only diagnosis session (it may search the web) and one more attempt.
+Only what truly needs you (credentials, a paid account, a business or legal call) is written in plain words to
+`docs/NEEDS-YOU.md`; that feature is parked and everything else keeps being built. Answer with `autopilot answer`, or
+write your answer after "Your answer:" in the file and commit it while no run is active. The run never stops for a red
+check either: a failing main or phase gate becomes a corrective phase first.
 
 ## Running unattended on a VPS
 
@@ -100,7 +107,7 @@ All commands take `-C <project path>`.
    the server.
 3. Notifications: set `AUTOPILOT_TG_TOKEN`/`AUTOPILOT_TG_CHAT` (Telegram), `AUTOPILOT_SLACK_WEBHOOK`, `AUTOPILOT_NTFY_TOPIC`
    or `AUTOPILOT_WEBHOOK`.
-4. Your only job is to look at the blocked queue and approvals when notified.
+4. Your only job is to answer `docs/NEEDS-YOU.md` and approve prod deploys when notified.
 
 ## Writing plans that run well autonomously
 - Keep each task to one session (~1–3 files of real logic) and give it 2–5 **testable** acceptance criteria.

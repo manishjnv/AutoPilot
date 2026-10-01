@@ -10,18 +10,19 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import re
 import time
 from pathlib import Path
 
-from . import AGENT_DIR
+from . import AGENT_DIR, decisions
 from .backends import SessionRequest, SessionResult, get_backend
 from .config import RISKS, Config
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
 from .docs import Documenter
-from .gate import GateResult, PROTECTED, main_gate, run_commands, scan_secrets, task_gate, test_tamper
+from .gate import GateResult, main_gate, protected_files, run_commands, scan_secrets, task_gate, test_tamper
 from .gitops import Git, GitError
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
@@ -57,6 +58,7 @@ class Orchestrator:
         self.rate_limit_streak = 0
         self.plan: Plan | None = None
         self.ctx: ContextBuilder | None = None
+        self.main_red, self.main_checked, self.main_error = False, None, ""
 
     # ------------------------------------------------------------------ plan
     def reload_plan(self):
@@ -72,8 +74,12 @@ class Orchestrator:
         return sync
 
     def _commit_main(self, message: str):
-        self.git.checkout_main(self.main) if self.git.branch() != self.main else None
+        if self.git.branch() != self.main:
+            self.git.checkout_main(self.main)
+        before = self.git.head()
         self.git.commit_all(message)
+        if self.main_red and self.main_checked == before:  # our own docs/plan commits don't change the gate result
+            self.main_checked = self.git.head()
         self._push()
 
     def _push(self):
@@ -107,6 +113,8 @@ class Orchestrator:
         except (PlanError, FileNotFoundError) as e:
             self.notify.send("fatal", f"plan.yaml invalid: {e}")
             return "fatal: invalid plan"
+        self.intake_answers()
+        self.apply_answers()
         crashed = self.state.recover_crashed()
         if crashed:
             log.info("recovered crashed tasks: %s", crashed)
@@ -121,7 +129,7 @@ class Orchestrator:
                     log.warning("setup command failed (continuing): %s\n%s", bad[0].cmd, bad[0].output[-800:])
             greenfield = not self.state.tasks("done")  # nothing built yet: checks can't pass on an empty repo
             if not greenfield and not self.ensure_main_green():
-                raise Stop("main branch is failing and the fixer could not repair it", fatal=True)
+                self.start_main_red()
             self.close_finished_phases()
             outcome = self.loop()
         except Stop as s:
@@ -158,24 +166,53 @@ class Orchestrator:
         while True:
             self.check_stop()
             self.process_approvals()
+            self.intake_answers()
+            self.apply_answers()
+            self.recheck_main()
             status = self.state.status_map()
-            task = self.plan.next_ready(status, self.cfg.get("scheduling.phase_dependency", "soft"))
+            if self.main_red:  # only corrective (priority) work may run until main is green again
+                view = {k: ("hold" if v == "pending" and k in self.plan.task_by_id
+                            and not self.plan.phase_of(k).priority else v) for k, v in status.items()}
+            else:
+                view = status
+            task = self.plan.next_ready(view, self.cfg.get("scheduling.phase_dependency", "soft"))
             if task:
                 if self.execute_task(task):
                     stall_replanned = False
+                    self.main_red = False  # its gate ran the full checks on top of main
                 self.close_finished_phases()
                 continue
 
             pending = [t for t in self.plan.all_tasks() if status.get(t.id) == "pending"]
-            if pending:  # everything left waits on blocked work
-                if self.cfg.get("replan.enabled") and self.cfg.get("replan.on_stall") and not stall_replanned:
-                    stall_replanned = True
-                    self.notify.send("stalled", f"{len(pending)} tasks waiting on blocked work — replanning")
-                    self.replan("stall")
-                    continue
-                self.notify.send("stalled", f"needs you: {len(pending)} tasks wait on "
-                                            f"{len(self.state.tasks('blocked'))} blocked tasks")
-                return "stalled on blocked tasks"
+            if pending and self.cfg.get("replan.enabled") and self.cfg.get("replan.on_stall") and not stall_replanned:
+                stall_replanned = True
+                self.notify.send("stalled", f"{len(pending)} tasks waiting on blocked work — replanning")
+                self.replan("stall")
+                continue
+            if self.main_red:
+                self.needs_you("main", "Checks on main are failing",
+                               "The project's checks fail on the main branch and my repair attempts did not fix them. "
+                               "How should I proceed?", why=self.main_error[-300:],
+                               checked="The failing checks, a repair session and a corrective task",
+                               suggestion="Tell me what changed, or what to fix first.")
+            for r in self.state.tasks("blocked"):  # runs from before decisions existed
+                if not self.state.open_decision(task_id=r["id"], kind="task"):
+                    t = self.plan.task_by_id.get(r["id"])
+                    self.needs_you("task", f"{r['id']} {t.title if t else ''}".strip(), self.GENERIC_QUESTION,
+                                   task_id=r["id"], why=(r["last_error"] or "")[-300:])
+            open_d = self.state.decisions("OPEN")
+            if open_d:
+                ids = sorted(d["id"] for d in open_d)
+                path = self.cfg.get("needs_you.path", "docs/NEEDS-YOU.md")
+                if not self.cfg.get("needs_you.wait", True):
+                    return f"stalled: waiting on {len(ids)} decisions (see {path})"
+                if self.state.get_meta("needs_you_digest") != ids:
+                    self.state.set_meta("needs_you_digest", ids)
+                    self.notify.send("needs_you", f"{len(ids)} decisions need you, see {path}: {', '.join(ids)}")
+                self.sleep(float(self.cfg.get("needs_you.poll_minutes", 15)) * 60)
+                continue
+            if pending or self.main_red:
+                return f"stalled: {len(pending)} tasks wait on skipped or blocked work"
 
             # plan exhausted -> is the app actually complete?
             if not self.cfg.get("audit.enabled") or not self.cfg.get("audit.completion_audit"):
@@ -289,6 +326,7 @@ class Orchestrator:
         max_attempts = int(self.cfg.get("retries.max_attempts_per_task", 3))
         branch = f"autopilot/{task.id}"
         self.state.set_task(task.id, status="running", started_at=now())
+        extra, guidance, suggestion, fail_err = False, "", "", ""
 
         while attempts < max_attempts:
             per_task = float(self.cfg.get("budget_usd.per_task", 0) or 0)
@@ -310,10 +348,12 @@ class Orchestrator:
             attempts += 1
             self.state.set_task(task.id, attempts=attempts, model=model)
             self.git.normalize_after_session(branch, base)
+            agent_blocked = False
 
             if not res.ok:
                 last_error = f"agent session failed ({model}): {res.error}"
             elif str(res.report.get("status", "done")).lower() == "blocked":
+                agent_blocked = True
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 gate = task_gate(self.cfg, self.git, task)
@@ -329,13 +369,153 @@ class Orchestrator:
                     last_error = gate.report()
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
             self.git.discard()
+            fail_err = last_error or ""
+            if (self.cfg.get("unstick.enabled", True) and not self.state.get_meta(f"unstick:{task.id}", False)
+                    and (agent_blocked or attempts >= int(self.cfg.get("unstick.after_attempts", 2)))):
+                kind, text, rep = self.unstick(task, phase, fail_err)
+                if kind == "owner":
+                    self._park(task, branch, attempts, fail_err)
+                    self.needs_you("task", f"{task.id} {task.title}", str(rep.get("question") or self.GENERIC_QUESTION),
+                                   task_id=task.id, checked=str(rep.get("checked") or text),
+                                   why=str(rep.get("why") or fail_err[-300:]), suggestion=str(rep.get("suggestion") or ""))
+                    return False
+                if kind != "skip":
+                    extra, guidance, suggestion = True, text, str(rep.get("suggestion") or "")
+                    max_attempts = attempts + 1
+                    label = "DIAGNOSIS" if kind == "technical" else "DECISION"
+                    last_error = f"{fail_err}\n\n{label} from a separate review session (apply it):\n{text}"
 
+        self._park(task, branch, attempts, last_error or "")
+        if extra:
+            self.needs_you("task", f"{task.id} {task.title}",
+                           "It still fails after a diagnosis and a retry. How should we proceed?", task_id=task.id,
+                           checked=guidance, why=fail_err[-300:], suggestion=suggestion)
+        else:
+            self.needs_you("task", f"{task.id} {task.title}", self.GENERIC_QUESTION, task_id=task.id,
+                           checked=f"{attempts} attempts by the agent", why=(fail_err or last_error or "")[-300:])
+        return False
+
+    GENERIC_QUESTION = "I could not finish this feature and cannot decide how to proceed on my own. What should I do?"
+
+    def _park(self, task, branch, attempts, error):
         self.git.checkout_main(self.main)
         self.git.delete_branch(branch)
-        self.state.set_task(task.id, status="blocked", last_error=(last_error or "")[-6000:], finished_at=now())
-        self.notify.send("task_blocked", f"{task.id} {task.title} parked after {attempts} attempts: "
-                                         f"{(last_error or '')[:400]}")
-        return False
+        self.state.set_task(task.id, status="blocked", last_error=error[-6000:], finished_at=now())
+        self.notify.send("task_blocked", f"{task.id} {task.title} parked after {attempts} attempts: {error[:400]}")
+
+    def unstick(self, task, phase, error: str) -> tuple[str, str, dict]:
+        """One read-only diagnosis session. -> (technical|spec|owner|skip, guidance text, report)."""
+        self.git.start_branch("autopilot/unstick", self.main)
+        try:
+            res = self.session("unstick", self.ctx.unstick_prompt(task, error), self.cfg.get("models.unstick", "sonnet"),
+                               task_id=task.id, phase=phase.id, read_only=True)
+        finally:  # read-only: drop anything it touched
+            self.git.discard()
+            self.git.checkout_main(self.main)
+            self.git.delete_branch("autopilot/unstick")
+        if res.rate_limited:
+            return "skip", "", {}
+        self.state.set_meta(f"unstick:{task.id}", True)
+        rep = res.report if res.ok and isinstance(res.report, dict) else {}
+        cls = str(rep.get("class", "")).lower()
+        diagnosis, decision = str(rep.get("diagnosis") or "").strip(), str(rep.get("decision") or "").strip()
+        if cls == "technical" and diagnosis:
+            return "technical", diagnosis, rep
+        if cls == "spec" and decision:
+            options = "; ".join(str(o) for o in (rep.get("options_considered") or []))
+            self._record_decision(f"[{task.id}] DECISION (auto): {decision} (options considered: {options or 'n/a'})")
+            self._commit_main(f"[autopilot] auto decision for {task.id}")
+            return "spec", decision, rep
+        return "owner", diagnosis or decision, rep
+
+    # ------------------------------------------------------------------ owner decisions (docs/NEEDS-YOU.md)
+    def _needs_path(self) -> Path:
+        return self.root / self.cfg.get("needs_you.path", "docs/NEEDS-YOU.md")
+
+    def _write_needs_you(self):
+        p = self._needs_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(decisions.render(self.state), encoding="utf-8")
+
+    def _record_decision(self, line: str):
+        p = self.ad / "DECISIONS.md"
+        text = p.read_text(encoding="utf-8") if p.exists() else ""
+        sep = "" if not text or text.endswith("\n") else "\n"
+        p.write_text(f"{text}{sep}- [{dt.date.today().isoformat()}] {line}\n", encoding="utf-8")
+
+    def _dependants(self, tid: str) -> list[str]:
+        out, grew = [tid], True
+        while grew:
+            grew = False
+            for t in self.plan.all_tasks():
+                if t.id not in out and any(d in out for d in t.depends_on):
+                    out.append(t.id)
+                    grew = True
+        return out
+
+    def needs_you(self, kind: str, title: str, question: str, *, task_id=None, phase_id=None,
+                  checked: str = "", why: str = "", suggestion: str = "") -> str:
+        fields = dict(title=title, question=question, checked=checked, why=why, suggestion=suggestion,
+                      blocks=json.dumps(self._dependants(task_id) if task_id else []))
+        cur = self.state.open_decision(task_id=task_id, kind=kind, phase_id=phase_id)
+        if cur and all(cur[k] == v for k, v in fields.items()):
+            return cur["id"]
+        if cur:
+            did = cur["id"]
+            self.state.set_decision(did, **fields)
+        else:
+            did = self.state.add_decision(kind=kind, task_id=task_id, phase_id=phase_id, **fields)
+        self._write_needs_you()
+        self._commit_main(f"[autopilot] needs-you {did}: {title}")
+        self.notify.send("needs_you", f"{did} {title}: {question}")
+        return did
+
+    def intake_answers(self):
+        p = self._needs_path()
+        if p.exists():
+            for did, text in decisions.parse_answers(p.read_text(encoding="utf-8", errors="replace")).items():
+                self.state.answer_decision(did, text)
+
+    def apply_answers(self):
+        for d in reversed(self.state.decisions("ANSWERED")):
+            self._record_decision(f"[{d['id']}] {' '.join((d['question'] or '').split())} → {d['answer']}")
+            if d["kind"] == "task":
+                for tid in json.loads(d["blocks"] or "[]"):
+                    row = self.state.task(tid)
+                    if row and row["status"] == "blocked":
+                        self.state.set_task(tid, status="pending", attempts=0, last_error=None, note=f"answered {d['id']}")
+                    self.state.set_meta(f"unstick:{tid}", False)
+            elif d["kind"] == "phase" and d["phase_id"]:
+                self.state.set_phase(d["phase_id"], status="open")
+            elif d["kind"] == "main":
+                self.main_checked = None
+            self.state.set_decision(d["id"], status="APPLIED")
+            self._write_needs_you()
+            self._commit_main(f"[autopilot] apply answer {d['id']}")
+
+    # ------------------------------------------------------------------ main branch red
+    def start_main_red(self):
+        head = self.git.head()
+        self.main_red, self.main_checked = True, head
+        self.notify.send("main_red", f"checks on {self.main} fail and the fixer could not repair them; "
+                                     "building a corrective phase first")
+        self.add_corrective_phase([{
+            "title": "Repair the failing checks on main", "risk": "high",
+            "description": "The project's checks fail on the main branch. Find the root cause and fix it with the "
+                           f"smallest correct change.\n\nFailing checks:\n{self.main_error[-3000:]}",
+            "acceptance_criteria": ["All verify commands pass on the main branch"]}],
+            "main branch red", once_key=f"mainred-{head[:12]}")
+
+    def recheck_main(self):
+        if not self.main_red:
+            return
+        head = self.git.head()
+        if head == self.main_checked:
+            return
+        self.main_checked = head
+        if main_gate(self.cfg).ok:
+            self.main_red = False
+            self.notify.send("main_fixed", "checks on main pass again")
 
     def _complete_task(self, task, phase, res, model, attempt, gate: GateResult, branch):
         files = self.git.staged_files()
@@ -362,7 +542,7 @@ class Orchestrator:
             err = f"session failed: {res.error}"
         else:
             files = self.git.staged_files()
-            problems = [f"modified protected file {f}" for f in files if f in PROTECTED]
+            problems = [f"modified protected file {f}" for f in files if f in protected_files(self.cfg)]
             problems += scan_secrets(self.git.staged_added_lines())
             problems += test_tamper(self.cfg, self.git)
             if problems:
@@ -397,6 +577,7 @@ class Orchestrator:
                 self.notify.send("main_fixed", detail[:300])
                 return True
             errors = detail
+        self.main_error = errors
         return False
 
     # ------------------------------------------------------------------ phases
@@ -405,6 +586,8 @@ class Orchestrator:
             row = self.state.phase(p.id)
             statuses = [self.state.status_map().get(t.id, "pending") for t in p.tasks]
             active = any(s in ("pending", "running") for s in statuses)
+            if row and row["status"] == "failed":  # waits for the owner (a `phase` decision reopens it)
+                continue
             if row and row["status"] in ("done", "partial"):
                 if not active:
                     continue
@@ -415,8 +598,23 @@ class Orchestrator:
 
     def close_phase(self, phase, status: str):
         log.info("closing phase %s (%s)", phase.id, status)
-        if not self.ensure_main_green(phase_checks=True):
-            raise Stop(f"phase {phase.id} gate failing and could not be repaired", fatal=True)
+        gate = main_gate(self.cfg, phase=True)
+        if not gate.ok:
+            err = gate.report()
+            if not phase.priority and self.add_corrective_phase([{  # corrective phases never spawn more of them
+                    "title": f"Fix the failing checks for {phase.id}", "risk": "high",
+                    "description": f"The checks that close phase {phase.id} fail. Find the root cause and fix it.\n\n"
+                                   f"Failing checks:\n{err[-3000:]}",
+                    "acceptance_criteria": ["All verify commands pass, including the phase checks"],
+                    "verify": self.cfg.commands("phase_verify")}],
+                    f"phase gate {phase.id}", once_key=f"phasefix-{phase.id}"):
+                return  # phase stays open; it closes when its corrective phase is done
+            self.state.set_phase(phase.id, status="failed")
+            self.needs_you("phase", f"{phase.id} checks keep failing",
+                           f"The checks that close phase {phase.id} still fail after a repair attempt. How should we proceed?",
+                           phase_id=phase.id, checked="The failing checks and one corrective phase", why=err[-300:],
+                           suggestion="Tell me what to change, or whether to skip these checks.")
+            return
         note = self.deploy_phase(phase) if phase.deploy and any(
             self.state.task(t.id)["status"] == "done" for t in phase.tasks) else ""
         self.state.set_phase(phase.id, status=status, completed_at=now())
@@ -450,6 +648,10 @@ class Orchestrator:
                 if f"deployfix-{phase.id}" in self.state.get_meta("once_keys", []):
                     log.warning("staging failed again after its corrective phase: %s", phase.id)
                     self.notify.send("deploy_failed", f"{phase.id}: staging failed again after its corrective phase")
+                    self.needs_you("deploy", f"{phase.id} staging deploy keeps failing",
+                                   "The staging deployment still fails after a repair attempt. How should we proceed?",
+                                   phase_id=phase.id, checked="The deploy command and one corrective phase",
+                                   why=res.detail[-300:], suggestion="Check the deploy command, credentials and server.")
                 self.add_corrective_phase([{
                     "title": f"Fix staging deployment failure after {phase.id}", "risk": "high",
                     "description": "The staging deployment failed. Diagnose and fix the application-side cause "
@@ -501,6 +703,7 @@ class Orchestrator:
                 "acceptance_criteria": [str(x) for x in (g.get("acceptance_criteria") or [])] or
                                        ["The problem described is fixed and covered by an automated test"],
                 "files_in_scope": [str(x) for x in (g.get("files_in_scope") or [])],
+                **({"verify": [str(x) for x in g["verify"]]} if g.get("verify") else {}),
             })
         if not tasks:
             return None

@@ -76,6 +76,16 @@ models:
   replanner: opus
   auditor: opus
   onboard: opus
+  unstick: sonnet         # diagnoses a stuck task (may search the web) before anyone is asked
+
+unstick:                  # a failing task first gets one read-only diagnosis session, then one more attempt
+  enabled: true
+  after_attempts: 2
+
+needs_you:                # what only the owner can decide goes here; everything else keeps being built
+  path: docs/NEEDS-YOU.md
+  wait: true              # true = keep polling for answers instead of ending the run
+  poll_minutes: 15
 
 retries:
   max_attempts_per_task: 3
@@ -136,4 +146,4 @@ notify:
   slack_webhook_env: AUTOPILOT_SLACK_WEBHOOK
   webhook_env: AUTOPILOT_WEBHOOK
   ntfy_topic_env: AUTOPILOT_NTFY_TOPIC
-  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, budget, stalled, run_done, fatal]
+  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, needs_you, budget, stalled, run_done, fatal]
