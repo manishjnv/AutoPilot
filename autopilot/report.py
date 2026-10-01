@@ -177,6 +177,47 @@ def build_report(cfg, plan, state) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ---------- M3: public proof numbers ----------
+def proof_stats(cfg, plan, state) -> str:
+    """The numbers worth publishing after a run, as one markdown table: tasks finished and stuck, first-try rate,
+    cost, tokens, wall-clock and agent time, and what the owner had to do. Hours a human spent can't be measured;
+    the owner actions are the closest proxy (fill in your own hours when publishing)."""
+    status = state.status_map()
+    total = len([t for p in plan.phases for t in p.tasks])
+    done = sum(v == "done" for v in status.values())
+    rows = [r for rs in task_quality(plan, state).values() for r in rs]
+    first = sum(r["first_try"] for r in rows)
+    t0, t1, n, ms = state.db.execute("SELECT MIN(started_at), MAX(ended_at), COUNT(*), COALESCE(SUM(duration_ms), 0) "
+                                     "FROM sessions").fetchone()
+    tokens = sum(v["total"] for _, v in state.token_totals("kind"))
+    answered = state.decisions("ANSWERED")
+    by_user = state.db.execute("SELECT COUNT(*) FROM tasks WHERE note LIKE '%by user%'").fetchone()[0]
+    approvals = state.db.execute("SELECT COUNT(*) FROM phases WHERE prod_status IS NOT NULL "
+                                 "AND prod_status != 'awaiting_approval'").fetchone()[0]
+
+    def hours(a, b):
+        import datetime as dt
+        try:
+            return f"{(dt.datetime.fromisoformat(b) - dt.datetime.fromisoformat(a)).total_seconds() / 3600:.1f} h"
+        except (TypeError, ValueError):
+            return "?"
+    pct = (lambda a, b: f"{round(100 * a / b)}%" if b else "n/a")
+    out = [f"## Autopilot run: {cfg.get('name', cfg.root.name)}", "", "| Measure | Value |", "|---|---|",
+           f"| Tasks finished | {done} of {total} ({pct(done, total)}) |",
+           f"| Tasks stuck (blocked) | {sum(v == 'blocked' for v in status.values())} |",
+           f"| Passed the gate on the first try | {first} of {len(rows)} ({pct(first, len(rows))}) |",
+           f"| Agent sessions | {n} |",
+           f"| Cost (CLI estimate) | ${state.cost():.2f} |",
+           f"| Tokens | {_n(tokens)} |",
+           f"| Wall-clock, first to last session | {hours(t0, t1)} |",
+           f"| Agent time (sum of sessions) | {ms / 3.6e6:.1f} h |",
+           f"| Owner: decisions asked / answered | {len(state.decisions())} / {len(answered)} |",
+           f"| Owner: tasks unblocked or skipped | {by_user} |",
+           f"| Owner: prod deploys approved or run | {approvals} |",
+           "| Owner: hours spent | (fill in) |"]
+    return "\n".join(out) + "\n\n" + token_footer(state) + "\n"
+
+
 # ---------- P5: live status page ----------
 def html_page(md: str, refresh: int = 30) -> str:
     """The report as one self-refreshing HTML page. ponytail: escaped markdown in <pre>, no renderer dependency."""

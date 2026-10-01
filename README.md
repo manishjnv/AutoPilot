@@ -104,6 +104,7 @@ with auto-approval, so use the same sandbox advice as for Claude Code.
 | `autopilot next -n 20` | Preview the execution order and models |
 | `autopilot run [--max-sessions N]` | Autonomous run until the completion audit passes |
 | `autopilot status` | Progress, cost, blocked tasks with reasons, pending approvals |
+| `autopilot stats` | The numbers of a run worth publishing: tasks finished and stuck, first-try rate, cost, tokens, time, owner actions |
 | `autopilot serve [--port 8765]` | The same report as a live page in the browser (read-only, refreshes every 30 s) |
 | `autopilot unblock T1 T2` / `skip T3` | Clear the blocked queue whenever you like (edit the task spec first) |
 | `autopilot answer D-003 "text"` | Answer a decision from `docs/NEEDS-YOU.md` (works while a run is active) |

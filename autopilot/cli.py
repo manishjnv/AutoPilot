@@ -187,6 +187,12 @@ def cmd_status(args):
     print(build_report(cfg, plan, state))
 
 
+def cmd_stats(args):
+    from .report import proof_stats
+    cfg, plan, state = _open_state(Path(args.path).resolve())
+    print(proof_stats(cfg, plan, state))
+
+
 def cmd_serve(args):
     import os
 
@@ -345,6 +351,7 @@ def main(argv=None):
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true")
     add("status", cmd_status, "progress, cost, blocked tasks, approvals")
+    add("stats", cmd_stats, "the numbers of a run worth publishing (markdown table)")
     p = add("serve", cmd_serve, "live read-only status page in the browser")
     p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8765)
     p.add_argument("--refresh", type=int, default=30, help="seconds between page reloads")
