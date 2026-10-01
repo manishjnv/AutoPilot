@@ -79,6 +79,7 @@ set `agent.backend: command`.
 | `autopilot init [--stack X]` | Create `.agent/`, `.gitignore` entries and a `CLAUDE.md` pointer |
 | `autopilot onboard --plan-doc PLAN.md` | AI session writes BRAIN.md, real commands and plan.yaml |
 | `autopilot validate` | Schema, dependency and cycle check; warns about weak acceptance criteria |
+| `autopilot doctor` | Checks the machine before a run: the claude CLI really starts and is logged in, git, `gh` (when needed), sandbox tools, notifications, config errors |
 | `autopilot next -n 20` | Preview the execution order and models |
 | `autopilot run [--max-sessions N]` | Autonomous run until the completion audit passes |
 | `autopilot status` | Progress, cost, blocked tasks with reasons, pending approvals |

@@ -180,6 +180,20 @@ def cmd_serve(args):
     return 0
 
 
+def cmd_doctor(args):
+    from .doctor import FAIL, checks
+    root = Path(args.path).resolve()
+    if not (root / AGENT_DIR / "project.yaml").exists():
+        print(f"FAIL  project        no {AGENT_DIR}/project.yaml in {root}: run `autopilot init` first")
+        return 1
+    rows = checks(Config.load(root))
+    for level, name, detail in rows:
+        print(f"{level:5s} {name:14s} {detail}")
+    bad = sum(r[0] == FAIL for r in rows)
+    print(f"\n{bad} problem(s) to fix before `autopilot run`" if bad else "\nready for `autopilot run`")
+    return 1 if bad else 0
+
+
 def cmd_next(args):
     cfg, plan, state = _open_state(Path(args.path).resolve())
     status = dict(state.status_map())
@@ -296,6 +310,7 @@ def main(argv=None):
     p = add("onboard", cmd_onboard, "AI session: write BRAIN.md, commands and plan.yaml from a plan doc")
     p.add_argument("--plan-doc"); p.add_argument("--budget", default="15")
     add("validate", cmd_validate, "validate project.yaml and plan.yaml")
+    add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
     p = add("run", cmd_run, "run autonomously until the app is complete")
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true")

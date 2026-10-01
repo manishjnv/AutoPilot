@@ -106,7 +106,11 @@ class ClaudeCLIBackend:
 
     def __init__(self, cfg):
         self.cfg = cfg
-        self.binary = os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN") or shutil.which("claude") or "claude"
+        self.binary = self.resolve_binary()
+
+    @staticmethod
+    def resolve_binary() -> str:
+        return os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN") or shutil.which("claude") or "claude"
 
     @property
     def shim(self) -> bool:
