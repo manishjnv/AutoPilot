@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -152,6 +153,17 @@ class Git:
             self.run("merge", "--abort", check=False)
             raise
         return self.head()
+
+    def add_worktree(self, path, branch: str, base: str):
+        """A separate checkout of `base` on a fresh `branch` (P3). Clears a leftover of the same name first."""
+        self.drop_worktree(path, branch)
+        self.run("worktree", "add", "-q", "-B", branch, str(path), base)
+
+    def drop_worktree(self, path, branch: str):
+        self.run("worktree", "remove", "--force", str(path), check=False)
+        shutil.rmtree(path, ignore_errors=True)
+        self.run("worktree", "prune", check=False)
+        self.delete_branch(branch)
 
     def delete_branch(self, name: str):
         self.run("branch", "-q", "-D", name, check=False)

@@ -210,6 +210,11 @@ class Orchestrator:
                             and not self.plan.phase_of(k).priority else v) for k, v in status.items()}
             else:
                 view = status
+            batch = self.parallel_batch(view)
+            if batch:
+                self.run_parallel(batch)
+                self.close_finished_phases()
+                continue
             task = self.plan.next_ready(view, self.cfg.get("scheduling.phase_dependency", "soft"))
             if task:
                 if self.execute_task(task):
@@ -715,6 +720,130 @@ class Orchestrator:
         self._push()
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
         log.info("task %s done (%s, $%.2f)", task.id, model, cost)
+
+    # ------------------------------------------------------------------ P3: independent tasks in parallel worktrees
+    def parallel_batch(self, view: dict) -> list:
+        """Up to `scheduling.parallel` ready tasks that don't depend on each other, or [] (= run serially).
+        Only plain first attempts: risky, research or decide tasks, corrective work and retries stay serial."""
+        n = int(self.cfg.get("scheduling.parallel", 1) or 1)
+        if self.max_sessions:
+            n = min(n, self.max_sessions - self.sessions_this_run)
+        if n < 2 or self.main_red:
+            return []
+        view, picked = dict(view), []
+        while len(picked) < n:
+            t = self.plan.next_ready(view, self.cfg.get("scheduling.phase_dependency", "soft"))
+            row = self.state.task(t.id) if t else None
+            if not t or (row and row["attempts"]) or self.plan.phase_of(t).priority or t.research \
+                    or t.needs_decision or RISKS.index(self.effective_risk(t)) > RISKS.index("medium"):
+                break
+            picked.append(t)
+            view[t.id] = "running"  # its dependants are not ready yet, so they can't join the batch
+        return picked if len(picked) > 1 else []
+
+    def _worktree_root(self) -> Path:
+        import hashlib
+        import tempfile
+        tag = hashlib.sha1(str(self.root).encode()).hexdigest()[:8]  # outside the repo: never seen by `git add -A`
+        return Path(self.cfg.get("scheduling.worktree_dir") or Path(tempfile.gettempdir()) / "autopilot-worktrees") \
+            / f"{self.root.name}-{tag}"
+
+    def run_parallel(self, tasks: list):
+        """One session per task at the same time, each in its own worktree; then gate and merge one by one."""
+        from concurrent.futures import ThreadPoolExecutor
+        self.check_stop()
+        self._journal(current="parallel: " + ", ".join(t.id for t in tasks))
+        base, config_before = self.git.ref(self.main), self.git.config_text()
+        jobs = []
+        for t in tasks:
+            path, branch = self._worktree_root() / t.id, f"autopilot/{t.id}"
+            self.git.add_worktree(path, branch, self.main)
+            if self.cfg.get("scheduling.worktree_setup", True) and self.cfg.commands("setup"):
+                for r in run_commands(self.cfg.commands("setup"), path, int(self.cfg.get("verify_timeout_sec", 1200))):
+                    if r.rc != 0:
+                        log.warning("setup in worktree %s failed: %s", t.id, r.cmd)
+            risk = self.effective_risk(t)
+            model, phase = self.model_for(risk, 0), self.plan.phase_of(t)
+            self.state.set_task(t.id, status="running", started_at=now())
+            sid = self.state.start_session("task", t.id, phase.id, 1, model)
+            self.sessions_this_run += 1
+            log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-task-{t.id}.log"
+            req = SessionRequest(prompt=self.ctx.task_prompt(t, 1, None, self.git.log_oneline()), model=model,
+                                 cwd=str(path), timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
+                                 budget_usd=self.session_budget(t.id), system_append=self.ctx.system_append(),
+                                 log_path=str(log_path), schema=REPORTS["task"],
+                                 effort=self.cfg.get(f"models.effort.{risk}", ""))
+            jobs.append((t, phase, path, branch, model, sid, req, log_path))
+
+        def one(req):
+            try:
+                return self.backend.run(req)
+            except Exception as exc:  # noqa: BLE001
+                return SessionResult(ok=False, error=f"backend exception: {exc!r}")
+
+        # ponytail: the budget caps are checked per session before the batch, so N sessions can overshoot the daily
+        # or total cap by up to N-1 session budgets
+        with ThreadPoolExecutor(len(jobs)) as pool:
+            results = list(pool.map(one, [j[6] for j in jobs]))
+        self.git.guard_config(config_before)
+        moved = self.git.ref(self.main, check=False) != base
+        if moved:
+            self.git.set_ref(self.main, base)
+            self.notify.send("main_guard", f"a parallel session moved {self.main}; restored")
+        limited, merged = None, 0
+        for (t, phase, path, branch, model, sid, _req, log_path), res in zip(jobs, results):
+            if moved:
+                res.ok, res.error = False, "a parallel session moved the main branch"
+            self.state.end_session(sid, cost=res.cost, ok=res.ok, claude_session_id=res.session_id,
+                                   summary=str(res.report.get("summary", ""))[:2000], error=res.error,
+                                   log_path=str(log_path), usage=res.usage, num_turns=res.num_turns,
+                                   duration_ms=res.duration_ms)
+            self.state.set_task(t.id, cost=self.state.cost(task_id=t.id))
+            try:
+                if res.rate_limited:
+                    limited = res
+                    self.state.set_task(t.id, status="pending")  # not an attempt
+                    continue
+                self.state.set_task(t.id, attempts=1, model=model)
+                err = self._finish_parallel(t, phase, path, branch, model, res, base)
+                if err:  # back in the queue: the serial path retries it with this error
+                    log.info("parallel task %s failed: %s", t.id, err[:300])
+                    self.state.set_task(t.id, status="pending", last_error=err[-6000:])
+                else:
+                    merged += 1
+            finally:
+                self.git.drop_worktree(path, branch)
+        # each gate saw only its own change: changes that pass alone can still break together, so check main once
+        if merged > 1 and not self.ensure_main_green():
+            self.start_main_red()
+        if limited:
+            self.backoff(limited)
+
+    def _finish_parallel(self, task, phase, path, branch, model, res, base) -> str:
+        """Gate the worktree, merge into main, then write the docs on main. Returns the error, or '' when done."""
+        wt = Git(path)
+        wt.normalize_after_session(branch, base)
+        if not res.ok:
+            return f"agent session failed ({model}): {res.error}"
+        if str(res.report.get("status", "done")).lower() == "blocked":
+            return f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
+        gate = task_gate(Config(path, self.cfg.data), wt, task)
+        if not gate.ok:
+            return gate.report()
+        files, summary = wt.staged_files(), str(res.report.get("summary", "")).strip()
+        wt.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}\n\nmodel: {model}, attempt 1 (parallel)")
+        try:
+            sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
+        except GitError as exc:
+            return f"merge conflict with work merged in parallel; redo it on top of the current main: {exc}"
+        self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
+        nxt = self.plan.next_ready(self.state.status_map(), self.cfg.get("scheduling.phase_dependency", "soft"))
+        self.docs.task_done(task, phase, res.report, model=model, attempt=1, cost=self.state.cost(task_id=task.id),
+                            gate_warnings=gate.warnings, files=files, next_task=nxt.id if nxt else None)
+        self.git.commit_all(f"[autopilot] docs for {task.id}: {task.title}")
+        self._push()
+        log.info("task %s done in parallel (%s)", task.id, model)
+        return ""
 
     # ------------------------------------------------------------------ gated repair
     def _gated_change(self, kind: str, branch: str, prompt: str, model: str, message: str,

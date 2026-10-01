@@ -144,6 +144,10 @@ budget_usd:
 scheduling:
   phase_dependency: soft  # soft = blocked tasks don't hold later phases; strict = they do
   max_sessions_per_run: 0 # 0 = unlimited
+  parallel: 1             # >1 = run up to N independent low/medium first attempts at once, each in a git worktree
+                          # (uses the usage window N times faster; helps wall time, not cost)
+  worktree_setup: true    # run commands.setup in each new worktree (deps like node_modules aren't shared)
+  worktree_dir: ""        # where worktrees live; empty = <temp>/autopilot-worktrees (always outside the repo)
 
 git:
   push: false
