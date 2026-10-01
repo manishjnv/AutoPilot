@@ -6,8 +6,10 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-LIMIT_RX = re.compile(r"hit your (?:[\w-]+ ){0,3}limit(?:\s*[·•|\-–—,.]*\s*resets?\s+(?P<reset>[^\n]+))?", re.I)
-API_LIMIT_RX = re.compile(r"API Error: (?:429|529)|rate_limit_error|overloaded_error", re.I)
+# Anchored to a line start: the CLI prints these as its own message, so prose inside a failed session doesn't count.
+LIMIT_RX = re.compile(r"^\s*(?:you've|you have) hit your (?:[\w-]+ ){0,3}limit"
+                      r"(?:\s*[·•|\-–—,.]*\s*resets?\s+(?P<reset>[^\n]+))?", re.I | re.M)
+API_LIMIT_RX = re.compile(r"^\s*API Error: (?:429|529)\b|^\s*API Error:.*(?:rate_limit_error|overloaded_error)", re.I | re.M)
 _RESET_RX = re.compile(r"^(?:(?P<mon>[a-z]{3,9})\.?\s+(?P<day>\d{1,2})\s*(?:,|at)?\s*)?(?P<h>\d{1,2})(?::(?P<m>\d{2}))?"
                        r"\s*(?P<ap>am|pm)?\s*(?:\((?P<tz>[^)]+)\))?$", re.I)
 _MONTHS = {m: i + 1 for i, m in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split())}

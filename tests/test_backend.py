@@ -88,3 +88,9 @@ def test_shim_keeps_system_text_out_of_argv(tmp_path, monkeypatch):
     assert "--append-system-prompt" not in ClaudeCLIBackend(cfg).build_cmd(req)
     monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", "/usr/bin/claude")
     assert "--append-system-prompt" in ClaudeCLIBackend(cfg).build_cmd(req)
+
+
+def test_limit_text_inside_prose_is_not_a_limit():
+    assert detect_limit("I stopped because the user may have hit your session limit · resets 3pm")[0] is False
+    assert detect_limit("Retrying failed: API Error: 529 overloaded_error")[0] is False
+    assert detect_limit("done\nYou've hit your session limit · resets 3pm")[0] is True

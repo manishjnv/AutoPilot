@@ -208,3 +208,24 @@ def test_base_env_isolation(tmp_path, monkeypatch):
     assert run_commands([cmd], tmp_path, 20)[0].output == "sekret"
     assert run_commands([cmd], tmp_path, 20, base_env=agent_env(cfg))[0].output == ""
     assert run_commands([cmd], tmp_path, 20, env={"AUTOPILOT_TG_TOKEN": "x"}, base_env=agent_env(cfg))[0].output == "x"
+
+
+def test_emptied_test_body_flagged(repo):
+    put(repo, "tests/test_y.py", "def test_real():\n    assert 1 + 1 == 2\n")
+    sh(repo, "add", "-A")
+    sh(repo, "commit", "-qm", "real test")
+    put(repo, "tests/test_y.py", "def test_real():\n    pass\n")
+    assert any("assertion count dropped" in f for f in tamper(repo))
+
+
+def test_conftest_collection_hook_flagged(repo):
+    put(repo, "tests/conftest.py", "def pytest_collection_modifyitems(items):\n    items.clear()\n")
+    assert any("test collection hook" in f for f in tamper(repo))
+
+
+def test_secret_messages_redacted_and_placeholders_skipped():
+    key = "sk-ant-" + "api03-" + "Q" * 30
+    msgs = scan_secrets([f'KEY = "{key}"'])
+    assert msgs and key not in msgs[0]
+    assert scan_secrets(['password = "changeme-please-123"', 'token = "${API_TOKEN_FROM_ENV}"']) == []
+    assert scan_secrets(['password = "hunter2hunter2hunter2"'])
