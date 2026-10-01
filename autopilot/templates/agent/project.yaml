@@ -61,6 +61,7 @@ agent:
     - "Bash(git rebase:*)"
     - "Bash(rm -rf /:*)"
   extra_args: []
+  env_passthrough: []    # extra env var names sessions and checks may see (e.g. DATABASE_URL)
   env: {}                 # e.g. ANTHROPIC_BASE_URL: http://localhost:4000  (LiteLLM)
 
 # Risk tier -> model ladder. Attempt N uses ladder[N] (last entry repeats).

@@ -1,6 +1,7 @@
 """End-to-end tests with a scripted fake agent backend (no API calls)."""
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -185,7 +186,7 @@ def test_rate_limit_not_counted_and_fixer_repairs_main(tmp_path):
 
 
 def test_greenfield_skips_fixer(tmp_path):
-    root = make_project(tmp_path, phases_basic(), {"commands": {"test": ["test -d src"]}})
+    root = make_project(tmp_path, phases_basic(), {"commands": {"test": ["python -c \"import os,sys; sys.exit(0 if os.path.isdir('src') else 1)\""]}})
     fake = FakeBackend()
     assert Orchestrator(root, backend=fake, sleep=lambda s: None).run() == "app complete"
     assert not any(c[0] == "fixer" for c in fake.calls)
@@ -229,7 +230,8 @@ def test_staging_deploy_failure_creates_corrective_phase(tmp_path):
     marker = tmp_path / "deploys.log"
     root = make_project(tmp_path, phases_basic()[:1], {
         "deploy": {"staging": {"enabled": True,
-                               "cmd": f"echo $AUTOPILOT_PHASE >> {marker}; test -f src/FIX001-T01.txt",
+                               "cmd": "python -c \"import os,sys; open('" + marker.as_posix() + "','a').write(os.environ['AUTOPILOT_PHASE']+'\\n'); "
+                                      "sys.exit(0 if os.path.exists('src/FIX001-T01.txt') else 1)\"",
                                "health_url": ""}},
         "audit": {"completion_audit": False}})
     orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
@@ -246,11 +248,16 @@ def test_claude_cli_backend_parses_output(tmp_path, monkeypatch):
     from autopilot.backends.claude_cli import ClaudeCLIBackend
     from autopilot.config import Config
 
-    stub = tmp_path / "claude"
-    stub.write_text("#!/usr/bin/env python3\nimport json,sys\nsys.stdin.read()\n"
-                    "print(json.dumps({'type':'result','is_error':False,'session_id':'s1','total_cost_usd':0.42,"
-                    "'result':'done\\n```json\\n{\"status\":\"done\",\"summary\":\"ok\"}\\n```','args':sys.argv}))\n")
-    stub.chmod(0o755)
+    (tmp_path / "stub.py").write_text("import json,sys\nsys.stdin.read()\n"
+                                      "print(json.dumps({'type':'result','is_error':False,'session_id':'s1','total_cost_usd':0.42,"
+                                      "'result':'done\\n```json\\n{\"status\":\"done\",\"summary\":\"ok\"}\\n```','args':sys.argv}))\n")
+    if sys.platform == "win32":
+        stub = tmp_path / "claude.cmd"
+        stub.write_text(f'@"{sys.executable}" "%~dp0stub.py" %*\n')
+    else:
+        stub = tmp_path / "claude"
+        stub.write_text(f"#!{sys.executable}\n" + (tmp_path / "stub.py").read_text())
+        stub.chmod(0o755)
     monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", str(stub))
     be = ClaudeCLIBackend(Config.load(tmp_path))
     cmd = be.build_cmd(SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path), budget_usd=3, read_only=True))

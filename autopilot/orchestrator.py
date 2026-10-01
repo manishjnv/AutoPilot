@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import fcntl
 import logging
 import time
 from pathlib import Path
@@ -25,6 +24,7 @@ from .gate import GateResult, PROTECTED, main_gate, run_commands, scan_secrets, 
 from .gitops import Git
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
+from .proc import exclusive_lock
 from .state import State, now
 
 log = logging.getLogger("autopilot")
@@ -83,16 +83,11 @@ class Orchestrator:
     # ------------------------------------------------------------------ run
     def run(self) -> str:
         self.ad.mkdir(exist_ok=True)
-        lock = open(self.ad / "run.lock", "w")
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with exclusive_lock(self.ad / "run.lock"):
+                return self._run()
         except BlockingIOError:
             raise SystemExit("another autopilot run is active for this project")
-        try:
-            return self._run()
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
-            lock.close()
 
     def _run(self) -> str:
         errs = self.cfg.validate()

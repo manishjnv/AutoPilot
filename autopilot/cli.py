@@ -19,7 +19,7 @@ AGENT_FILES = ["project.yaml", "plan.yaml", "BRAIN.md", "DECISIONS.md", "HANDOFF
 def setup_logging(root: Path, verbose: bool):
     logdir = root / AGENT_DIR / "logs"
     logdir.mkdir(parents=True, exist_ok=True)
-    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(logdir / "autopilot.log")]
+    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(logdir / "autopilot.log", encoding="utf-8")]
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, handlers=handlers,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
@@ -232,6 +232,9 @@ def cmd_review(args):
 
 
 def main(argv=None):
+    for s in (sys.stdout, sys.stderr):
+        if hasattr(s, "reconfigure"):
+            s.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(prog="autopilot", description="Autonomous plan-driven development with Claude Code")
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd", required=True)

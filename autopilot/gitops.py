@@ -20,13 +20,15 @@ class Git:
         self.root = Path(root)
 
     def run(self, *args: str, check: bool = True) -> str:
-        p = subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True)
+        p = subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
         if check and p.returncode != 0:
             raise GitError(f"git {' '.join(args)} failed: {p.stderr.strip() or p.stdout.strip()}")
         return p.stdout.strip()
 
     def ok(self, *args: str) -> bool:
-        return subprocess.run(["git", *args], cwd=self.root, capture_output=True).returncode == 0
+        return subprocess.run(["git", *args], cwd=self.root, capture_output=True,
+                              encoding="utf-8", errors="replace").returncode == 0
 
     # ---------- setup ----------
     def ensure_repo(self, main: str):
@@ -38,9 +40,9 @@ class Git:
             self.run("config", "user.name", "Autopilot")
         exclude = self.root / ".git" / "info" / "exclude"
         exclude.parent.mkdir(parents=True, exist_ok=True)
-        current = exclude.read_text() if exclude.exists() else ""
+        current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
         if "# autopilot junk" not in current and "# autodev junk" not in current:
-            exclude.write_text(current + "\n# autopilot junk\n" + "\n".join(JUNK) + "\n")
+            exclude.write_text(current + "\n# autopilot junk\n" + "\n".join(JUNK) + "\n", encoding="utf-8")
         if not self.ok("rev-parse", "--verify", "HEAD"):
             self.run("add", "-A")
             self.run("commit", "-q", "--allow-empty", "-m", "[autopilot] initial commit")
