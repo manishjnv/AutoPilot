@@ -16,6 +16,30 @@ commands:
   smoke: []               # after each deploy (can use $AUTOPILOT_ENV / $AUTOPILOT_URL)
 verify_timeout_sec: 1200
 
+gate:
+  allow_no_checks: false  # true = allow a run with no build/lint/typecheck/test command (not recommended)
+  test_globs:             # files treated as tests by the test-tamper guard
+    - "tests/**"
+    - "test/**"
+    - "**/tests/**"
+    - "**/test/**"
+    - "test_*.py"
+    - "*_test.py"
+    - "*_test.go"
+    - "*.test.*"
+    - "*.spec.*"
+    - "**/__tests__/**"
+    - "src/test/**"
+  protected:              # editing/deleting these fails the gate (CI and test-runner config)
+    - ".github/workflows/**"
+    - ".gitlab-ci.yml"
+    - "pytest.ini"
+    - "tox.ini"
+    - "jest.config.*"
+    - "vitest.config.*"
+    - "karma.conf.*"
+    - "phpunit.xml*"
+
 agent:
   backend: claude_cli     # claude_cli | command
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin

@@ -27,6 +27,7 @@ class Task:
     verify: list[str] = field(default_factory=list)
     docs: list[str] = field(default_factory=list)
     allow_no_changes: bool = False
+    allow_test_changes: bool = False
     reopen: bool = False
 
 
@@ -93,6 +94,7 @@ class Plan:
                     verify=[str(x) for x in _as_list(t.get("verify"))],
                     docs=[str(x) for x in _as_list(t.get("docs"))],
                     allow_no_changes=bool(t.get("allow_no_changes", False)),
+                    allow_test_changes=bool(t.get("allow_test_changes", False)),
                     reopen=bool(t.get("reopen", False)),
                 ))
             phases.append(Phase(id=pid, title=str(p.get("title", pid)), goal=str(p.get("goal", "") or ""),

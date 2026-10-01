@@ -88,3 +88,11 @@ class Config:
         if not self.commands("build", "lint", "typecheck", "test"):
             errs.append("no verify commands (build/lint/typecheck/test) — the gate would pass anything")
         return errs
+
+    def blocking_errors(self) -> list[str]:
+        """The subset of validate() that must stop a run."""
+        errs = [f"deploy.{e}.enabled but deploy.{e}.cmd is empty" for e in ("staging", "prod")
+                if self.get(f"deploy.{e}.enabled") and not self.get(f"deploy.{e}.cmd")]
+        if not self.get("gate.allow_no_checks") and not self.commands("build", "lint", "typecheck", "test"):
+            errs.append("no verify commands (build/lint/typecheck/test) — the gate would pass anything")
+        return errs
