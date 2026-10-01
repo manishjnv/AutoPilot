@@ -8,6 +8,7 @@ from autopilot.backends.claude_cli import ClaudeCLIBackend, first_session_id, re
 from autopilot.config import Config
 from autopilot.orchestrator import Orchestrator
 from autopilot.proc import stream_proc
+from autopilot.schemas import REPORTS
 from test_autopilot import FakeBackend, make_project
 from test_backend import stub_claude
 
@@ -159,3 +160,42 @@ def test_stuck_attempt_goes_straight_to_unstick(tmp_path):
     fake = Looper()
     assert Orchestrator(root, backend=fake, sleep=lambda s: None).run() == "plan complete"
     assert [c[0] for c in fake.calls] == ["P01-T01", "unstick", "P01-T01"]  # unstick after ONE attempt, not two
+
+
+# ---------------------------------------------------------------- structured output (--json-schema)
+def test_schemas_are_consistent():
+    for kind, s in REPORTS.items():
+        assert s["type"] == "object" and set(s["required"]) <= set(s["properties"]), kind
+        json.dumps(s)
+
+
+def test_json_schema_flag_except_on_cmd_shim(tmp_path, monkeypatch):
+    req = SessionRequest(prompt="x", model="sonnet", cwd=".", schema=REPORTS["task"])
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", "/usr/bin/claude")
+    cmd = ClaudeCLIBackend(Config.load(tmp_path)).build_cmd(req)
+    assert json.loads(cmd[cmd.index("--json-schema") + 1]) == REPORTS["task"]
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", "C:/x/claude.cmd")
+    assert "--json-schema" not in ClaudeCLIBackend(Config.load(tmp_path)).build_cmd(req)
+
+
+def test_structured_output_wins_over_text(tmp_path, monkeypatch):
+    out = {"type": "result", "result": 'prose ```json\n{"status": "blocked"}\n```',
+           "structured_output": {"status": "done", "summary": "validated"}}
+    body = f"print({json.dumps(out)!r})\n"
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, body))
+    res = ClaudeCLIBackend(Config.load(tmp_path)).run(SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path)))
+    assert res.report == {"status": "done", "summary": "validated"}
+
+
+def test_each_session_kind_gets_its_schema(tmp_path):
+    root = make_project(tmp_path, ONE_TASK)  # completion audit on
+
+    class Recorder(FakeBackend):
+        kinds = []
+
+        def run(self, req):
+            Recorder.kinds.append(req.schema)
+            return super().run(req)
+
+    assert Orchestrator(root, backend=Recorder(), sleep=lambda s: None).run() == "app complete"
+    assert Recorder.kinds == [REPORTS["task"], REPORTS["audit"]]

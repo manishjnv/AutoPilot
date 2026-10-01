@@ -30,6 +30,7 @@ from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .proc import exclusive_lock
 from .report import token_footer
+from .schemas import REPORTS
 from .state import State, now
 
 log = logging.getLogger("autopilot")
@@ -324,7 +325,7 @@ class Orchestrator:
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
                              timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
                              budget_usd=budget, system_append=self.ctx.system_append(),
-                             read_only=read_only, log_path=str(log_path),
+                             read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind),
                              resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {})
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
         try:

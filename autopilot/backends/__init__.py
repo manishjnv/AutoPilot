@@ -72,6 +72,7 @@ class SessionRequest:
     log_path: str = ""
     resume: str = ""                                        # continue this CLI session instead of starting fresh
     resume_totals: dict = field(default_factory=dict)       # that session's totals so far (see SessionResult.totals)
+    schema: dict | None = None                              # JSON Schema of the final report (schemas.REPORTS)
 
 
 @dataclass

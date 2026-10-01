@@ -112,6 +112,8 @@ class ClaudeCLIBackend:
             cmd += ["--effort", c.get("agent.effort")]
         if req.system_append and not self.shim:
             cmd += ["--append-system-prompt", req.system_append]
+        if req.schema and not self.shim:  # quotes through cmd.exe are fragile; the report is then parsed from text
+            cmd += ["--json-schema", json.dumps(req.schema, separators=(",", ":"))]
         allowed = c.get("agent.allowed_tools", [])
         if allowed:
             cmd += ["--allowedTools", *allowed]
