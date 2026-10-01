@@ -199,3 +199,23 @@ def test_each_session_kind_gets_its_schema(tmp_path):
 
     assert Orchestrator(root, backend=Recorder(), sleep=lambda s: None).run() == "app complete"
     assert Recorder.kinds == [REPORTS["task"], REPORTS["audit"]]
+
+
+# ---------------------------------------------------------------- --max-turns
+def test_max_turns_flag(tmp_path):
+    req = SessionRequest(prompt="x", model="sonnet", cwd=".")
+    cmd = ClaudeCLIBackend(Config.load(tmp_path)).build_cmd(req)
+    assert cmd[cmd.index("--max-turns") + 1] == "200"  # default
+    cfg = Config.load(tmp_path)
+    cfg.data["agent"]["max_turns"] = 0
+    assert "--max-turns" not in ClaudeCLIBackend(cfg).build_cmd(req)
+
+
+def test_turn_limit_is_a_clear_failure(tmp_path, monkeypatch):
+    out = [{"type": "system", "subtype": "init", "session_id": "s1"},
+           {"type": "result", "subtype": "error_max_turns", "session_id": "s1", "num_turns": 200, "total_cost_usd": 1.5}]
+    body = "".join(f"print({json.dumps(e)!r})\n" for e in out)
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, body))
+    res = ClaudeCLIBackend(Config.load(tmp_path)).run(SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path)))
+    assert not res.ok and res.error.startswith("error_max_turns") and res.cost == 1.5 and res.num_turns == 200
+    assert "session_id" not in res.text  # the event stream never leaks into text / error

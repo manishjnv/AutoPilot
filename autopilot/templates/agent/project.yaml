@@ -49,8 +49,9 @@ gate:
 agent:
   backend: claude_cli     # claude_cli | command
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
-  permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing
+  permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing; or dontAsk + allowed_tools
   session_timeout_sec: 3600
+  max_turns: 200          # --max-turns per session (~ the 1-hour timeout at 10-20 s a turn); 0 = no limit
   stuck_repeats: 4        # abort a session that makes the same tool call this many times in a row (0 = off)
   effort: ""              # low | medium | high | xhigh | max  (empty = CLI default)
   allowed_tools: []
@@ -61,7 +62,7 @@ agent:
     - "Bash(git reset:*)"
     - "Bash(git rebase:*)"
     - "Bash(rm -rf /:*)"
-  extra_args: []
+  extra_args: []          # e.g. ["--bare"] with API-key billing only (it skips OAuth, hooks, plugins and CLAUDE.md)
   env_passthrough: []    # extra env var names sessions and checks may see (e.g. DATABASE_URL)
   env: {}                 # e.g. ANTHROPIC_BASE_URL: http://localhost:4000  (LiteLLM)
 

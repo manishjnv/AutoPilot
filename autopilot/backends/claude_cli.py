@@ -104,6 +104,8 @@ class ClaudeCLIBackend:
                "--permission-mode", c.get("agent.permission_mode", "bypassPermissions")]
         if req.resume:
             cmd += ["--resume", req.resume]
+        if int(c.get("agent.max_turns", 0) or 0):
+            cmd += ["--max-turns", str(int(c.get("agent.max_turns")))]
         if req.budget_usd:
             cmd += ["--max-budget-usd", f"{req.budget_usd:.2f}"]
         if c.get("models.fallback"):
@@ -158,10 +160,11 @@ class ClaudeCLIBackend:
 
         raw = p.stdout.strip()
         data = result_event(raw)
-        text = str(data.get("result", "") or raw)
+        text = str(data.get("result", "") or ("" if data else raw))  # never the whole event stream as "text"
         cost = float(data.get("total_cost_usd") or data.get("cost_usd") or 0.0)
-        is_error = bool(data.get("is_error")) or p.rc != 0 or not data
-        err = "" if not is_error else (text or p.stderr)[-3000:]
+        sub = str(data.get("subtype") or "")  # e.g. error_max_turns, error_max_budget_usd
+        is_error = bool(data.get("is_error")) or sub.startswith("error") or p.rc != 0 or not data
+        err = "" if not is_error else ((f"{sub}: " if sub.startswith("error") else "") + (text or p.stderr))[-3000:]
         report = data.get("structured_output") if isinstance(data.get("structured_output"), dict) else parse_report(text)
         limited, reset_at = detect_limit(text + "\n" + p.stderr) if is_error else (False, None)
         totals = {"cost": cost, "usage": parse_usage(data, req.model),
