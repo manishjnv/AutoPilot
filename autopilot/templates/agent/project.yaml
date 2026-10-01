@@ -80,6 +80,12 @@ models:
   onboard: opus
   unstick: sonnet         # diagnoses a stuck task (may search the web) before anyone is asked
   decide: opus            # weighs 2-3 approaches before risky work (see decide:)
+  research: sonnet        # web research for a task's `research:` topics (see research:)
+
+research:                 # a task's `research: [topics]` -> one web-only session per new topic -> research.dir/<topic>.md
+  enabled: true
+  effort: medium
+  dir: docs/research      # coding sessions read only these notes, never raw web pages
 
 decide:                   # before risky work, one read-only session scores 2-3 approaches -> an ADR in docs.adr_dir
   enabled: true

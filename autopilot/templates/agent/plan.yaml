@@ -22,6 +22,7 @@ phases:
         files_in_scope: ["src/**", "tests/**", "README.md"]
         verify: []                    # extra commands for this task only
         needs_decision: false         # true = weigh 2-3 approaches in an ADR first (automatic for high/critical)
+        research: []                  # topics to research on the web first, e.g. ["Stripe webhooks retries"]
         depends_on: []
 
       - id: P01-T02

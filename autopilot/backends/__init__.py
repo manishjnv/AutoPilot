@@ -74,6 +74,7 @@ class SessionRequest:
     resume_totals: dict = field(default_factory=dict)       # that session's totals so far (see SessionResult.totals)
     schema: dict | None = None                              # JSON Schema of the final report (schemas.REPORTS)
     effort: str = ""                                        # overrides agent.effort for this session
+    web_only: bool = False                                  # research: only web search/fetch and reading files
 
 
 @dataclass

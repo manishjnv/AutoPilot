@@ -10,6 +10,8 @@ from ..proc import agent_env, stream_proc
 from . import SessionRequest, SessionResult, detect_limit, parse_report, since
 
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
+# Deny-list, not --tools: --tools might also drop the synthetic tool that --json-schema relies on.
+WEB_ONLY_DENY = ["Bash", "Agent", "Task"]
 
 
 def _num(v, kind=int):
@@ -122,6 +124,8 @@ class ClaudeCLIBackend:
         denied = list(c.get("agent.disallowed_tools", []))
         if req.read_only:
             denied += READ_ONLY_DENY
+        if req.web_only:  # research reads untrusted pages: no shell, no subagents (removed even under bypass)
+            denied += WEB_ONLY_DENY
         if denied:
             cmd += ["--disallowedTools", *denied]
         cmd += list(c.get("agent.extra_args", []))

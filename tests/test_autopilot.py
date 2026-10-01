@@ -65,6 +65,12 @@ class FakeBackend:
             (cwd / "AUDITOR_SCRIBBLE.txt").write_text("should be discarded")
             rep = self.audits.pop(0) if self.audits else {"complete": True, "completion_pct": 100, "gaps": []}
             return SessionResult(ok=True, cost=0.5, report=rep)
+        r = re.search(r'^# Assignment: research "(.+)" for task', req.prompt, re.M)
+        if r:
+            self.calls.append(("research", req.model))
+            return SessionResult(ok=True, cost=0.1, report={
+                "topic": r.group(1), "summary": f"notes on {r.group(1)}", "findings": ["f1 (Doc)"],
+                "recommendation": "use the official SDK", "sources": [{"title": "Doc", "url": "https://example.com/doc"}]})
         d = re.search(r"^# Assignment: decide the approach for task (\S+)", req.prompt, re.M)
         if d:
             self.calls.append(("decide", req.model))

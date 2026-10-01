@@ -25,6 +25,8 @@ Risk tier: {{risk}}
 ## Recent decisions (stay consistent)
 {{decisions}}
 
+{{research_block}}
+
 ## What to do
 1. Read the relevant code to see what already exists and what the task touches.
 2. You MAY use WebSearch / WebFetch for library docs, competitors and best practice.

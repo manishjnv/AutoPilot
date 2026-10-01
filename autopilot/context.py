@@ -99,7 +99,19 @@ class ContextBuilder:
         return render("decide.md", task_id=task.id, task_title=task.title, goal=self.plan.goal or "(see BRAIN.md)",
                       phase_goal=phase.goal or phase.title, risk=task.risk, description=task.description or task.title,
                       acceptance=bullets(task.acceptance_criteria), scope=bullets(task.files_in_scope, "(not restricted)"),
-                      brain=self.brain(), decisions=self.decisions())
+                      brain=self.brain(), decisions=self.decisions(), research_block=self.research_block(task))
+
+    def research_prompt(self, task, topic: str) -> str:
+        return render("research.md", topic=topic, task_id=task.id, task_title=task.title,
+                      goal=self.plan.goal or "(see BRAIN.md)", description=task.description or task.title,
+                      acceptance=bullets(task.acceptance_criteria))
+
+    def research_block(self, task) -> str:
+        """The research notes for the task's topics: summaries written by a research session, never raw web text."""
+        from .docs import research_path
+        notes = [read_capped(research_path(self.cfg, t), 4000, default="") for t in task.research]
+        notes = [n for n in notes if n]
+        return ("## Research for this task (summaries; use them, don't re-search)\n" + "\n\n".join(notes)) if notes else ""
 
     def adr_block(self, task) -> str:
         rel = self.state.get_meta(f"adr:{task.id}")
@@ -122,7 +134,7 @@ class ContextBuilder:
             progress=progress_line(self.plan, self.state.status_map()), retry_block=retry,
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
             git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
-            adr_block=self.adr_block(task),
+            adr_block=self.adr_block(task), research_block=self.research_block(task),
         )
 
     def resume_prompt(self, task, attempt: int, last_error: str | None) -> str:

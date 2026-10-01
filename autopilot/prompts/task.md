@@ -30,6 +30,8 @@ Risk tier: {{risk}}
 
 {{adr_block}}
 
+{{research_block}}
+
 ## Previous session handoff
 {{handoff}}
 

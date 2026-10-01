@@ -22,7 +22,7 @@ from .backends import SessionRequest, SessionResult, get_backend
 from .config import RISKS, Config
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
-from .docs import Documenter
+from .docs import Documenter, research_path
 from .gate import (TEST_GLOBS, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
                    test_tamper)
 from .gitops import Git, GitError
@@ -313,7 +313,8 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ sessions
     def session(self, kind: str, prompt: str, model: str, *, task_id=None, phase=None, attempt=1,
-                read_only=False, label: str = "", resume: SessionResult | None = None, effort: str = "") -> SessionResult:
+                read_only=False, label: str = "", resume: SessionResult | None = None, effort: str = "",
+                web_only: bool = False) -> SessionResult:
         self.check_stop()
         budget = self.session_budget(task_id)
         self._journal(current=label or " ".join(
@@ -325,7 +326,7 @@ class Orchestrator:
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
                              timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
                              budget_usd=budget, system_append=self.ctx.system_append(),
-                             read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort,
+                             read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort, web_only=web_only,
                              resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {})
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
         try:
@@ -368,6 +369,8 @@ class Orchestrator:
         max_attempts = int(self.cfg.get("retries.max_attempts_per_task", 3))
         branch = f"autopilot/{task.id}"
         self.state.set_task(task.id, status="running", started_at=now())
+        if task.research:
+            self.research(task, phase)
         if self.needs_adr(task, phase):
             self.decide(task, phase)
         extra, guidance, suggestion, fail_err = False, "", "", ""
@@ -516,24 +519,47 @@ class Orchestrator:
     def decide(self, task, phase):
         """One read-only session weighs 2-3 approaches before risky work; its choice becomes the ADR the implementer
         follows. No usable answer = build without an ADR (never blocks)."""
-        while True:
-            self.git.start_branch("autopilot/decide", self.main)
-            try:
-                res = self.session("decide", self.ctx.decide_prompt(task), self.cfg.get("models.decide", "opus"),
-                                   task_id=task.id, phase=phase.id, read_only=True,
-                                   effort=self.cfg.get("decide.effort", "high"))
-            finally:  # read-only: drop anything it touched
-                self.git.discard()
-                self.git.checkout_main(self.main)
-                self.git.delete_branch("autopilot/decide")
-            if not res.rate_limited:  # session() already waited out the limit
-                break
+        res = self._isolated("decide", self.ctx.decide_prompt(task), self.cfg.get("models.decide", "opus"),
+                             task_id=task.id, phase=phase.id, effort=self.cfg.get("decide.effort", "high"))
         rep = res.report if res.ok and isinstance(res.report, dict) else {}
         self.state.set_meta(f"adr:{task.id}", "")
         if not str(rep.get("decision") or "").strip():
             log.warning("decide session for %s gave no decision: %s", task.id, (res.error or "")[:200])
             return
         self._write_adr(task, rep, "decided by the Autopilot decide session", f"[{task.id}] ADR: {rep['decision']}")
+
+    def _isolated(self, kind: str, prompt: str, model: str, **kw) -> SessionResult:
+        """A read-only session on a throwaway branch (anything it touches is dropped), retried after a usage limit."""
+        branch = f"autopilot/{kind}"
+        while True:
+            self.git.start_branch(branch, self.main)
+            try:
+                res = self.session(kind, prompt, model, read_only=True, **kw)
+            finally:
+                self.git.discard()
+                self.git.checkout_main(self.main)
+                self.git.delete_branch(branch)
+            if not res.rate_limited:  # session() already waited out the limit
+                return res
+
+    # ------------------------------------------------------------------ L3: research when in doubt (docs/research)
+    def research(self, task, phase):
+        """One web-only research session per new topic. Coding sessions only ever see the written summary."""
+        if not self.cfg.get("research.enabled", True):
+            return
+        for topic in task.research:
+            if research_path(self.cfg, topic).exists():  # shared across tasks: research a topic once
+                continue
+            res = self._isolated("research", self.ctx.research_prompt(task, topic),
+                                 self.cfg.get("models.research", "sonnet"), task_id=task.id, phase=phase.id,
+                                 effort=self.cfg.get("research.effort", "medium"), web_only=True,
+                                 label=f"research {topic[:60]}")
+            rep = res.report if res.ok and isinstance(res.report, dict) else {}
+            if not str(rep.get("summary") or "").strip():  # never blocks: build without the note
+                log.warning("research on %r for %s gave no summary: %s", topic, task.id, (res.error or "")[:200])
+                continue
+            self.docs.research(topic, rep)
+            self._commit_main(f"[autopilot] research for {task.id}: {' '.join(topic.split())[:80]}")
 
     def _write_adr(self, task, rep: dict, source: str, line: str):
         rel = self.docs.adr(task, rep, source).as_posix()
