@@ -96,6 +96,7 @@ def cmd_onboard(args):
     res = backend.run(SessionRequest(prompt=prompt, model=cfg.get("models.onboard", "opus"), cwd=str(root),
                                      timeout_sec=int(cfg.get("agent.session_timeout_sec", 3600)),
                                      budget_usd=float(args.budget), system_append=system,
+                                     effort=cfg.get("models.effort.onboard", ""),
                                      log_path=str(root / AGENT_DIR / "logs" / "onboard.log")))
     print(res.report.get("summary") or res.text[-1500:] or res.error)
     return cmd_validate(args)

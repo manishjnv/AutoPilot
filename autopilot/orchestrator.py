@@ -316,6 +316,7 @@ class Orchestrator:
                 read_only=False, label: str = "", resume: SessionResult | None = None, effort: str = "",
                 web_only: bool = False, mcp_config: str = "") -> SessionResult:
         self.check_stop()
+        effort = effort or self.cfg.get(f"models.effort.{kind}", "")  # U5: role effort; agent.effort is the fallback
         budget = self.session_budget(task_id)
         self._journal(current=label or " ".join(
             x for x in (kind, task_id, f"attempt {attempt}" if kind == "task" else "") if x))
@@ -387,17 +388,19 @@ class Orchestrator:
                 raise Stop(f"phase {phase.id} budget ${per_phase} reached")
 
             model = self.model_for(task.risk, attempts)
+            effort = self.cfg.get(f"models.effort.{task.risk}", "")
             base = self.git.start_branch(branch, self.main)
             res = None
             if chain and chain.session_id and model == chain_model:  # same model: continue that session, cache warm
                 res = self.session("task", self.ctx.resume_prompt(task, attempts + 1, last_error), model,
-                                   task_id=task.id, phase=phase.id, attempt=attempts + 1, resume=chain)
+                                   task_id=task.id, phase=phase.id, attempt=attempts + 1, resume=chain, effort=effort)
                 if not res.ok and not res.num_turns and not res.rate_limited:  # the old session is gone: start fresh
                     log.info("resume of %s failed (%s); starting fresh", chain.session_id, res.error[:200])
                     res = None
             if res is None:
                 prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline())
-                res = self.session("task", prompt, model, task_id=task.id, phase=phase.id, attempt=attempts + 1)
+                res = self.session("task", prompt, model, task_id=task.id, phase=phase.id, attempt=attempts + 1,
+                                   effort=effort)
             if res.rate_limited:
                 self.git.discard()
                 continue  # not counted as an attempt
@@ -712,10 +715,11 @@ class Orchestrator:
             return True
         errors = gate.report()
         self.notify.send("main_red", f"verification failing on {self.main} — starting fixer")
+        fixers = self.cfg.get("models.fixer", ["sonnet", "opus"])
+        fixers = fixers if isinstance(fixers, list) and fixers else [str(fixers)]  # one model or a ladder
         for i in range(int(self.cfg.get("retries.max_fixer_attempts", 3))):
             prompt = self.ctx.fixer_prompt(errors, self.git.log_oneline())
-            ok, detail = self._gated_change("fixer", "autopilot/fixer", prompt,
-                                            self.cfg.get("models.fixer", "opus"),
+            ok, detail = self._gated_change("fixer", "autopilot/fixer", prompt, fixers[min(i, len(fixers) - 1)],
                                             "[autopilot] fix: repair main branch", phase_checks)
             if ok:
                 self.notify.send("main_fixed", detail[:300])

@@ -100,6 +100,13 @@ class ClaudeCLIBackend:
         """Windows .cmd/.bat shims go through cmd.exe, which mangles multi-line argv; the system text rides on stdin."""
         return self.binary.lower().endswith((".cmd", ".bat"))
 
+    def env(self) -> dict:
+        """agent_env plus the Claude Code knobs Autopilot sets: subagent model (U5)."""
+        env = agent_env(self.cfg)
+        if self.cfg.get("models.subagent"):
+            env["CLAUDE_CODE_SUBAGENT_MODEL"] = str(self.cfg.get("models.subagent"))
+        return env
+
     def build_cmd(self, req: SessionRequest) -> list[str]:
         c = self.cfg
         cmd = [self.binary, "-p", "--output-format", "stream-json", "--verbose", "--model", req.model,
@@ -151,8 +158,7 @@ class ClaudeCLIBackend:
 
         p = None
         try:
-            p = stream_proc(cmd, input=prompt, cwd=req.cwd, env=agent_env(self.cfg), timeout=req.timeout_sec,
-                            on_line=on_line)
+            p = stream_proc(cmd, input=prompt, cwd=req.cwd, env=self.env(), timeout=req.timeout_sec, on_line=on_line)
         except OSError as exc:
             return SessionResult(ok=False, error=f"cannot start claude ({self.binary}): {exc}")
         finally:

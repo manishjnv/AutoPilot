@@ -211,7 +211,7 @@ def test_rate_limit_not_counted_and_fixer_repairs_main(tmp_path):
     sleeps = []
     orch = Orchestrator(root, backend=fake, sleep=sleeps.append)
     assert orch.run() == "app complete"
-    assert ("fixer", "opus") in fake.calls
+    assert ("fixer", "sonnet") in fake.calls  # U5: the fixer ladder starts on sonnet
     assert orch.state.task("P01-T02")["attempts"] == 1
     assert sleeps and sleeps[0] == 60
 

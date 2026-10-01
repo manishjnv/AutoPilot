@@ -74,7 +74,18 @@ models:
     high: [opus, opus, opus]
     critical: [opus, opus]
   fallback: ""            # passed as --fallback-model when set
-  fixer: opus
+  effort:                 # --effort per role (empty = agent.effort, then the CLI default); tasks use their risk tier
+    low: low
+    medium: medium
+    high: medium
+    critical: high
+    fixer: medium
+    unstick: medium
+    audit: high
+    replan: high
+    onboard: high
+  subagent: ""            # e.g. haiku: model for subagents inside sessions (CLAUDE_CODE_SUBAGENT_MODEL; all of them)
+  fixer: [sonnet, opus, opus]   # repair attempt N uses entry N (a single model also works)
   replanner: opus
   auditor: opus
   onboard: opus
