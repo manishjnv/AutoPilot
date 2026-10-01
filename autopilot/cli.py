@@ -160,6 +160,26 @@ def cmd_status(args):
     print(build_report(cfg, plan, state))
 
 
+def cmd_serve(args):
+    import os
+
+    from .report import status_server
+    try:
+        srv = status_server(Path(args.path).resolve(), args.host, args.port,
+                            os.environ.get("AUTOPILOT_STATUS_TOKEN", ""), args.refresh)
+    except (ValueError, OSError) as exc:
+        print(f"cannot serve: {exc}")
+        return 1
+    print(f"status page: http://{args.host}:{srv.server_address[1]}/ (refreshes every {args.refresh}s; Ctrl+C stops)")
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.server_close()
+    return 0
+
+
 def cmd_next(args):
     cfg, plan, state = _open_state(Path(args.path).resolve())
     status = dict(state.status_map())
@@ -280,6 +300,9 @@ def main(argv=None):
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true")
     add("status", cmd_status, "progress, cost, blocked tasks, approvals")
+    p = add("serve", cmd_serve, "live read-only status page in the browser")
+    p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--refresh", type=int, default=30, help="seconds between page reloads")
     p = add("next", cmd_next, "preview the next tasks in execution order"); p.add_argument("-n", type=int, default=15)
     p = add("unblock", cmd_unblock, "reset blocked task(s) to pending")
     p.add_argument("task_ids", nargs="+"); p.add_argument("--note")

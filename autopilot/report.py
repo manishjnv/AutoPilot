@@ -175,3 +175,81 @@ def build_report(cfg, plan, state) -> str:
     for e in state.events(15):
         lines.append(f"- {e['ts']} `{e['kind']}` {e['message'][:200]}")
     return "\n".join(lines) + "\n"
+
+
+# ---------- P5: live status page ----------
+def html_page(md: str, refresh: int = 30) -> str:
+    """The report as one self-refreshing HTML page. ponytail: escaped markdown in <pre>, no renderer dependency."""
+    import html
+    return ("<!doctype html><html><head><meta charset=utf-8>"
+            "<meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<meta http-equiv=refresh content={int(refresh)}><title>Autopilot status</title>"
+            "<style>:root{color-scheme:light dark}body{margin:16px;font:14px/1.5 ui-monospace,Consolas,monospace}"
+            "pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head>"
+            f"<body><pre>{html.escape(md)}</pre></body></html>")
+
+
+def is_loopback(host: str) -> bool:
+    import ipaddress
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = "", refresh: int = 30):
+    """Read-only HTTP server: GET / rebuilds the report from plan.yaml + state.db on every request.
+    A non-loopback bind needs a token (?token=...). Raises ValueError when that is missing."""
+    import hmac
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from pathlib import Path
+    from urllib.parse import parse_qs, urlsplit
+
+    from . import AGENT_DIR
+    from .config import Config
+    from .plan import Plan
+    from .state import State
+
+    if not token and not is_loopback(host):
+        raise ValueError(f"refusing to serve on {host} without AUTOPILOT_STATUS_TOKEN (the report shows errors "
+                         "and decisions); bind to 127.0.0.1 and use an SSH tunnel, or set a token")
+    root = Path(root)
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            url = urlsplit(self.path)
+            if url.path != "/":
+                return self._send(404, "not found", "text/plain")
+            if token:
+                given = parse_qs(url.query).get("token", [""])[0]
+                if not hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8")):
+                    return self._send(403, "forbidden", "text/plain")
+            elif not is_loopback(urlsplit("//" + self.headers.get("Host", "")).hostname or ""):
+                return self._send(403, "forbidden", "text/plain")  # DNS rebinding: a web page posing as localhost
+            try:
+                cfg, plan = Config.load(root), Plan.load(root / AGENT_DIR / "plan.yaml")
+                state = State(root / AGENT_DIR / "state.db")
+                try:
+                    body = html_page(build_report(cfg, plan, state), refresh)
+                finally:
+                    state.db.close()
+            except Exception as exc:  # noqa: BLE001  a half-written plan mid-replan must not kill the server
+                return self._send(500, f"report unavailable: {type(exc).__name__}", "text/plain")
+            self._send(200, body, "text/html")
+
+        def _send(self, code, body, ctype):
+            data = body.encode("utf-8")
+            self.send_response(code)
+            for k, v in (("Content-Type", f"{ctype}; charset=utf-8"), ("Content-Length", str(len(data))),
+                         ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+                         ("Referrer-Policy", "no-referrer")):  # the token rides in the URL
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):  # quiet: the URL holds the token
+            pass
+
+    return HTTPServer((host, port), Handler)

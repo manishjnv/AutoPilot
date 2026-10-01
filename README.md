@@ -82,6 +82,7 @@ set `agent.backend: command`.
 | `autopilot next -n 20` | Preview the execution order and models |
 | `autopilot run [--max-sessions N]` | Autonomous run until the completion audit passes |
 | `autopilot status` | Progress, cost, blocked tasks with reasons, pending approvals |
+| `autopilot serve [--port 8765]` | The same report as a live page in the browser (read-only, refreshes every 30 s) |
 | `autopilot unblock T1 T2` / `skip T3` | Clear the blocked queue whenever you like (edit the task spec first) |
 | `autopilot answer D-003 "text"` | Answer a decision from `docs/NEEDS-YOU.md` (works while a run is active) |
 | `autopilot approve P05` | Deploy a queued phase to prod |
@@ -132,8 +133,8 @@ With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start
 
 ## Running unattended on a VPS
 
-1. Use an **API key or LiteLLM gateway** (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`) for unattended runs. Check
-   Anthropic's current terms before automating a consumer subscription.
+1. Log in once with your Claude subscription (see the comments in `deploy/autopilot@.service`), or use an **API key
+   or LiteLLM gateway** (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`) and set `usage.billing: api`.
 2. Run inside a sandbox, because sessions use `bypassPermissions`. `deploy/autopilot@.service` runs the
    `deploy/Dockerfile` image (`docker build -t autopilot -f deploy/Dockerfile .`) once per project: checkout at
    `/srv/autopilot/<name>` (its own tree, so it never touches other apps on a shared server), secrets in
@@ -146,7 +147,10 @@ With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start
    with it (`AUTOPILOT_TG_CHAT` = your user id): `status`, `answer D-003 use Stripe`, `approve P05`,
    `unblock P04-T02`. A run that is waiting for your answers wakes up as soon as you send one. Messages sent before
    the first run are ignored. Use one bot per project.
-4. Your only job is to answer `docs/NEEDS-YOU.md` and approve prod deploys when notified.
+4. Status page: `autopilot serve` shows the live report on `127.0.0.1:8765`. From your PC, open it through an SSH
+   tunnel (`ssh -L 8765:127.0.0.1:8765 your-vps`). Serving on any other address needs `AUTOPILOT_STATUS_TOKEN`
+   and the URL `http://host:8765/?token=...`; the page shows task errors and open decisions, so keep it private.
+5. Your only job is to answer `docs/NEEDS-YOU.md` and approve prod deploys when notified.
 
 ## Writing plans that run well autonomously
 - Keep each task to one session (~1–3 files of real logic) and give it 2–5 **testable** acceptance criteria.
@@ -158,4 +162,4 @@ With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start
 ```
 pip install -e '.[dev]' && pytest -q      # end-to-end tests with a scripted fake agent, no API calls
 ```
-Linux and macOS today. Windows support is roadmap step P1.
+Runs on Linux, macOS and Windows; CI tests Ubuntu and Windows.
