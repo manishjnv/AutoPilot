@@ -7,8 +7,6 @@ the plan, state, git, verification, documentation, deployment, self-review and s
 > Autopilot was called **AutoDev**. Until the rename lands (roadmap step R), the code folder is `autodev/` and
 > the command is `autodev`.
 
-**Docs:** [Architecture (how it works, in simple steps)](docs/ARCHITECTURE.md) · [Roadmap (what's next)](docs/ROADMAP.md)
-
 ```
 autodev init            # adds a .agent/ contract to any repo (stack auto-detected)
 autodev onboard --plan-doc docs/PLAN.md   # AI converts your plan into phases/tasks + BRAIN.md

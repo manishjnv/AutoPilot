@@ -3,3 +3,8 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+
+# private: local-only docs and secrets
+docs/
+.env
+.env.*
