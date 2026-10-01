@@ -20,7 +20,9 @@ class CommandBackend:
                "AUTOPILOT_SYSTEM_APPEND": req.system_append}
         env.update({"AUTODEV_" + k[10:]: v for k, v in list(env.items()) if k.startswith("AUTOPILOT_")})
         try:
-            p = run_proc(cmd, shell=True, input=req.prompt, cwd=req.cwd, env=env, timeout=req.timeout_sec)
+            # the project context lives in system_append (U7); a generic CLI has no system prompt, so it leads the prompt
+            prompt = f"{req.system_append}\n\n---\n\n{req.prompt}" if req.system_append else req.prompt
+            p = run_proc(cmd, shell=True, input=prompt, cwd=req.cwd, env=env, timeout=req.timeout_sec)
         except OSError as exc:
             return SessionResult(ok=False, error=f"cannot start agent command: {exc}")
         if p.timed_out:

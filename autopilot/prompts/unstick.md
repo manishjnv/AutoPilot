@@ -12,9 +12,6 @@ proceed so the build can continue without the owner whenever that is possible.
 ## Phase goal
 {{phase_goal}}
 
-## Project brain
-{{brain}}
-
 ## Recent decisions
 {{decisions}}
 

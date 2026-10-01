@@ -101,10 +101,12 @@ class ClaudeCLIBackend:
         return self.binary.lower().endswith((".cmd", ".bat"))
 
     def env(self) -> dict:
-        """agent_env plus the Claude Code knobs Autopilot sets: subagent model (U5)."""
+        """agent_env plus the Claude Code knobs Autopilot sets: subagent model (U5), prompt cache TTL (U7)."""
         env = agent_env(self.cfg)
-        if self.cfg.get("models.subagent"):
-            env["CLAUDE_CODE_SUBAGENT_MODEL"] = str(self.cfg.get("models.subagent"))
+        for key, name in (("models.subagent", "CLAUDE_CODE_SUBAGENT_MODEL"),
+                          ("agent.cache_ttl", "CLAUDE_CODE_PROMPT_CACHE_TTL")):
+            if self.cfg.get(key):
+                env[name] = str(self.cfg.get(key))
         return env
 
     def build_cmd(self, req: SessionRequest) -> list[str]:

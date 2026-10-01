@@ -3,9 +3,6 @@
 You are a separate, READ-ONLY design session: do not edit files. Another session will implement this task next and
 must follow your decision. Pick the best approach before any code is written.
 
-## Project goal
-{{goal}}
-
 ## Phase goal
 {{phase_goal}}
 
@@ -18,9 +15,6 @@ Risk tier: {{risk}}
 
 ### Files in scope
 {{scope}}
-
-## Project brain
-{{brain}}
 
 ## Recent decisions (stay consistent)
 {{decisions}}

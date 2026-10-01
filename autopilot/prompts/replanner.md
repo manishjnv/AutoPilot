@@ -12,9 +12,6 @@ In `.agent/plan.yaml`:
 - New task ids must be unique (e.g. P07-T05b). Keep dependencies valid and acyclic.
 In `.agent/BRAIN.md`: update architecture/conventions to reflect what actually exists (keep < 300 lines).
 
-## Project goal
-{{goal}}
-
 ## Plan status
 {{plan_status}}
 

@@ -92,24 +92,24 @@ class ContextBuilder:
         phase = self.plan.phase_of(task)
         return render("unstick.md", task_id=task.id, task_title=task.title, description=task.description or task.title,
                       acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
-                      brain=self.brain(), decisions=self.decisions(), error=(error or "(none)")[-6000:])
+                      decisions=self.decisions(), error=(error or "(none)")[-6000:])
 
     def decide_prompt(self, task) -> str:
         phase = self.plan.phase_of(task)
-        return render("decide.md", task_id=task.id, task_title=task.title, goal=self.plan.goal or "(see BRAIN.md)",
-                      phase_goal=phase.goal or phase.title, risk=task.risk, description=task.description or task.title,
+        return render("decide.md", task_id=task.id, task_title=task.title, phase_goal=phase.goal or phase.title,
+                      risk=task.risk, description=task.description or task.title,
                       acceptance=bullets(task.acceptance_criteria), scope=bullets(task.files_in_scope, "(not restricted)"),
-                      brain=self.brain(), decisions=self.decisions(), research_block=self.research_block(task))
+                      decisions=self.decisions(), research_block=self.research_block(task))
 
     def verify_prompt(self, phase, features: list[dict]) -> str:
         init = self.cfg.get("functional.init", "")
-        return render("verify.md", phase_id=phase.id, phase_title=phase.title, goal=self.plan.goal or "(see BRAIN.md)",
-                      brain=self.brain(), features="\n".join(f"- `{f['id']}` {f['title']}: {f['journey']}" for f in features),
-                      init=f"Run `{init}`." if init else "Work it out from the brain, the README and the project files.")
+        return render("verify.md", phase_id=phase.id, phase_title=phase.title,
+                      features="\n".join(f"- `{f['id']}` {f['title']}: {f['journey']}" for f in features),
+                      init=f"Run `{init}`." if init else "Work it out from the project brain, the README and the files.")
 
     def research_prompt(self, task, topic: str) -> str:
         return render("research.md", topic=topic, task_id=task.id, task_title=task.title,
-                      goal=self.plan.goal or "(see BRAIN.md)", description=task.description or task.title,
+                      description=task.description or task.title,
                       acceptance=bullets(task.acceptance_criteria))
 
     def research_block(self, task) -> str:
@@ -117,7 +117,8 @@ class ContextBuilder:
         from .docs import research_path
         notes = [read_capped(research_path(self.cfg, t), 4000, default="") for t in task.research]
         notes = [n for n in notes if n]
-        return ("## Research for this task (summaries; use them, don't re-search)\n" + "\n\n".join(notes)) if notes else ""
+        head = "## Research for this task (summaries; use them, don't re-search)\n"
+        return head + "\n\n".join(notes) if notes else ""
 
     def adr_block(self, task) -> str:
         rel = self.state.get_meta(f"adr:{task.id}")
@@ -132,11 +133,11 @@ class ContextBuilder:
         if attempt > 1 and last_error:
             retry = render("retry.md", attempt=attempt - 1, errors=last_error[-6000:])
         return render(
-            "task.md", task_id=task.id, task_title=task.title, goal=self.plan.goal or "(see BRAIN.md)",
-            phase_id=phase.id, phase_title=phase.title, phase_goal=phase.goal, risk=task.risk,
+            "task.md", task_id=task.id, task_title=task.title, phase_id=phase.id, phase_title=phase.title,
+            phase_goal=phase.goal, risk=task.risk,
             description=task.description or task.title, acceptance=bullets(task.acceptance_criteria),
             scope=bullets(task.files_in_scope, "(not restricted)"), docs=bullets(task.docs, "(whatever this change affects)"),
-            brain=self.brain(), decisions=self.decisions(), handoff=self.handoff(),
+            decisions=self.decisions(), handoff=self.handoff(),
             progress=progress_line(self.plan, self.state.status_map()), retry_block=retry,
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
             git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
@@ -149,22 +150,26 @@ class ContextBuilder:
                       retry_block=render("retry.md", attempt=attempt - 1, errors=(last_error or "(none)")[-6000:]))
 
     def fixer_prompt(self, errors: str, git_log: str) -> str:
-        return render("fixer.md", brain=self.brain(), decisions=self.decisions(), git_log=git_log,
+        return render("fixer.md", decisions=self.decisions(), git_log=git_log,
                       errors=errors[-8000:], verify_cmds=self.verify_cmds())
 
     def auditor_prompt(self, kind: str, max_new: int) -> str:
         completion = ("Completion: is the product described in the goal actually complete and usable end to end? "
                       "Set complete=true ONLY if nothing important is missing." if kind == "completion"
                       else "Set complete=false unless the entire goal is already met.")
-        return render("auditor.md", audit_kind=kind, goal=self.plan.goal or "(see BRAIN.md)", brain=self.brain(),
-                      plan_status=plan_status(self.plan, self.state), decisions=self.decisions(),
-                      followups=self.followups(), completion_check=completion, max_new=max_new)
+        return render("auditor.md", audit_kind=kind, plan_status=plan_status(self.plan, self.state),
+                      decisions=self.decisions(), followups=self.followups(), completion_check=completion, max_new=max_new)
 
     def replanner_prompt(self) -> str:
         blocked = [f"{r['id']}: {(r['last_error'] or '')[:500]}" for r in self.state.tasks("blocked")]
-        return render("replanner.md", goal=self.plan.goal or "(see BRAIN.md)",
-                      plan_status=plan_status(self.plan, self.state, include_criteria=False),
+        return render("replanner.md", plan_status=plan_status(self.plan, self.state, include_criteria=False),
                       blocked=bullets(blocked), decisions=self.decisions(), followups=self.followups())
 
     def system_append(self) -> str:
-        return (PROMPTS / "system.md").read_text(encoding="utf-8")
+        """The rules plus the project context every session needs. U7: byte-identical for every session until
+        BRAIN.md or the goal changes, and it rides in the system prompt, which Claude Code caches; so later sessions
+        on the same model read it from the cache instead of paying for it again. No timestamps or task data here."""
+        return ((PROMPTS / "system.md").read_text(encoding="utf-8").rstrip()
+                + f"\n\n# Project context (the same for every session)\n\n## Project goal\n"
+                  f"{self.plan.goal or '(see the project brain)'}\n\n"
+                  f"## Project brain (architecture, conventions, invariants)\n{self.brain()}\n")

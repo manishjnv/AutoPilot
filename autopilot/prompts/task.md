@@ -1,8 +1,5 @@
 # Assignment: implement task {{task_id}} — {{task_title}}
 
-## Project goal
-{{goal}}
-
 ## Current phase: {{phase_id}} — {{phase_title}}
 {{phase_goal}}
 
@@ -18,9 +15,6 @@ Risk tier: {{risk}}
 
 ### Docs to update
 {{docs}}
-
-## Project brain (architecture, conventions, invariants)
-{{brain}}
 
 ## Recent decisions (stay consistent)
 {{decisions}}

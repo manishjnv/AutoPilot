@@ -4,9 +4,6 @@ You are a separate RESEARCH session. Use WebSearch and WebFetch, and Read for th
 files and do not run commands. Another session will build the task next; it sees only your report, never the pages
 you read, so put everything it needs into the report.
 
-## Project goal
-{{goal}}
-
 ## Task
 {{description}}
 

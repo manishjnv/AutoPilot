@@ -4,9 +4,6 @@ The main branch fails the project's verification gate. Nothing else can proceed 
 Find the root cause and fix it with the smallest correct change. Do not delete or weaken tests to make them pass
 unless a test is itself provably wrong (then explain why in the report).
 
-## Project brain
-{{brain}}
-
 ## Recent decisions
 {{decisions}}
 

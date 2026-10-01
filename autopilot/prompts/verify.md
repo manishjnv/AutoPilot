@@ -3,12 +3,6 @@
 You are the phase's functional checker. Do NOT edit or fix anything: files you change are thrown away. Your only job
 is to prove, by using the running app the way a user would, whether each feature below works.
 
-## Project goal
-{{goal}}
-
-## Project brain (how to run the app)
-{{brain}}
-
 ## How to start the app
 {{init}}
 
