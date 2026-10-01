@@ -1,7 +1,7 @@
 # systemd unit: one instance per project, run inside the sandbox container.
 #   docker build -t autopilot -f deploy/Dockerfile .
 #   sudo cp deploy/autopilot@.service /etc/systemd/system/
-# Project checkout: /srv/autopilot/<name> (its own tree, never touches other apps on a shared server).
+# Project checkout: /srv/autopilot/<name>, owned by uid 1000 (its own tree, never touches other apps on a shared server).
 # Secrets: /etc/autopilot/<name>.env (must exist, mode 600): ANTHROPIC_API_KEY or a subscription login,
 #          AUTOPILOT_TG_TOKEN, ...
 # Subscription login, once: docker run -it --rm -v autopilot-claude-<name>:/home/autopilot/.claude autopilot claude
@@ -20,7 +20,7 @@ Type=simple
 # must be in the docker group
 User=autopilot
 ExecStartPre=-/usr/bin/docker rm -f autopilot-%i
-ExecStart=/usr/bin/docker run --rm --name autopilot-%i --env-file /etc/autopilot/%i.env -v /srv/autopilot/%i:/work -v autopilot-claude-%i:/home/autopilot/.claude autopilot:latest
+ExecStart=/usr/bin/docker run --rm --init --stop-signal SIGINT --name autopilot-%i --env-file /etc/autopilot/%i.env -v /srv/autopilot/%i:/work -v autopilot-claude-%i:/home/autopilot/.claude autopilot:latest
 ExecStop=/usr/bin/docker stop -t 60 autopilot-%i
 # a finished run exits 0 and stays down; crashes restart and resume from the state DB
 Restart=on-failure
