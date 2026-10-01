@@ -79,6 +79,12 @@ models:
   auditor: opus
   onboard: opus
   unstick: sonnet         # diagnoses a stuck task (may search the web) before anyone is asked
+  decide: opus            # weighs 2-3 approaches before risky work (see decide:)
+
+decide:                   # before risky work, one read-only session scores 2-3 approaches -> an ADR in docs.adr_dir
+  enabled: true
+  risks: [high, critical] # plus any task with needs_decision: true; corrective (FIX) tasks never
+  effort: high
 
 unstick:                  # a failing task first gets one read-only diagnosis session, then one more attempt
   enabled: true
@@ -115,6 +121,7 @@ docs:
   changelog: CHANGELOG.md
   history_dir: .agent/history
   rca: docs/RCA.md        # root-cause log; corrective tasks and repairs append an entry
+  adr_dir: docs/adr       # architecture decision records (MADR) from the decide session
 
 replan:                   # rewrites stale pending tasks, reopens blocked ones, refreshes BRAIN.md
   enabled: true

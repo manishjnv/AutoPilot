@@ -24,4 +24,7 @@ REPORTS = {  # session kind -> schema of its final report
     "audit": obj(["complete", "gaps"], complete={"type": "boolean"}, completion_pct={"type": "number"}, summary=S,
                  gaps={"type": "array", "items": GAP}),
     "replan": obj(["summary"], summary=S, changed=A, added=A, removed=A, reopened=A),
+    "decide": obj(["title", "options", "decision"], title=S, context=S, criteria=A, decision=S, rationale=S,
+                  consequences=A, options={"type": "array", "items": obj(["name"], name=S, summary=S, pros=A, cons=A,
+                                                                          score={"type": "number"})}),
 }

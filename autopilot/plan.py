@@ -28,6 +28,7 @@ class Task:
     docs: list[str] = field(default_factory=list)
     allow_no_changes: bool = False
     allow_test_changes: bool = False
+    needs_decision: bool = False   # L2: weigh options in an ADR before building
     reopen: bool = False
 
 
@@ -95,6 +96,7 @@ class Plan:
                     docs=[str(x) for x in _as_list(t.get("docs"))],
                     allow_no_changes=bool(t.get("allow_no_changes", False)),
                     allow_test_changes=bool(t.get("allow_test_changes", False)),
+                    needs_decision=bool(t.get("needs_decision", False)),
                     reopen=bool(t.get("reopen", False)),
                 ))
             phases.append(Phase(id=pid, title=str(p.get("title", pid)), goal=str(p.get("goal", "") or ""),

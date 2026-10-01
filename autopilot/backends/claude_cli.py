@@ -110,8 +110,8 @@ class ClaudeCLIBackend:
             cmd += ["--max-budget-usd", f"{req.budget_usd:.2f}"]
         if c.get("models.fallback"):
             cmd += ["--fallback-model", c.get("models.fallback")]
-        if c.get("agent.effort"):
-            cmd += ["--effort", c.get("agent.effort")]
+        if req.effort or c.get("agent.effort"):
+            cmd += ["--effort", req.effort or c.get("agent.effort")]
         if req.system_append and not self.shim:
             cmd += ["--append-system-prompt", req.system_append]
         if req.schema and not self.shim:  # quotes through cmd.exe are fragile; the report is then parsed from text

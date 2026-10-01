@@ -28,6 +28,8 @@ Risk tier: {{risk}}
 ## Owner answers (follow these exactly)
 {{owner_answers}}
 
+{{adr_block}}
+
 ## Previous session handoff
 {{handoff}}
 

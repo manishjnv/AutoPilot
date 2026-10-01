@@ -38,6 +38,7 @@ autopilot run             # runs until the app is complete
 | "Done" that isn't done | The orchestrator runs the checks itself; empty diffs, protected-file edits and secrets all fail |
 | One failure freezing the run | Retry, then escalate the model, then park as blocked; independent work continues (`phase_dependency: soft`) |
 | Main branch breaks | A fixer session repairs it (gated) before any more work runs |
+| Risky design choices made blind | High/critical tasks first get a read-only decide session that scores 2-3 options; the choice is written as an ADR in `docs/adr/` and the implementer must follow it |
 | Plan drift | The replanner rewrites remaining tasks against the real code; it's validated and can't touch done tasks |
 | Missed integration or quality gaps | Periodic and completion audits create corrective tasks automatically |
 | Deploy failures | Health check and smoke tests, automatic rollback to the last good ref, plus a corrective task |

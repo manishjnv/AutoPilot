@@ -141,10 +141,10 @@ def test_run_journal_and_this_run_report(tmp_path):
     assert seen[0]["pid"] > 0 and seen[0]["first_session"] == 1
     run = json.loads((root / ".agent" / "run.json").read_text(encoding="utf-8"))
     assert run["status"] == "finished" and run["outcome"] == outcome == "plan complete"
-    assert run["sessions"] == 3 and run["run_id"] and run["started_at"] and run["updated_at"]
+    assert run["sessions"] == 4 and run["run_id"] and run["started_at"] and run["updated_at"]
     report = (root / ".agent" / "REPORT.md").read_text(encoding="utf-8")
     assert "## This run" in report and "- Outcome: plan complete" in report and "- Tasks done this run: 3" in report
-    assert "- Sessions this run: 3" in report and "- Next action: none: plan complete" in report
+    assert "- Sessions this run: 4" in report and "- Next action: none: plan complete" in report
     assert ".agent/run.json" in (root / ".gitignore").read_text(encoding="utf-8")
     assert git(root, "status", "--porcelain").strip() == ""
 

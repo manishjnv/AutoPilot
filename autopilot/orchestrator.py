@@ -313,7 +313,7 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ sessions
     def session(self, kind: str, prompt: str, model: str, *, task_id=None, phase=None, attempt=1,
-                read_only=False, label: str = "", resume: SessionResult | None = None) -> SessionResult:
+                read_only=False, label: str = "", resume: SessionResult | None = None, effort: str = "") -> SessionResult:
         self.check_stop()
         budget = self.session_budget(task_id)
         self._journal(current=label or " ".join(
@@ -325,7 +325,7 @@ class Orchestrator:
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
                              timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
                              budget_usd=budget, system_append=self.ctx.system_append(),
-                             read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind),
+                             read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort,
                              resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {})
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
         try:
@@ -368,6 +368,8 @@ class Orchestrator:
         max_attempts = int(self.cfg.get("retries.max_attempts_per_task", 3))
         branch = f"autopilot/{task.id}"
         self.state.set_task(task.id, status="running", started_at=now())
+        if self.needs_adr(task, phase):
+            self.decide(task, phase)
         extra, guidance, suggestion, fail_err = False, "", "", ""
         chain, chain_model = None, ""  # the last failed attempt's session, resumable by the next attempt
 
@@ -494,11 +496,50 @@ class Orchestrator:
         if cls == "technical" and diagnosis:
             return "technical", diagnosis, rep
         if cls == "spec" and decision:
-            options = "; ".join(str(o) for o in (rep.get("options_considered") or []))
-            self._record_decision(f"[{task.id}] DECISION (auto): {decision} (options considered: {options or 'n/a'})")
-            self._commit_main(f"[autopilot] auto decision for {task.id}")
+            considered = [str(o) for o in (rep.get("options_considered") or [])]
+            self._write_adr(task, {"title": f"{task.title}: {decision}", "context": diagnosis or error[-1500:],
+                                   "options": [{"name": o} for o in considered], "decision": decision,
+                                   "rationale": "chosen by the unstick review after the task kept failing"},
+                            "decided by the unstick review",
+                            f"[{task.id}] DECISION (auto): {decision} (options considered: {'; '.join(considered) or 'n/a'})")
             return "spec", decision, rep
         return "owner", diagnosis or decision, rep
+
+    # ------------------------------------------------------------------ L2: decide the approach (docs/adr)
+    def needs_adr(self, task, phase) -> bool:
+        if not self.cfg.get("decide.enabled", True) or phase.priority:  # corrective work fixes, it doesn't design
+            return False
+        if self.state.get_meta(f"adr:{task.id}") is not None:  # one try per task
+            return False
+        return task.needs_decision or task.risk in (self.cfg.get("decide.risks") or [])
+
+    def decide(self, task, phase):
+        """One read-only session weighs 2-3 approaches before risky work; its choice becomes the ADR the implementer
+        follows. No usable answer = build without an ADR (never blocks)."""
+        while True:
+            self.git.start_branch("autopilot/decide", self.main)
+            try:
+                res = self.session("decide", self.ctx.decide_prompt(task), self.cfg.get("models.decide", "opus"),
+                                   task_id=task.id, phase=phase.id, read_only=True,
+                                   effort=self.cfg.get("decide.effort", "high"))
+            finally:  # read-only: drop anything it touched
+                self.git.discard()
+                self.git.checkout_main(self.main)
+                self.git.delete_branch("autopilot/decide")
+            if not res.rate_limited:  # session() already waited out the limit
+                break
+        rep = res.report if res.ok and isinstance(res.report, dict) else {}
+        self.state.set_meta(f"adr:{task.id}", "")
+        if not str(rep.get("decision") or "").strip():
+            log.warning("decide session for %s gave no decision: %s", task.id, (res.error or "")[:200])
+            return
+        self._write_adr(task, rep, "decided by the Autopilot decide session", f"[{task.id}] ADR: {rep['decision']}")
+
+    def _write_adr(self, task, rep: dict, source: str, line: str):
+        rel = self.docs.adr(task, rep, source).as_posix()
+        self.state.set_meta(f"adr:{task.id}", rel)
+        self._record_decision(f"{' '.join(line.split())} → {rel}")  # DECISIONS.md is a one-line-per-entry index
+        self._commit_main(f"[autopilot] ADR for {task.id}: {' '.join(str(rep.get('title') or task.title).split())[:100]}")
 
     # ------------------------------------------------------------------ owner decisions (docs/NEEDS-YOU.md)
     def _needs_path(self) -> Path:

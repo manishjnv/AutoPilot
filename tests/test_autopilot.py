@@ -65,6 +65,12 @@ class FakeBackend:
             (cwd / "AUDITOR_SCRIBBLE.txt").write_text("should be discarded")
             rep = self.audits.pop(0) if self.audits else {"complete": True, "completion_pct": 100, "gaps": []}
             return SessionResult(ok=True, cost=0.5, report=rep)
+        d = re.search(r"^# Assignment: decide the approach for task (\S+)", req.prompt, re.M)
+        if d:
+            self.calls.append(("decide", req.model))
+            return SessionResult(ok=True, cost=0.2, report={
+                "title": f"Approach for {d.group(1)}", "context": "c", "criteria": ["simple"],
+                "options": [{"name": "A", "score": 8}, {"name": "B", "score": 5}], "decision": "A", "rationale": "simpler"})
         if "repair the main branch" in req.prompt:
             self.calls.append(("fixer", req.model))
             b = cwd / "BROKEN"

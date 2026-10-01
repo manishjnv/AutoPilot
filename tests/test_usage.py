@@ -9,6 +9,7 @@ from test_autopilot import FakeBackend, make_project, phases_basic
 from test_backend import run_stub
 
 NO_AUDIT = {"audit": {"completion_audit": False}}
+NO_DECIDE = {"decide": {"enabled": False}}  # these tests pin exact session totals
 
 
 def u(i, o, r=0, w=0, cost=0.0):
@@ -68,7 +69,7 @@ def test_old_database_without_new_columns_still_opens(tmp_path):
 
 
 def test_token_totals_by_model_kind_after_a_fake_run(tmp_path):
-    root = make_project(tmp_path, phases_basic())
+    root = make_project(tmp_path, phases_basic(), NO_DECIDE)
     orch = Orchestrator(root, backend=UsageBackend(), sleep=lambda s: None)
     assert orch.run() == "app complete"
     models = orch.state.token_totals("model")
@@ -83,7 +84,7 @@ def test_token_totals_by_model_kind_after_a_fake_run(tmp_path):
 
 
 def test_report_tokens_section_footer_and_verification_share(tmp_path):
-    root = make_project(tmp_path, phases_basic())
+    root = make_project(tmp_path, phases_basic(), NO_DECIDE)
     orch = Orchestrator(root, backend=UsageBackend(), sleep=lambda s: None)
     orch.run()
     report = (root / ".agent" / "REPORT.md").read_text(encoding="utf-8")

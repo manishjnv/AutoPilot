@@ -94,6 +94,20 @@ class ContextBuilder:
                       acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
                       brain=self.brain(), decisions=self.decisions(), error=(error or "(none)")[-6000:])
 
+    def decide_prompt(self, task) -> str:
+        phase = self.plan.phase_of(task)
+        return render("decide.md", task_id=task.id, task_title=task.title, goal=self.plan.goal or "(see BRAIN.md)",
+                      phase_goal=phase.goal or phase.title, risk=task.risk, description=task.description or task.title,
+                      acceptance=bullets(task.acceptance_criteria), scope=bullets(task.files_in_scope, "(not restricted)"),
+                      brain=self.brain(), decisions=self.decisions())
+
+    def adr_block(self, task) -> str:
+        rel = self.state.get_meta(f"adr:{task.id}")
+        if not rel:
+            return ""
+        return (f"## Approach decided for this task (follow it; ADR `{rel}`)\n"
+                + read_capped(self.cfg.root / rel, 8000, default="(the ADR file is missing)"))
+
     def task_prompt(self, task, attempt: int, last_error: str | None, git_log: str = "") -> str:
         phase = self.plan.phase_of(task)
         retry = ""
@@ -108,6 +122,7 @@ class ContextBuilder:
             progress=progress_line(self.plan, self.state.status_map()), retry_block=retry,
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
             git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
+            adr_block=self.adr_block(task),
         )
 
     def resume_prompt(self, task, attempt: int, last_error: str | None) -> str:
