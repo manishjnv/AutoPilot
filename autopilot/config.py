@@ -83,8 +83,16 @@ class Config:
         backend = self.get("agent.backend")
         if backend not in ("claude_cli", "command"):
             errs.append(f"agent.backend must be claude_cli or command, got {backend!r}")
-        if backend == "command" and not self.get("agent.command"):
-            errs.append("agent.command is required when agent.backend=command")
+        if backend == "command":
+            from .backends.command import PRESETS, SAFE_MODEL
+            preset = self.get("agent.preset")
+            names = [str(v) for v in (self.get("agent.model_map", {}) or {}).values()]
+            if preset and any(not SAFE_MODEL.fullmatch(n) for n in names):
+                errs.append("agent.model_map names may use only letters, digits and . _ : / @ -")
+            if preset and preset not in PRESETS:
+                errs.append(f"agent.preset must be one of {', '.join(PRESETS)}, got {preset!r}")
+            elif not (self.get("agent.command") or preset):
+                errs.append("agent.backend=command needs agent.command or agent.preset (codex, gemini, opencode)")
         for env in ("staging", "prod"):
             if self.get(f"deploy.{env}.enabled") and not self.get(f"deploy.{env}.cmd"):
                 errs.append(f"deploy.{env}.enabled but deploy.{env}.cmd is empty")

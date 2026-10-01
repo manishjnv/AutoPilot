@@ -46,7 +46,8 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
     if cfg.get("agent.backend", "claude_cli") == "claude_cli":
         out += check_claude()
     elif cfg.get("agent.backend") == "command":
-        exe = (cfg.get("agent.command") or "").split()
+        from .backends.command import command_template
+        exe = command_template(cfg).split()
         found = bool(exe) and shutil.which(exe[0])
         out.append((OK if found else FAIL, "agent command", f"{exe[0] if exe else '(empty)'} "
                     + ("found" if found else "not found on PATH")))

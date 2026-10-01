@@ -19,26 +19,31 @@ docker build -t autopilot -f "$here/deploy/Dockerfile" "$here"
 
 echo "== user"
 id autopilot >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin autopilot
+# The unit runs `docker run`, so this user joins the docker group, which is root-equivalent on this host (it can
+# mount any host path). Keep the account login-less, as above, and don't add people to it.
 usermod -aG docker autopilot
 
 echo "== project checkout"
 dir="/srv/autopilot/$name"
+for p in /srv/autopilot "$dir" /etc/autopilot "/etc/autopilot/$name.env"; do
+  [[ -L "$p" ]] && { echo "refusing: $p is a symlink" >&2; exit 1; }
+done
 if [[ -d "$dir/.git" ]]; then
   echo "keep $dir (already cloned)"
 else
   mkdir -p /srv/autopilot
-  git clone "$repo" "$dir"
+  git clone -- "$repo" "$dir"
 fi
-chown -R 1000:1000 "$dir"   # uid of the container user (deploy/Dockerfile)
+chown -R --no-dereference 1000:1000 "$dir"   # uid of the container user (deploy/Dockerfile); never follows links
 
 echo "== secrets file"
 env="/etc/autopilot/$name.env"
-mkdir -p /etc/autopilot && chmod 700 /etc/autopilot
-if [[ -f "$env" ]]; then
+mkdir -p /etc/autopilot && chown root:root /etc/autopilot && chmod 700 /etc/autopilot
+if [[ -e "$env" ]]; then
   echo "keep $env"
 else
-  install -m 600 /dev/null "$env"
-  cat > "$env" <<'EOF'
+  # noclobber = O_EXCL: fails instead of following anything planted at that path; umask 077 = mode 600
+  ( umask 077; set -o noclobber; cat > "$env" ) <<'EOF'
 # Autopilot secrets for this project (mode 600). Uncomment what you use.
 # ANTHROPIC_API_KEY=            # only with usage.billing: api; a subscription login needs nothing here
 # AUTOPILOT_TG_TOKEN=           # Telegram bot token (notifications, chat commands)

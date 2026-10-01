@@ -88,7 +88,10 @@ put its build and test commands in `commands:`.
 Attempt *n* uses `ladder[risk][n]`. By default: low `haiku→sonnet→opus`, medium `sonnet→sonnet→opus`, high/critical `opus`.
 Mark auth, payments, tenant isolation, crypto and migrations as `high`/`critical`.
 To route through LiteLLM/OpenRouter, set `agent.env.ANTHROPIC_BASE_URL`. To use a different agent CLI entirely,
-set `agent.backend: command`.
+set `agent.backend: command` with either your own `agent.command` or a ready-made `agent.preset: codex | gemini |
+opencode`. `agent.model_map` maps the ladder names (haiku, sonnet, opus) to that CLI's models; unmapped names use
+its default model. These presets come from each CLI's docs and are not tested as much as Claude Code. They also run
+with auto-approval, so use the same sandbox advice as for Claude Code.
 
 ## Commands
 

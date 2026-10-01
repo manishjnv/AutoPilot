@@ -49,6 +49,9 @@ gate:
 agent:
   backend: claude_cli     # claude_cli | command
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
+  # preset: codex          # backend=command without a command: codex | gemini | opencode (ready-made invocations)
+  # model_map: {haiku: <small model>, sonnet: <main model>, opus: <largest model>}   # ladder names -> CLI models;
+  #                         an unmapped haiku/sonnet/opus uses the CLI's default model
   permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing; or dontAsk + allowed_tools
   session_timeout_sec: 3600
   max_turns: 200          # --max-turns per session (~ the 1-hour timeout at 10-20 s a turn); 0 = no limit
