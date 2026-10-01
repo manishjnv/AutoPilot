@@ -87,6 +87,8 @@ class Config:
             errs.append("deploy.prod.max_auto_risk must be one of " + ", ".join(RISKS))
         if not self.commands("build", "lint", "typecheck", "test"):
             errs.append("no verify commands (build/lint/typecheck/test) — the gate would pass anything")
+        if self.get("usage.billing", "subscription") not in ("subscription", "api"):
+            errs.append("usage.billing must be subscription or api")
         return errs + self._git_errors()
 
     def _git_errors(self) -> list[str]:

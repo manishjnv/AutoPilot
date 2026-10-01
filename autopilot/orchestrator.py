@@ -417,6 +417,58 @@ class Orchestrator:
             raise Stop("budget exhausted")
         return left
 
+    # ------------------------------------------------------------------ U4: the subscription's 5-hour window
+    OPUS_HEAVY = ("decide", "audit", "replan", "onboard")
+
+    def _window_used(self, start: float) -> float:
+        since = dt.datetime.fromtimestamp(start).isoformat(timespec="seconds")
+        return float(self.state.db.execute("SELECT COALESCE(SUM(cost),0) FROM sessions WHERE started_at >= ?",
+                                           (since,)).fetchone()[0])
+
+    def window_gate(self, kind: str, model: str):
+        """Before a session: keep `usage.reserve_pct` of the window for the owner (pause until it resets), and start
+        Opus-heavy sessions only early in a window (`usage.opus_by_pct`). Only Autopilot's own spend is counted, which
+        is why the reserve exists. Needs the window size: `usage.window_usd`, or learned at the first limit hit."""
+        u = self.cfg.get
+        if u("usage.billing", "subscription") != "subscription":
+            return
+        span = float(u("usage.window_hours", 5) or 5) * 3600
+        start = float(self.state.get_meta("window_start", 0) or 0)
+        if time.time() >= start + span:  # no open window: this session opens one
+            self.state.set_meta("window_start", time.time())
+            return
+        cap = float(u("usage.window_usd", 0) or 0) or float(self.state.get_meta("window_capacity_usd", 0) or 0)
+        reserve = float(u("usage.reserve_pct", 15) or 0) / 100
+        opus_by = float(u("usage.opus_by_pct", 0) or 0) / 100
+        if not cap or not (reserve or opus_by):
+            return
+        limit = cap * (1 - reserve)
+        heavy = opus_by and kind in self.OPUS_HEAVY and model_rank(model) == 2
+        if heavy:
+            limit *= opus_by
+        used = self._window_used(start)
+        if used < limit:
+            return
+        wake = start + span + 120
+        why = "Opus-heavy work waits for a fresh window" if heavy else f"keeping {round(100 * reserve)}% of it for you"
+        self.notify.send("window", f"used about ${used:.2f} of ~${cap:.2f} this usage window; {why}. Pausing until "
+                                   f"{dt.datetime.fromtimestamp(wake):%H:%M}.")
+        self._journal(current="waiting for the usage window to reset")
+        self.sleep(max(60.0, wake - time.time()))
+        self.state.set_meta("window_start", 0)
+
+    def learn_window(self, reset_at: float):
+        """A usage-limit hit says when the window ends: align the window to it and learn its size from what Autopilot
+        spent in it (the largest seen; the owner's own use makes some hits come early)."""
+        if self.cfg.get("usage.billing", "subscription") != "subscription":
+            return
+        start = reset_at - float(self.cfg.get("usage.window_hours", 5) or 5) * 3600
+        self.state.set_meta("window_start", start)
+        used = self._window_used(start)
+        if used > float(self.state.get_meta("window_capacity_usd", 0) or 0):
+            self.state.set_meta("window_capacity_usd", round(used, 2))
+            log.info("usage window size learned: about $%.2f", used)
+
     def backoff(self, res):
         if res.reset_at:  # the CLI said when the window reopens: sleep until then; not a streak, not an attempt
             secs = min(max(60, res.reset_at - time.time() + 120), 8 * 86400)
@@ -438,6 +490,7 @@ class Orchestrator:
                 read_only=False, label: str = "", resume: SessionResult | None = None, effort: str = "",
                 web_only: bool = False, mcp_config: str = "", no_tools: bool = False) -> SessionResult:
         self.check_stop()
+        self.window_gate(kind, model)
         effort = effort or self.cfg.get(f"models.effort.{kind}", "")  # U5: role effort; agent.effort is the fallback
         budget = self.session_budget(task_id)
         self._journal(current=label or " ".join(
@@ -470,6 +523,8 @@ class Orchestrator:
                                duration_ms=res.duration_ms)
         if task_id:
             self.state.set_task(task_id, cost=self.state.cost(task_id=task_id))
+        if res.rate_limited and res.reset_at:
+            self.learn_window(res.reset_at)
         if res.rate_limited:
             self.backoff(res)
         else:
@@ -896,6 +951,7 @@ class Orchestrator:
         """One session per task at the same time, each in its own worktree; then gate and merge one by one."""
         from concurrent.futures import ThreadPoolExecutor
         self.check_stop()
+        self.window_gate("task", "")
         self._journal(current="parallel: " + ", ".join(t.id for t in tasks))
         base, config_before = self.git.ref(self.main), self.git.config_text()
         jobs = []

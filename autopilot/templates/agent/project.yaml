@@ -142,6 +142,14 @@ retries:
   max_fixer_attempts: 3
   rate_limit_backoff_sec: [60, 300, 900, 1800, 3600]
 
+usage:                    # the subscription's 5-hour window (claude -p draws from it, like interactive use)
+  billing: subscription   # subscription | api (api = no window, only the budget_usd caps)
+  window_hours: 5
+  reserve_pct: 15         # leave this share of each window for you: pause until it resets (0 = off)
+  window_usd: 0           # cost-equivalent of a full window; 0 = learn it from the first usage-limit hit
+  opus_by_pct: 0          # Opus decide/audit/replan sessions start only before this share of the usable window
+                          # is spent, else wait for a fresh window (0 = off; waiting costs wall-clock time)
+
 budget_usd:
   per_session: 8
   per_task: 20
@@ -215,4 +223,4 @@ notify:
   slack_webhook_env: AUTOPILOT_SLACK_WEBHOOK
   webhook_env: AUTOPILOT_WEBHOOK
   ntfy_topic_env: AUTOPILOT_NTFY_TOPIC
-  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, needs_you, budget, stalled, run_done, fatal, quality]
+  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, needs_you, budget, stalled, run_done, fatal, quality, window]

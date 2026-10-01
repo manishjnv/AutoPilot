@@ -99,6 +99,11 @@ check either: a failing main or phase gate becomes a corrective phase first.
 ## Usage, pacing and the RCA log
 - Every session's tokens (input, output, cache read/write) and cost are stored per model. `.agent/REPORT.md` (and `autopilot status`) has a **Tokens** section with per-model and per-kind totals and the verification share (fixer, audit and unstick sessions); above 20% it warns that checks use more than intended. The `run_done` notification ends with a one-line token footer.
 - When the CLI reports a usage limit with a reset time, the run sleeps until the window reopens (plus two minutes) and notifies you; that wait is never a task attempt and never counts toward the 30-in-a-row stop.
+- **Window budget** (`usage:`, for `billing: subscription`): Autopilot counts its own spend in the current 5-hour
+  window. When only `reserve_pct` (15%) is left, it pauses until the window resets, so you can still use Claude
+  yourself. The window's size comes from `usage.window_usd`, or it is learned the first time the limit is hit. With
+  `opus_by_pct`, Opus decide, audit and replan sessions only start early in a window. Set `billing: api` to use only
+  the `budget_usd` caps.
 - Corrective (FIX) tasks must add a regression test (bugs) and report a root cause. Entries land in `docs/RCA.md` (symptom, root cause, fix, prevention), committed with the fix; main-branch repairs add a lenient entry.
 - `.agent/run.json` is the live run journal; `REPORT.md` has a **This run** section with the next action.
 - **Quality:** every finished task logs one line, `task · model · risk · attempts · reworked Y/N · tokens` (event
