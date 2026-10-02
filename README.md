@@ -20,16 +20,67 @@ finished app, a changelog and a short list of decisions only you can make (`docs
 
 > Formerly **AutoDev**. Existing projects keep working: the `.agent/` folder is unchanged and the old `AUTODEV_*` environment variables are still read.
 
-```
-python -m pip install -e <path to this repo>   # then `python -m autopilot doctor --fix` if `autopilot` isn't found
-autopilot quickstart --plan-doc docs/PLAN.md   # init + plan from your doc + doctor check (add --run to start)
-autopilot run             # runs until the app is complete
+## Getting started
 
-# the same, step by step:
-autopilot init            # adds a .agent/ contract to any repo (stack auto-detected)
-autopilot onboard --plan-doc docs/PLAN.md   # AI converts your plan into phases/tasks + BRAIN.md
-autopilot doctor          # checks the claude CLI, git, gh, notifications and config
+### 1. One-time setup on your machine
+You need: **Python 3.10+**, **git**, **Node.js** (for Claude Code) and a **Claude Pro/Max subscription** (or an API key).
+
+```powershell
+npm i -g @anthropic-ai/claude-code       # Claude Code, the agent Autopilot drives
+claude                                   # log in once with /login, then /exit
+git clone https://github.com/manishjnv/AutoPilot
+python -m pip install -e ./AutoPilot     # installs the `autopilot` command
 ```
+
+The same commands work in PowerShell, bash and zsh. If `autopilot` is "not recognized" (pip may put it in a folder
+that isn't on PATH), use `python -m autopilot` instead. It runs the same thing, and the first `quickstart` adds the
+folder to your PATH for new terminals.
+
+### 2. Start a new project
+1. Make an empty folder with git: `mkdir myapp`, `cd myapp`, `git init -b main`.
+2. Write your plan in a file, e.g. `PLAN.md`. Describe the product, the architecture and the phases with their
+   features. The more exact the acceptance criteria, the better the result.
+3. Turn the plan into tasks:
+   ```powershell
+   autopilot quickstart --plan-doc PLAN.md   # sets up .agent/, one Opus session writes the plan, then checks the machine
+   autopilot next                            # shows every task in order, with the model it will use
+   ```
+4. Read `.agent/plan.yaml` and `.agent/BRAIN.md`. Edit them if something is wrong. This is the cheapest moment to
+   change the plan.
+
+### 3. Let it build
+```powershell
+autopilot run --max-sessions 10     # first time: a short run to see it working; later just `autopilot run`
+```
+Each task prints live lines such as `▸ P01-T01 Project skeleton [haiku] · Write src/app/cli.py · 1m12s`.
+Leave it running. It fixes failing tasks itself, and it never stops to wait for you.
+
+### 4. While it runs
+| You want to… | Do this |
+|---|---|
+| See progress | `autopilot status`, or `autopilot serve` and open http://127.0.0.1:8765/ |
+| Answer a question it couldn't decide | Read `docs/NEEDS-YOU.md`, then `autopilot answer D-001 "your answer"` |
+| Pause or stop | `autopilot stop` (it stops before the next session); continue with `autopilot run` |
+| Get pinged on your phone | Set `AUTOPILOT_TG_TOKEN` + `AUTOPILOT_TG_CHAT` (Telegram) or `AUTOPILOT_NTFY_TOPIC` |
+
+### 5. When it finishes
+`autopilot stats` prints the result: tasks done, cost, time, and what you had to do. The code is on `main`, with
+`CHANGELOG.md`, `docs/RCA.md` and the per-task history in `.agent/history/`. To add features later, put ideas in
+`docs/BACKLOG.md` (one `- idea` per line) and run `autopilot run` again.
+
+### Use it on an existing project
+Same as above, from the project's folder: `autopilot quickstart --plan-doc <your plan or roadmap>`. Without a plan
+document, onboarding reads the repository and README and proposes one.
+
+### Share it with someone
+1. Send them the repo link: https://github.com/manishjnv/AutoPilot (the repo has no license yet, so ask the owner
+   before reusing the code).
+2. They follow **step 1** on their own machine with their own Claude subscription. Autopilot never shares your
+   login, and every run uses the account of the person running it.
+3. For a ready project, they clone it and run `autopilot run` in it. The `.agent/` folder carries the plan and
+   history; the state database is local and starts fresh.
+4. To run it on a server instead of a PC, see [Running unattended on a VPS](#running-unattended-on-a-vps)
+   (`sudo deploy/install.sh <name> <git-url>`).
 
 ## How it works
 
