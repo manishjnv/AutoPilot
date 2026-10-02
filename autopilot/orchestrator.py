@@ -1579,6 +1579,13 @@ class Orchestrator:
         gate = main_gate(self.cfg, phase=phase_checks)
         if gate.ok:
             return True
+        if self.env_problem(gate.report()):  # G6: a missing tool is not broken code; fixer sessions can't install it
+            self.run_setup()
+            gate = main_gate(self.cfg, phase=phase_checks)
+            if not gate.ok and self.env_problem(gate.report()) and self.repair_env(gate.report()):
+                gate = main_gate(self.cfg, phase=phase_checks)
+            if gate.ok:
+                return True
         errors = gate.report()
         self.notify.send("main_red", f"verification failing on {self.main} — starting fixer")
         fixers = self.cfg.get("models.fixer", ["sonnet", "opus"])

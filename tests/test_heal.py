@@ -143,6 +143,48 @@ def test_a_broken_environment_gets_one_repair_session(tmp_path):
                        for e in orch.state.events(200) if e["kind"] == "heal")
 
 
+def test_a_missing_tool_on_main_goes_to_repair_not_to_fixer_sessions(tmp_path):
+    """G6: main is red only because a tool is missing. Setup runs again, then one repair session; no fixer."""
+    cfg = {**BASE, "commands": {"lint": [_tool_cmd("requirements.txt")]}}
+
+    class Repairs(FakeBackend):
+        def run(self, req):
+            if req.prompt.startswith("# Assignment: repair the project's environment"):
+                self.calls.append(("repair", req.model))
+                (Path(req.cwd) / "requirements.txt").write_text("mytool\n")
+                return SessionResult(ok=True, report={"status": "done", "summary": "declared mytool"})
+            if req.prompt.startswith("# Assignment: repair the main branch"):
+                self.calls.append(("fixer", req.model))
+                return SessionResult(ok=False, error="no change")
+            return super().run(req)
+    backend = Repairs()
+    root = make_project(tmp_path, phases_basic()[:1], cfg)
+    orch = Orchestrator(root, backend=backend, sleep=lambda s: None)
+    orch._prepare_repo()
+    orch.reload_plan()
+    assert orch.ensure_main_green()
+    assert [c[0] for c in backend.calls] == ["repair"]
+    assert (root / "requirements.txt").exists()
+
+
+def test_main_red_for_a_code_reason_still_goes_to_fixer_sessions(tmp_path):
+    cfg = {**BASE, "commands": {"lint": ["python -c \"import sys; print('E501 line too long'); sys.exit(1)\""]},
+           "retries": {"max_fixer_attempts": 1}}
+
+    class Fixer(FakeBackend):
+        def run(self, req):
+            kind = "repair" if "repair the project's environment" in req.prompt else \
+                "fixer" if "repair the main branch" in req.prompt else "other"
+            self.calls.append((kind, req.model))
+            return SessionResult(ok=False, error="no change")
+    backend = Fixer()
+    orch = Orchestrator(make_project(tmp_path, phases_basic()[:1], cfg), backend=backend, sleep=lambda s: None)
+    orch._prepare_repo()
+    orch.reload_plan()
+    assert not orch.ensure_main_green()
+    assert [c[0] for c in backend.calls] == ["fixer"] and not orch.env_repair_tried
+
+
 def test_env_problem_ignores_ordinary_test_failures(tmp_path):
     orch = Orchestrator(make_project(tmp_path, phases_basic()[:1], {**BASE, "commands": {"test": ["python -m pytest -q"]}}),
                         backend=FakeBackend(), sleep=lambda s: None)
