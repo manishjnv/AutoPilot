@@ -59,7 +59,7 @@ autopilot run --max-sessions 10     # first time: a short run to see it working;
 Each task prints live lines such as `▸ P01-T01 Project skeleton [haiku] · Write src/app/cli.py · 1m12s`.
 Leave it running. It fixes failing tasks itself, and it never stops to wait for you.
 
-**Follow it from anywhere** (it prints these when it starts):
+**Follow it from anywhere.** The live page opens in your browser by itself when the run starts (`--no-browser` to skip), and typing `autopilot` (or `autopilot run`) in another terminal while it runs shows it live:
 - **Browser:** the run opens a live page at http://127.0.0.1:8765/ (refreshes every 10 s): what it is doing now,
   the last steps, progress, cost and decisions waiting for you.
 - **Any terminal:** `autopilot watch`. It shows progress and the current step, then every step live until the run

@@ -99,5 +99,23 @@ def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, caps
     assert "Write src/x.py" in out and out.rstrip().endswith("run finished: plan complete")
 
 
+def test_a_second_run_or_plain_autopilot_follows_the_active_run(tmp_path, monkeypatch, capsys):
+    import json
+
+    from autopilot.cli import main as cli_main
+    from autopilot.cli import run_active
+    from autopilot.proc import exclusive_lock
+    root = make_project(tmp_path, phases_basic())
+    (root / ".agent" / "run.json").write_text(json.dumps({"status": "finished", "outcome": "plan complete"}))
+    assert not run_active(root)
+    with exclusive_lock(root / ".agent" / "run.lock"):  # stands in for a run in another process
+        assert run_active(root)
+        assert cli_main(["run", "-C", str(root)]) == 0
+        assert "already active" in capsys.readouterr().out
+        monkeypatch.chdir(root)
+        assert cli_main([]) == 0 and "following it" in capsys.readouterr().out
+    assert cli_main([]) == 0 and "usage:" in capsys.readouterr().out  # no run: plain help
+
+
 def test_report_text_is_escaped():
     assert "<script>" not in html_page("<script>alert(1)</script>") and "&lt;script&gt;" in html_page("<script>")

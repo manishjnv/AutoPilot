@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -231,9 +232,18 @@ def cmd_run(args):
     stop = root / AGENT_DIR / "STOP"
     if stop.exists() and args.clear_stop:
         stop.unlink()
+    if run_active(root):  # a second `autopilot run` while one is going: show that run instead of failing
+        print("a run is already active for this project; following it (Ctrl+C stops watching, not the run)\n")
+        return cmd_watch(argparse.Namespace(path=str(root), lines=20))
     if not preflight(Config.load(root)):  # every session would fail: stop before the first one
         return 1
     url = "" if getattr(args, "no_page", False) else start_status_page(root)
+    if url and not getattr(args, "no_browser", False) and not os.environ.get("AUTOPILOT_NO_BROWSER"):
+        import webbrowser
+        try:  # the live view opens by itself; on a server without a browser this does nothing
+            webbrowser.open(url, new=2)
+        except Exception:  # noqa: BLE001
+            pass
     print(f"\nFollow this run: {url + ' in a browser, or ' if url else ''}`autopilot watch` in another terminal "
           f"(log: {root / AGENT_DIR / 'logs' / 'autopilot.log'})\n", flush=True)
     outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions))
@@ -302,6 +312,18 @@ def cmd_watch(args):
                 return 0
     except KeyboardInterrupt:
         return 0
+
+
+def run_active(root: Path) -> bool:
+    """Is an `autopilot run` going on for this project right now? (It holds .agent/run.lock.)"""
+    lock = root / AGENT_DIR / "run.lock"
+    if not lock.exists():
+        return False
+    try:
+        with exclusive_lock(lock):
+            return False
+    except BlockingIOError:
+        return True
 
 
 def start_status_page(root: Path, port: int = 8765) -> str:
@@ -465,7 +487,7 @@ def main(argv=None):
             s.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(prog="autopilot", description="Autonomous plan-driven development with Claude Code")
     ap.add_argument("--version", action="version", version=__version__)
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")
 
     def add(name, fn, help_):
         p = sub.add_parser(name, help=help_)
@@ -487,6 +509,7 @@ def main(argv=None):
     p = add("run", cmd_run, "run autonomously until the app is complete")
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("--no-page", action="store_true", help="don't start the live status page")
+    p.add_argument("--no-browser", action="store_true", help="start the live page but don't open the browser")
     p.add_argument("-v", "--verbose", action="store_true")
     add("status", cmd_status, "progress, cost, blocked tasks, approvals")
     add("stats", cmd_stats, "the numbers of a run worth publishing (markdown table)")
@@ -509,6 +532,12 @@ def main(argv=None):
     p.add_argument("-v", "--verbose", action="store_true")
 
     args = ap.parse_args(argv)
+    if args.cmd is None:  # plain `autopilot` in a project folder: follow its run when one is going
+        if run_active(Path.cwd()):
+            print("a run is active here; following it (Ctrl+C stops watching, not the run)\n")
+            return cmd_watch(argparse.Namespace(path=".", lines=20))
+        ap.print_help()
+        return 0
     return args.fn(args) or 0
 
 
