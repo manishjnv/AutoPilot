@@ -54,7 +54,7 @@ def test_high_risk_task_gets_an_adr_first(tmp_path):
 def test_which_tasks_get_a_decide_session(tmp_path):
     plan = phases({"risk": "low"}, {"risk": "medium", "needs_decision": True}, {"risk": "critical"})
     root, fake, _ = run(tmp_path, plan)
-    assert [c[0] for c in fake.calls] == ["P01-T01", "decide", "P01-T02", "decide", "P01-T03"]
+    assert [c[0] for c in fake.calls] == ["P01-T01", "decide", "P01-T02", "decide", "P01-T03", "review"]  # critical: reviewed too
     assert sorted(f.name[:4] for f in (root / "docs" / "adr").iterdir()) == ["0001", "0002"]
 
 

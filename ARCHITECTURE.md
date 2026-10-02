@@ -96,6 +96,8 @@ flowchart LR
 | Medium | Sonnet | Sonnet | Opus |
 | High, critical | Opus | Opus | Opus |
 
+After its checks pass, a `critical` task gets one read-only Opus review of its change before the merge.
+
 A failed task goes to a stronger model, never to a weaker one. This chart shows the real share of tokens in the
 SecretScan run (38 sessions):
 

@@ -104,7 +104,7 @@ def model_rank(model: str) -> int:
 
 # G8: the word the status line shows for each kind of session
 STATE = {"task": "Code", "fixer": "Fix", "unstick": "Fix", "repair": "Fix", "verify": "Review", "audit": "Review",
-         "replan": "Plan", "decide": "Plan", "research": "Plan", "onboard": "Plan", "triage": "Plan"}
+         "replan": "Plan", "decide": "Plan", "review": "Review", "research": "Plan", "onboard": "Plan", "triage": "Plan"}
 
 
 class Stop(Exception):
@@ -863,6 +863,8 @@ class Orchestrator:
                             continue
                         self.git.start_branch(branch, self.main)  # repair failed: a normal failed attempt
                 problem = self._fix_problem(task, phase, res.report) if gate.ok else ""
+                if gate.ok and not problem:
+                    problem = self.review(task, phase, branch, base)
                 if problem:
                     last_error = problem
                 elif gate.ok:
@@ -923,6 +925,39 @@ class Orchestrator:
         if (task.description or "").lstrip().lower().startswith(("[bug]", "[regression]")) \
                 and not any(_match(f, globs) for f in self.git.staged_files()):
             return "a bug fix must add or update a regression test"
+        return ""
+
+    def review(self, task, phase, branch: str, base: str) -> str:
+        """risk: critical only: one read-only Opus session reviews the gated diff before the merge. A finding is a failed
+        attempt (error text); a pass or no usable verdict is "" (a broken reviewer never parks every critical task)."""
+        if not self.cfg.get("review.enabled", True) or task.risk != "critical":
+            return ""
+        if not self.git.staged_files():  # the work is staged after the gate
+            return ""
+        # internal snapshot, removed below: no project hooks (a failing hook here would stop the whole run)
+        self.git.run("commit", "-q", "--no-verify", "-m", f"[autopilot] review snapshot {task.id}")
+        sha = self.git.head()
+        diff = self.git.run("diff", "--no-color", "--no-ext-diff", "--no-textconv", base, sha, check=False)
+        while True:
+            try:
+                res = self.session("review", self.ctx.review_prompt(task, diff), self.cfg.get("models.review", "opus"),
+                                   task_id=task.id, phase=phase.id, read_only=True,
+                                   effort=self.cfg.get("review.effort", "high"))
+            finally:  # read-only: drop what it touched (even its git moves), keep the work on the snapshot
+                self.git.run("checkout", "-q", "-f", "-B", branch, sha)
+                self.git.run("clean", "-q", "-ffd")  # -ff: also nested repos it made (git init / clone)
+            if not res.rate_limited:  # session() already waited out the limit
+                break
+        self.git.run("reset", "-q", "--soft", base)  # the work back as uncommitted staged changes
+        rep = res.report if res.ok and isinstance(res.report, dict) else {}
+        verdict = str(rep.get("verdict", "")).lower()
+        if verdict == "fail":
+            findings = [str(f) for f in (rep.get("findings") or []) if str(f).strip()]
+            return ("REVIEW of the critical task found problems (fix them):\n"
+                    + ("\n".join(f"- {f}" for f in findings) or str(rep.get("summary") or "no details")))
+        if verdict != "pass":  # ponytail: no verdict = merge without review
+            log.warning("review session for %s gave no verdict: %s", task.id, (res.error or "")[:200])
+            self.state.event("review", f"{task.id}: no verdict, merged without review")
         return ""
 
     GENERIC_QUESTION = "I could not finish this feature and cannot decide how to proceed on my own. What should I do?"

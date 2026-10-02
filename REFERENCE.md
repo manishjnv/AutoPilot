@@ -111,12 +111,13 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `gate` | The checks | `test_globs`, `ci_files`, `protected` |
 | `agent` | The agent CLI | `backend` (`claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `exclude_dynamic_prompt` (false) |
 | `sandbox` | The network allowlist | `enabled` (false), `allowed_domains` |
-| `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet) |
+| `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
 | `budget_usd` | Cost limits | `per_session` (8), `per_task` (20), `per_phase` (150), `daily` (200), `total` (5000) |
 | `retries` | Attempts | `max_attempts_per_task` (3), `resume` (true) |
 | `unstick` | The diagnosis of a blocked task | `enabled` (true), `after_attempts` (2) |
 | `decide` | Design choices before risky tasks | `enabled` (true), `risks` (high, critical) |
+| `review` | A read-only review of a `critical` task before the merge | `enabled` (true), `effort` (high) |
 | `research` | Web research for a task | `enabled` (true), `dir` (docs/research) |
 | `functional` | The feature check at the end of each phase | `enabled` (true), `init` |
 | `escalate` | An early move to a stronger model | `on_timeout`, `max_diff_lines` (300), `load_bearing` |

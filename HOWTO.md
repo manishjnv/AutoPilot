@@ -145,6 +145,7 @@ When a run is active, Autopilot writes the idea to `docs/BACKLOG.md`. The run ta
   API contracts.
 - Put slow end-to-end tests in `commands.phase_verify`. Autopilot runs them once for each phase, not for each task.
 - Set the risk of auth, payment, crypto and migration tasks to `high` or `critical`.
+- Use `critical` for the most important tasks. A separate session reviews each `critical` change before the merge.
 
 ## Get alerts on your phone
 

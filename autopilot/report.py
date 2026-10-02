@@ -8,7 +8,7 @@ import time
 from .context import progress_line
 from .docs import not_verified, warned_tasks
 
-VERIFY_KINDS = ("fixer", "audit", "unstick")
+VERIFY_KINDS = ("fixer", "audit", "unstick", "review")
 
 
 def _n(v: int) -> str:
@@ -157,7 +157,7 @@ def _tokens_section(state) -> list[str]:
             f"{_n(v['total'])} | {round(100 * v['total'] / total)}% | ${v['cost']:.2f} |" for m, v in models]
     out += ["", "| Kind | Total | Share |", "|---|---|---|"]
     out += [f"| {k} | {_n(v['total'])} | {round(100 * v['total'] / total)}% |" for k, v in kinds]
-    out += ["", f"Verification share (fixer, audit, unstick): {round(100 * verif)}%"]
+    out += ["", f"Verification share (fixer, audit, unstick, review): {round(100 * verif)}%"]
     if verif > 0.2:
         out.append("Verification share is above 20%: checks are using more than intended.")
     return out

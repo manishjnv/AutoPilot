@@ -37,6 +37,9 @@ class FakeBackend:
             self.calls.append(("unstick", req.model))
             rep = self.unsticks.get(u.group(1), {"class": "technical", "diagnosis": "fix it"})
             return SessionResult(ok=True, cost=0.1, report=rep)
+        if req.prompt.startswith("# Assignment: review task"):
+            self.calls.append(("review", req.model))
+            return SessionResult(ok=True, cost=0.1, report={"verdict": "pass", "summary": "ok", "findings": []})
         m = re.search(r"implement task (\S+)", req.prompt)
         if m:
             tid = m.group(1)

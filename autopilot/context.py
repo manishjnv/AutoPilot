@@ -1,6 +1,7 @@
 """Context packs: the small, fresh bundle every session starts from (instead of a long-lived chat)."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 PROMPTS = Path(__file__).parent / "prompts"
@@ -101,6 +102,15 @@ class ContextBuilder:
         return render("unstick.md", task_id=task.id, task_title=task.title, description=task.description or task.title,
                       acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
                       decisions=self.decisions(), error=(error or "(none)")[-6000:])
+
+    def review_prompt(self, task, diff: str) -> str:
+        phase = self.plan.phase_of(task)
+        if len(diff) > 30000:
+            diff = diff[:30000] + "\n... (diff cut; read the rest with `git show HEAD`)"
+        fence = "`" * max(5, 1 + max((len(m) for m in re.findall(r"`+", diff)), default=0))  # the diff cannot close it
+        return render("review.md", task_id=task.id, task_title=task.title, description=task.description or task.title,
+                      acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
+                      decisions=self.decisions(), fence=fence, diff=diff or "(empty)")
 
     def decide_prompt(self, task) -> str:
         phase = self.plan.phase_of(task)
