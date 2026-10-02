@@ -1,0 +1,23 @@
+extends: existence
+message: "STE: use one verb instead of '%s'"
+level: warning
+ignorecase: true
+tokens:
+  - picks up
+  - pick up
+  - shows up
+  - show up
+  - keeps going
+  - keep going
+  - put back
+  - throw away
+  - throws away
+  - turn on
+  - turns on
+  - turn off
+  - turns off
+  - find out
+  - figure out
+  - look at
+  - go up
+  - goes up

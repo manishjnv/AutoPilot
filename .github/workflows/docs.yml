@@ -1,0 +1,29 @@
+name: docs
+
+on:
+  push:
+    paths: ['**.md', '.vale.ini', '.vale/**', '.github/workflows/docs.yml']
+  pull_request:
+    paths: ['**.md', '.vale.ini', '.vale/**', '.github/workflows/docs.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  vale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vale
+        run: |
+          curl -sSL -o vale.tar.gz https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Linux_64-bit.tar.gz
+          tar -xzf vale.tar.gz vale
+          sudo mv vale /usr/local/bin/vale
+      - run: vale sync
+      - name: Lint public docs (fail on errors only)
+        run: |
+          files=""
+          for f in README.md GUIDE.md HOWTO.md REFERENCE.md ARCHITECTURE.md examples/smoke/README.md; do
+            [ -f "$f" ] && files="$files $f"
+          done
+          vale --minAlertLevel=error $files

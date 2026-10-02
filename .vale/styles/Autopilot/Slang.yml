@@ -1,0 +1,14 @@
+extends: existence
+message: "STE: avoid slang or vague wording '%s'"
+level: warning
+ignorecase: true
+tokens:
+  - dies
+  - drifts
+  - heals itself
+  - pings
+  - at a glance
+  - tiny
+  - truly
+  - really
+  - roughly

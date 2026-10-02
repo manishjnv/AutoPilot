@@ -1,0 +1,10 @@
+extends: substitution
+message: "STE: use '%s' instead of '%s'"
+level: error
+ignorecase: true
+swap:
+  stuck task: blocked task
+  parked task: blocked task
+  corrective task: fix task
+  the owner: you
+  roughly: approximately

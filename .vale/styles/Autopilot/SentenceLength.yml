@@ -1,0 +1,6 @@
+extends: occurrence
+message: "STE: keep a sentence to 25 words or fewer (20 for an instruction)"
+level: warning
+scope: sentence
+max: 25
+token: '\b(\w+)\b'
