@@ -29,6 +29,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder.
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
 | `autopilot serve [--port 8765]` | Starts the status page without a run |
 | `autopilot answer D-003 "text"` | Answers a question from `docs/NEEDS-YOU.md` |
+| `autopilot hint T1 "text"` | Gives advice to the next session of a task. Works while a run is active |
 | `autopilot unblock T1 T2` | Puts blocked tasks back in the queue |
 | `autopilot skip T3` | Removes tasks from the queue |
 | `autopilot approve P05` | Sends a phase to production |

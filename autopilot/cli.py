@@ -566,6 +566,13 @@ def cmd_answer(args):
     return 1
 
 
+def cmd_hint(args):
+    _, plan, state = _open_state(Path(args.path).resolve())
+    ok, msg = state.add_hint(plan, args.task_id, args.text)
+    print(msg)
+    return 0 if ok else 1
+
+
 def cmd_skip(args):
     _, _, state = _open_state(Path(args.path).resolve())
     for tid in args.task_ids:
@@ -670,6 +677,8 @@ def main(argv=None):
     p.add_argument("task_ids", nargs="+"); p.add_argument("--note")
     p = add("answer", cmd_answer, "answer an open decision from docs/NEEDS-YOU.md")
     p.add_argument("decision_id"); p.add_argument("text")
+    p = add("hint", cmd_hint, "give a task advice for its next session (works while a run is active)")
+    p.add_argument("task_id"); p.add_argument("text")
     p = add("skip", cmd_skip, "skip task(s)"); p.add_argument("task_ids", nargs="+")
     p = add("approve", cmd_approve, "deploy an approved phase to prod"); p.add_argument("phase")
     add("stop", cmd_stop, "graceful stop before the next session")

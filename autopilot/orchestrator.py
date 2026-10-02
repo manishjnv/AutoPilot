@@ -531,11 +531,14 @@ class Orchestrator:
             self.state.set_task(arg, status="pending", attempts=0, last_error=None, note="unblocked via chat")
             self.state.set_meta(f"unstick:{arg}", False)
             return f"{arg} is pending again.", True
+        if verb == "hint" and len(parts) == 3:
+            ok, msg = self.state.add_hint(self.plan, arg, parts[2])
+            return msg, ok
         if verb == "status":
             open_d = sorted(d["id"] for d in self.state.decisions("OPEN"))
             return (f"{progress_line(self.plan, self.state.status_map())}. Open decisions: {', '.join(open_d) or 'none'}. "
                     f"Now: {self.run_info.get('current') or 'idle'}."), False
-        return "Commands: status · answer D-003 <your answer> · approve <phase> · unblock <task>", False
+        return "Commands: status · answer D-003 <your answer> · approve <phase> · unblock <task> · hint <task> <text>", False
 
     def _wait(self, secs: float):
         """Sleep `secs`, but wake as soon as an owner command from chat changes something (P5)."""

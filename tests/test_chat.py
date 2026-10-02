@@ -78,6 +78,50 @@ def test_approve_and_unblock_check_their_target(tmp_path):
     assert orch.command("unblock P01-T01")[1] and orch.state.task("P01-T01")["status"] == "pending"
 
 
+def test_hint_from_chat_reaches_every_prompt_of_the_task(tmp_path):
+    orch = orch_with(tmp_path, FakeTG())
+    orch.reload_plan()
+    reply, changed = orch.command("hint p01-t01 try the sqlite backend")
+    assert changed and "P01-T01" in reply
+    task = orch.plan.task_by_id["P01-T01"]
+    for prompt in (orch.ctx.task_prompt(task, 1, None), orch.ctx.task_prompt(task, 2, "boom"),
+                   orch.ctx.resume_prompt(task, 2, "boom")):
+        assert "Hint from the owner: try the sqlite backend" in prompt
+    assert "try the sqlite" not in orch.ctx.task_prompt(orch.plan.task_by_id["P01-T02"], 1, None)
+
+
+def test_hint_refusals_and_blocked_message(tmp_path):
+    orch = orch_with(tmp_path, FakeTG())
+    orch.reload_plan()
+    assert orch.command("hint P99-T01 x")[1] is False
+    assert orch.command("hint P01-T01")[1] is False  # no text
+    assert orch.state.add_hint(orch.plan, "P01-T01", "   ")[0] is False
+    orch.state.set_task("P01-T02", status="done")
+    assert orch.command("hint P01-T02 late")[1] is False
+    orch.state.set_task("P01-T01", status="blocked", attempts=3)
+    reply, changed = orch.command("hint P01-T01 look at X")
+    assert changed and "unblock" in reply and orch.state.task("P01-T01")["status"] == "blocked"
+
+
+def test_hints_keep_the_last_five_and_cap_the_text(tmp_path):
+    orch = orch_with(tmp_path, FakeTG())
+    orch.reload_plan()
+    for i in range(7):
+        assert orch.state.add_hint(orch.plan, "P01-T01", f"h{i}")[0]
+    assert [h["text"] for h in orch.state.get_meta("hints:P01-T01")] == [f"h{i}" for i in range(2, 7)]
+    orch.state.add_hint(orch.plan, "P01-T01", "x" * 5000)
+    assert len(orch.state.get_meta("hints:P01-T01")[-1]["text"]) == 2000
+
+
+def test_cli_hint_stores_and_reports(tmp_path):
+    from autopilot.cli import main
+    from autopilot.state import State
+    root = make_project(tmp_path, phases_basic()[:1], BASE)
+    assert main(["hint", "-C", str(root), "P01-T01", "use the cache"]) == 0
+    assert main(["hint", "-C", str(root), "P99-T01", "x"]) == 1
+    assert State(root / ".agent" / "state.db").get_meta("hints:P01-T01")[0]["text"] == "use the cache"
+
+
 def test_off_or_unconfigured_just_sleeps(tmp_path):
     slept = []
     root = make_project(tmp_path, phases_basic()[:1], {"chat": {"enabled": True}})

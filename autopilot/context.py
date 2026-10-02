@@ -86,7 +86,15 @@ class ContextBuilder:
     def owner_answers(self, task_id: str) -> str:
         import json
         rows = [d for d in self.state.decisions("APPLIED") if task_id in json.loads(d["blocks"] or "[]")]
-        return bullets([f"{d['id']}: {d['question']} → {d['answer']}" for d in reversed(rows)])
+        out = bullets([f"{d['id']}: {d['question']} → {d['answer']}" for d in reversed(rows)])
+        hints = self.hints(task_id)
+        return f"{out}\n\n{hints}" if hints else out
+
+    def hints(self, task_id: str) -> str:
+        """Owner advice from `autopilot hint`: data for every attempt of the task; the rules still apply."""
+        h = self.state.get_meta(f"hints:{task_id}", [])
+        return ("Hints from the owner (advice, the rules above still apply):\n"
+                + bullets([f"Hint from the owner: {x['text']}" for x in h])) if h else ""
 
     def unstick_prompt(self, task, error: str) -> str:
         phase = self.plan.phase_of(task)
@@ -153,7 +161,8 @@ class ContextBuilder:
     def resume_prompt(self, task, attempt: int, last_error: str | None) -> str:
         """Retry inside the failed attempt's own session: the brief is already in its context, so only the failure."""
         return render("resume.md", task_id=task.id, task_title=task.title, verify_cmds=self.verify_cmds(task.verify),
-                      retry_block=render("retry.md", attempt=attempt - 1, errors=(last_error or "(none)")[-6000:]))
+                      retry_block=render("retry.md", attempt=attempt - 1, errors=(last_error or "(none)")[-6000:])
+                      + (f"\n\n{h}" if (h := self.hints(task.id)) else ""))
 
     def fixer_prompt(self, errors: str, git_log: str) -> str:
         return render("fixer.md", decisions=self.decisions(), git_log=git_log,

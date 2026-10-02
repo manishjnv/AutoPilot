@@ -268,6 +268,22 @@ class State:
     def set_meta(self, key: str, value):
         self.db.execute("INSERT OR REPLACE INTO meta(key, value) VALUES(?,?)", (key, json.dumps(value)))
 
+    def add_hint(self, plan_or_ids, task_id: str, text: str) -> tuple[bool, str]:
+        """Owner advice for one task (CLI and chat share this): kept in meta `hints:<id>`, last 5, read by every prompt."""
+        text, tid = (text or "").strip()[:2000], (task_id or "").upper()
+        ids = getattr(plan_or_ids, "task_by_id", plan_or_ids)
+        row = self.task(tid) if tid in ids else None
+        if not row:
+            return False, f"{task_id} is not a task in the plan."
+        if not text:
+            return False, "A hint needs some text."
+        if row["status"] in ("done", "skipped"):
+            return False, f"{tid} is already {row['status']}; a hint would not be used."
+        self.set_meta(f"hints:{tid}", (self.get_meta(f"hints:{tid}", []) + [{"text": text, "at": now()}])[-5:])
+        if row["status"] == "blocked":
+            return True, f"Hint saved for {tid}, but it is blocked: unblock it to use the hint."
+        return True, f"Hint saved for {tid}; its next session gets it."
+
     def event(self, kind: str, message: str):
         self.db.execute("INSERT INTO events(ts, kind, message) VALUES(?,?,?)", (now(), kind, message[:4000]))
 

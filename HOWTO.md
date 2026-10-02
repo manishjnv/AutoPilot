@@ -5,7 +5,7 @@ setting, use the [reference](REFERENCE.md).
 
 | Job | Guide |
 |---|---|
-| Daily use | [Answer a question](#answer-a-question-from-autopilot) · [Stop and continue a run](#stop-and-continue-a-run) · [Repair a blocked task](#repair-a-blocked-task) · [Add features after a run](#add-features-after-a-run) |
+| Daily use | [Answer a question](#answer-a-question-from-autopilot) · [Give advice to a task](#give-advice-to-a-task) · [Stop and continue a run](#stop-and-continue-a-run) · [Repair a blocked task](#repair-a-blocked-task) · [Add features after a run](#add-features-after-a-run) |
 | Projects | [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) |
@@ -28,6 +28,21 @@ account, or a business decision. The run builds the other tasks while it waits.
 
 You can answer while the run continues. When no run is active, you can also write your answer after "Your answer:"
 in the file, and then commit the file.
+
+## Give advice to a task
+
+Use a hint when you know something that helps a task, for example the library to use or the cause of a failure.
+
+1. Find the ID of the task with `autopilot status`, for example `P04-T02`.
+2. Send the hint:
+
+   ```powershell
+   autopilot hint P04-T02 "use the sqlite backend, not postgres"
+   ```
+
+Each later session of the task gets the hint, also a retry. Autopilot keeps the last 5 hints for each task, with a
+maximum of 2000 characters each. A hint does not change the rules or the checks. If the task is blocked, run
+`autopilot unblock P04-T02` to use the hint.
 
 ## Stop and continue a run
 
@@ -127,6 +142,7 @@ To select which events send an alert, edit `notify.events` in `.agent/project.ya
    | `answer D-003 use Stripe` | Answers a question |
    | `approve P05` | Sends a phase to production |
    | `unblock P04-T02` | Puts a blocked task back in the queue |
+   | `hint P04-T02 use the sqlite backend` | Gives advice to a task |
 
 > [!IMPORTANT]
 > Use one bot for each project. Two runs that read the same bot take messages from each other. Autopilot ignores
