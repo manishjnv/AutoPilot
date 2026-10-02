@@ -60,6 +60,22 @@ def detect_limit(text: str, now: datetime | None = None) -> tuple[bool, float | 
     return bool(API_LIMIT_RX.search(text)), None
 
 
+# Failures of the machinery, not of the work: retried by the orchestrator, never counted as a task attempt.
+# Anchored to a line start like LIMIT_RX, so the agent's own prose about these words never counts.
+_AUTH_RX = re.compile(r"^\s*(?:Invalid API key|Please run /login|OAuth token (?:has )?expired|API Error: 401\b)",
+                      re.I | re.M)
+# Node's own error shapes ("reason: getaddrinfo ENOTFOUND", "Error: connect ECONNREFUSED"), not a bare code in prose
+_NET_RX = re.compile(r"^\s*API Error: (?:Connection error|Request timed out|50[0234]\b)|"
+                     r"(?:reason:|Error:)\s+(?:getaddrinfo |connect |read |write )?"
+                     r"(?:ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN)\b", re.I | re.M)
+
+
+def detect_infra(text: str) -> str:
+    """'auth' (not logged in / key rejected), 'network' (connection, timeout, server 5xx) or ''."""
+    text = text or ""
+    return "auth" if _AUTH_RX.search(text) else "network" if _NET_RX.search(text) else ""
+
+
 @dataclass
 class SessionRequest:
     prompt: str
@@ -96,6 +112,7 @@ class SessionResult:
     num_turns: int = 0
     duration_ms: int = 0
     totals: dict = field(default_factory=dict)  # whole-session {cost, usage, num_turns, duration_ms}, for a later resume
+    infra: str = ""                              # 'cli' | 'auth' | 'network': the machinery failed, not the work
 
 
 def since(totals: dict, base: dict) -> dict:

@@ -528,10 +528,7 @@ class Orchestrator:
                              web_only=web_only, mcp_config=mcp_config, no_tools=no_tools,
                              resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {})
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
-        try:
-            res = self.backend.run(req)
-        except Exception as exc:  # noqa: BLE001 — a backend crash is just a failed session
-            res = SessionResult(ok=False, error=f"backend exception: {exc!r}")
+        res = self._run_backend(req)
         undone = self.git.guard_config(config_before)  # e.g. husky's core.hooksPath: harmless, but never kept
         if undone:
             log.warning("session %s changed git config: %s", sid, "; ".join(undone))
@@ -552,6 +549,39 @@ class Orchestrator:
         else:
             self.rate_limit_streak = 0
         return res
+
+    HEAL_WAIT = (60, 300, 900, 1800, 3600)
+
+    def _run_backend(self, req) -> SessionResult:
+        """Self-healing around one session: when the machinery fails (the CLI can't start, the login is gone, the
+        network or the API is down), heal what can be healed, wait, and run the same session again. It never becomes a
+        failed attempt, so a good task is never parked for an outage. The STOP file still ends the wait."""
+        streak = 0
+        while True:
+            try:
+                res = self.backend.run(req)
+            except Exception as exc:  # noqa: BLE001 — a backend crash is just a failed session
+                return SessionResult(ok=False, error=f"backend exception: {exc!r}")
+            if not res.infra:
+                if streak:
+                    self.notify.send("heal", f"sessions run again after {streak} failed tries; continuing")
+                return res
+            streak += 1
+            what = {"cli": "the claude CLI could not run a session",
+                    "auth": "Claude is not logged in (or the API key was rejected)",
+                    "network": "the network or the Claude API is unreachable"}[res.infra]
+            fixed = ""
+            if res.infra == "cli" and streak == 1:
+                from .doctor import FAIL, autofix
+                fixed = "; ".join(autofix([(FAIL, "claude CLI", "")]))
+            wait = self.HEAL_WAIT[min(streak - 1, len(self.HEAL_WAIT) - 1)]
+            if streak == 1 or streak % 6 == 0:  # tell once, then about every few hours, not on every retry
+                todo = " Run `claude`, then /login." if res.infra == "auth" else ""
+                self.notify.send("heal", f"{what}: {res.error[:200]}.{f' Fix: {fixed}.' if fixed else ''}{todo} "
+                                         f"Retrying the same session in {wait // 60} min (not counted as an attempt).")
+            self._journal(current=f"healing: {what}; retry {streak} in {wait // 60} min")
+            self.sleep(wait)
+            self.check_stop()
 
     @property
     def can_resume(self) -> bool:

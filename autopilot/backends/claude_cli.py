@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from ..proc import agent_env, stream_proc
-from . import SessionRequest, SessionResult, detect_limit, parse_report, since
+from . import SessionRequest, SessionResult, detect_infra, detect_limit, parse_report, since
 
 progress = logging.getLogger("autopilot")
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
@@ -247,7 +247,7 @@ class ClaudeCLIBackend:
         try:
             p = stream_proc(cmd, input=prompt, cwd=req.cwd, env=self.env(), timeout=req.timeout_sec, on_line=on_line)
         except OSError as exc:
-            return SessionResult(ok=False, error=f"cannot start claude ({self.binary}): {exc}")
+            return SessionResult(ok=False, error=f"cannot start claude ({self.binary}): {exc}", infra="cli")
         finally:
             if log:
                 log.write(f"\n\nSTDERR:\n{p.stderr if p else ''}")
@@ -269,11 +269,15 @@ class ClaudeCLIBackend:
         err = "" if not is_error else ((f"{sub}: " if sub.startswith("error") else "") + (text or p.stderr))[-3000:]
         report = data.get("structured_output") if isinstance(data.get("structured_output"), dict) else parse_report(text)
         limited, reset_at = detect_limit(text + "\n" + p.stderr) if is_error else (False, None)
+        infra = ""
+        if is_error and not limited:  # no output at all = a CLI that can't run (seen: a broken npm install)
+            infra = detect_infra(text + "\n" + p.stderr) or ("cli" if not raw and not p.stderr.strip() else "")
         totals = {"cost": cost, "usage": parse_usage(data, req.model),
                   "num_turns": _num(data.get("num_turns")), "duration_ms": _num(data.get("duration_ms"))}
         own = since(totals, req.resume_totals) if req.resume else totals
         return SessionResult(
             ok=not is_error, text=text, cost=own["cost"], session_id=str(data.get("session_id", "")),
-            report=report or {}, error=err, rate_limited=limited, reset_at=reset_at, usage=own["usage"],
+            report=report or {}, error=err or (f"{infra} failure" if infra else ""), rate_limited=limited, reset_at=reset_at, infra=infra,
+            usage=own["usage"],
             num_turns=own["num_turns"], duration_ms=own["duration_ms"], totals=totals,
         )
