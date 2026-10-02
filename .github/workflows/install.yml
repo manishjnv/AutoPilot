@@ -1,0 +1,67 @@
+name: install
+
+on:
+  push:
+    paths: ['install.sh', 'install.ps1', '.github/workflows/install.yml', 'pyproject.toml']
+  pull_request:
+    paths: ['install.sh', 'install.ps1', '.github/workflows/install.yml', 'pyproject.toml']
+
+permissions:
+  contents: read
+
+# The scripts install from the public repo, so the commit must exist there.
+# Pull requests from forks need a maintainer run (the fork commit is not in the main repo).
+env:
+  AUTOPILOT_REF: ${{ github.sha }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n install.sh
+      - run: bash install.sh --dry-run
+      - name: Real install
+        run: bash install.sh --skip-login
+      - name: Installed programs work
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          autopilot --version
+          claude --version
+      - name: Second run is safe
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          out=$(bash install.sh --skip-login)
+          echo "$out"
+          [ "$(echo "$out" | grep -c '^found:')" -ge 4 ]
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: |
+          $e = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path install.ps1), [ref]$null, [ref]$e)
+          if ($e.Count -ne 0) { $e; exit 1 }
+      - run: .\install.ps1 -DryRun
+      - name: Real install
+        run: .\install.ps1 -SkipLogin
+      - name: Installed programs work
+        run: |
+          $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
+          autopilot --version
+          claude --version
+      - name: Second run is safe
+        run: |
+          $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
+          $out = (.\install.ps1 -SkipLogin *>&1 | Out-String)
+          $out
+          if (([regex]::Matches($out, '(?m)^found:')).Count -lt 4) { exit 1 }

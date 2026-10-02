@@ -130,3 +130,27 @@ def test_install_script_parses_and_checks_its_arguments():
     assert subprocess.run(["bash", "-n", str(script)]).returncode == 0
     p = subprocess.run(["bash", str(script), "Bad Name", "x"], capture_output=True, text=True)
     assert p.returncode == 2 and "usage" in p.stderr
+
+
+ROOT_INSTALL = Path(__file__).resolve().parents[1] / "install.sh"
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="needs a POSIX bash")
+def test_root_install_script_dry_run_changes_nothing(tmp_path):
+    assert subprocess.run(["bash", "-n", str(ROOT_INSTALL)]).returncode == 0
+    home, empty = tmp_path / "home", tmp_path / "empty"
+    home.mkdir(), empty.mkdir()
+    env = {"HOME": str(home), "PATH": str(empty)}
+    p = subprocess.run([shutil.which("bash"), str(ROOT_INSTALL), "--dry-run"], capture_output=True, text=True, env=env)
+    assert p.returncode == 0, p.stderr
+    for n in range(1, 6):
+        assert f"==> Step {n} of 5:" in p.stdout
+    assert p.stdout.count("would install") == 3 and "uv tool install" in p.stdout
+    assert list(home.iterdir()) == []
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="needs a POSIX bash")
+def test_root_install_script_rejects_a_bad_ref(tmp_path):
+    env = {"HOME": str(tmp_path), "PATH": str(tmp_path), "AUTOPILOT_REF": "x; rm -rf ~"}
+    p = subprocess.run([shutil.which("bash"), str(ROOT_INSTALL), "--dry-run"], capture_output=True, text=True, env=env)
+    assert p.returncode == 2
