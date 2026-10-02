@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Autonomous development orchestrator: runs 100+ Claude Code sessions back-to-back to implement, verify, document and deploy a phased project plan."
 readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "MIT"}
 dependencies = ["PyYAML>=6.0"]
 
 [project.optional-dependencies]
