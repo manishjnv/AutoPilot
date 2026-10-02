@@ -113,6 +113,21 @@ def cmd_quickstart(args):
     if args.plan_doc and not Path(args.plan_doc).is_file():
         print(f"plan document not found: {args.plan_doc}")
         return 1
+    if not args.plan_doc:  # no plan given: use the project's own, or have Claude write one from the owner's idea
+        found = next((root / p for p in ("PLAN.md", "docs/PLAN.md") if (root / p).is_file()), None)
+        if found:
+            print(f"using {found.relative_to(root)}")
+        else:
+            idea = getattr(args, "idea", None) or ask_idea()
+            if idea and Path(idea).is_file():
+                idea = Path(idea).read_text(encoding="utf-8")
+            if not (idea or "").strip():
+                print("no PLAN.md here and no idea given: describe what to build with --idea \"...\" (or a file)")
+                return 1
+            found = write_plan(root, idea.strip(), args.budget)
+            if not found:
+                return 1
+        args.plan_doc = str(found)
     if cmd_onboard(args):  # onboard ends with validate: 1 = the plan or config it wrote is invalid
         print("onboarding left an invalid plan or config: fix it (see above), then `autopilot doctor`")
         return 1
@@ -124,6 +139,44 @@ def cmd_quickstart(args):
         print("next: review .agent/plan.yaml and .agent/BRAIN.md, then `autopilot run`")
         return 0
     return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
+
+
+def ask_idea() -> str:
+    """Ask the owner in the terminal what to build (several lines, an empty line ends). '' when not interactive."""
+    if not sys.stdin.isatty():
+        return ""
+    print("No PLAN.md found. Describe what you want to build: the product, who it is for, the main features, any\n"
+          "tech you want. Claude turns it into a full plan. Finish with an empty line.")
+    lines = []
+    while True:
+        try:
+            line = input("> " if not lines else "  ")
+        except EOFError:
+            break
+        if not line.strip():
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def write_plan(root: Path, idea: str, budget: str) -> Path | None:
+    """One Claude Code session turns the owner's idea into a detailed PLAN.md (architecture + phased build plan)."""
+    from .backends import SessionRequest, get_backend
+    from .context import render
+    setup_logging(root, False)
+    cfg = Config.load(root)
+    model = cfg.get("models.plan_writer", "") or cfg.get("models.onboard", "opus")
+    print(f"writing PLAN.md from your idea ({model}) …")
+    res = get_backend(cfg).run(SessionRequest(
+        prompt=render("plan_writer.md", idea=idea), model=model, cwd=str(root), label="writing PLAN.md",
+        timeout_sec=int(cfg.get("agent.session_timeout_sec", 3600)), budget_usd=float(budget),
+        effort=cfg.get("models.effort.onboard", ""), log_path=str(root / AGENT_DIR / "logs" / "plan_writer.log")))
+    plan = root / "PLAN.md"
+    if not plan.is_file() or len(plan.read_text(encoding="utf-8", errors="replace")) < 500:
+        print(f"the plan session did not write a usable PLAN.md: {res.error or res.text[-500:]}")
+        return None
+    print(res.report.get("summary") or "PLAN.md written")
+    return plan
 
 
 def preflight(cfg) -> bool:
@@ -171,7 +224,7 @@ def cmd_validate(args):
 
 
 def cmd_run(args):
-    from .orchestrator import Orchestrator
+    from .orchestrator import Orchestrator, run_supervised
 
     root = Path(args.path).resolve()
     setup_logging(root, args.verbose)
@@ -180,8 +233,7 @@ def cmd_run(args):
         stop.unlink()
     if not preflight(Config.load(root)):  # every session would fail: stop before the first one
         return 1
-    orch = Orchestrator(root, max_sessions=args.max_sessions)
-    outcome = orch.run()
+    outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions))
     print(f"\nrun finished: {outcome}\nreport: {root / AGENT_DIR / 'REPORT.md'}")
     return 0
 
@@ -367,6 +419,7 @@ def main(argv=None):
     p = add("quickstart", cmd_quickstart, "one command: init, onboard from a plan doc, doctor, then optionally run")
     p.add_argument("--plan-doc"); p.add_argument("--budget", default="15")
     p.add_argument("--run", action="store_true", help="start the run when the doctor finds no problems")
+    p.add_argument("--idea", help="no PLAN.md yet: what to build (text or a file); Claude writes PLAN.md from it")
     add("validate", cmd_validate, "validate project.yaml and plan.yaml")
     p = add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
     p.add_argument("--fix", action="store_true", help="also fix what needs no person: PATH, reinstall the claude CLI")

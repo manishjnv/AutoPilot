@@ -76,20 +76,47 @@ def fix_claude() -> str:
     return "reinstalled with npm" if p.rc == 0 else f"npm install failed (rc {p.rc}): {(p.stderr or p.stdout)[-300:]}"
 
 
+def write_launcher() -> str:
+    """A one-line `autopilot` launcher in a user folder that is already on PATH, so the command works at once in every
+    terminal, including ones VS Code opened before a PATH change. Only well-known per-user folders, never an
+    arbitrary PATH entry. Returns where it was written, or ''."""
+    if WINDOWS:
+        prefer = [Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WindowsApps",
+                  Path(os.environ.get("APPDATA", "")) / "npm"]
+        name, body = "autopilot.cmd", f'@"{sys.executable}" -m autopilot %*\r\n'
+    else:
+        prefer = [Path.home() / ".local" / "bin", Path.home() / "bin"]
+        name, body = "autopilot", f'#!/bin/sh\nexec "{sys.executable}" -m autopilot "$@"\n'
+
+    def norm(p) -> str:
+        return os.path.normcase(str(p)).rstrip("\\/")
+    on_path = {norm(p) for p in os.environ.get("PATH", "").split(os.pathsep) if p}
+    for d in prefer:
+        if str(d) not in ("", ".") and norm(d) in on_path and d.is_dir() and os.access(d, os.W_OK):
+            (d / name).write_text(body, encoding="utf-8")
+            if not WINDOWS:
+                (d / name).chmod(0o755)
+            return str(d / name)
+    return ""
+
+
 def fix_path() -> str:
+    launcher = write_launcher()
+    now = f"; `autopilot` works now in every terminal via {launcher}" if launcher else ""
     d = scripts_dir()
     if not d:
-        return "cannot fix: the autopilot command is not installed (`python -m pip install -e <autopilot repo>`)"
+        return (f"wrote a launcher{now}" if launcher else
+                "cannot fix: the autopilot command is not installed (`python -m pip install -e <autopilot repo>`)")
     os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + str(d)
     if WINDOWS:
         _add_user_path_windows(d)
-        return (f"added {d} to your user PATH. Open terminals keep their old PATH (VS Code: restart it); until then use "
-                "`python -m autopilot`")
+        later = ". Open terminals keep their old PATH (VS Code: restart it); until then use `python -m autopilot`"
+        return f"added {d} to your user PATH{now or later}"
     profile, line = Path.home() / ".profile", f'export PATH="$PATH:{d}"'
     text = profile.read_text(encoding="utf-8") if profile.exists() else ""
     if line not in text:
         profile.write_text(text + ("" if not text or text.endswith("\n") else "\n") + line + "\n", encoding="utf-8")
-    return f"added {d} to PATH in {profile} (new login shells)"
+    return f"added {d} to PATH in {profile}{now or ' (new login shells)'}"
 
 
 def _add_user_path_windows(d: Path):

@@ -36,6 +36,24 @@ def test_fix_path_on_posix_appends_once(tmp_path, monkeypatch):
     assert str(tmp_path / "bin") in doctor.os.environ["PATH"]
 
 
+def test_launcher_goes_only_into_a_known_user_folder_already_on_path(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    known = (home / "AppData" / "Local" / "Microsoft" / "WindowsApps") if doctor.WINDOWS else (home / ".local" / "bin")
+    known.mkdir(parents=True)
+    other = tmp_path / "random-on-path"
+    other.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData" / "Local"))
+    monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
+    monkeypatch.setenv("PATH", str(other))
+    assert doctor.write_launcher() == ""  # never an arbitrary PATH folder
+    monkeypatch.setenv("PATH", str(other) + doctor.os.pathsep + str(known))
+    path = doctor.write_launcher()
+    assert path and doctor.Path(path).parent == known and "-m autopilot" in doctor.Path(path).read_text()
+    assert not list(other.iterdir())
+
+
 def test_path_check_names_the_folder(monkeypatch, tmp_path):
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
     monkeypatch.setattr(doctor, "scripts_dir", lambda: tmp_path)

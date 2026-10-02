@@ -38,11 +38,15 @@ folder to your PATH for new terminals.
 
 ### 2. Start a new project
 1. Make an empty folder with git: `mkdir myapp`, `cd myapp`, `git init -b main`.
-2. Write your plan in a file, e.g. `PLAN.md`. Describe the product, the architecture and the phases with their
-   features. The more exact the acceptance criteria, the better the result.
+2. Plan it, in one of two ways:
+   - **Just an idea:** run `autopilot quickstart`. With no `PLAN.md` in the folder it asks what you want to build
+     (or pass it: `autopilot quickstart --idea "a CLI that finds leaked secrets in a repo"`, or a text file). A
+     Claude Code session writes a full `PLAN.md`: architecture, rules, modules, phases and testable tasks.
+   - **Your own plan:** put it in `PLAN.md` (or pass `--plan-doc <file>`). Describe the product, the architecture
+     and the phases with their features. The more exact the acceptance criteria, the better the result.
 3. Turn the plan into tasks:
    ```powershell
-   autopilot quickstart --plan-doc PLAN.md   # sets up .agent/, one Opus session writes the plan, then checks the machine
+   autopilot quickstart                      # sets up .agent/, one Opus session writes the task plan, then checks the machine
    autopilot next                            # shows every task in order, with the model it will use
    ```
 4. Read `.agent/plan.yaml` and `.agent/BRAIN.md`. Edit them if something is wrong. This is the cheapest moment to
@@ -171,6 +175,31 @@ Only what truly needs you (credentials, a paid account, a business or legal call
 `docs/NEEDS-YOU.md`; that feature is parked and everything else keeps being built. Answer with `autopilot answer`, or
 write your answer after "Your answer:" in the file and commit it while no run is active. The run never stops for a red
 check either: a failing main or phase gate becomes a corrective phase first.
+
+## Self-healing: what can stop a run, and what Autopilot does instead
+A run stops only for what truly needs you, or for a limit you set. Every heal is reported as a `heal` notification
+and in the event log.
+
+| Problem | What Autopilot does |
+|---|---|
+| A task's code fails its checks | Retries with the error on a stronger model, then a diagnose session (root cause, research), then asks in `docs/NEEDS-YOU.md` and builds everything else |
+| A check fails because a tool is missing | Re-runs the setup command and checks the same work again; if still broken, one repair session fixes the tooling/dependency files (kept only if setup then passes, with an RCA entry). The lost attempt isn't counted |
+| The setup command fails | The same repair session (on a new, empty project this is expected and skipped) |
+| The claude CLI can't run, the login is gone, the network or API is down | Not a failed attempt: reinstalls a broken CLI, tells you (with `/login` when needed), waits 1→60 min and reruns the same session |
+| Usage or rate limit | Sleeps until the window resets; never gives up |
+| `autopilot` command not found | A one-line launcher in a folder already on PATH, plus the Scripts folder added to PATH |
+| Push to GitHub fails | Keeps building locally, retries the push with every commit, tells you once |
+| `main` diverged from GitHub | Replays the local commits on top of GitHub's; if they conflict, keeps building locally and tells you |
+| Stale `.git/index.lock` from a crash | Removed, and the git command is retried |
+| `plan.yaml` broken | Restores the newest committed version that loads; your copy goes to `.agent/logs/plan.yaml.broken` |
+| `state.db` corrupt | Restores the backup taken at run start, then marks tasks done whose commits are on `main` |
+| A config error with a safe fallback | Turns off just that part for the run (a deploy with no command; PR mode without push) |
+| Autopilot itself crashes | Writes `.agent/logs/crashes/<time>.md`, restarts from the saved state; the same crash 3× in one task parks only that task |
+
+**Still needs you:** a Claude login (`claude`, then `/login`), the budget or session limits you set, the STOP file,
+config errors with no safe fallback (no checks at all, a sandbox that can't run), decisions in
+`docs/NEEDS-YOU.md`, and a crash that repeats outside any task (a bug in Autopilot: send the crash report). Autopilot
+never rewrites its own code.
 
 ## Usage, pacing and the RCA log
 - Every session's tokens (input, output, cache read/write) and cost are stored per model. `.agent/REPORT.md` (and `autopilot status`) has a **Tokens** section with per-model and per-kind totals and the verification share (fixer, audit and unstick sessions); above 20% it warns that checks use more than intended. The `run_done` notification ends with a one-line token footer.

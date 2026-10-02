@@ -39,6 +39,63 @@ log = logging.getLogger("autopilot")
 MODEL_ORDER = ("haiku", "sonnet", "opus")
 
 
+def run_supervised(root, make=None, sleep=time.sleep, max_restarts: int = 10) -> str:
+    """Self-healing for Autopilot's own crashes: write a crash report, tell the owner, and restart from the saved
+    state (the partial branch is discarded and the task in flight is retried). A crash that repeats 3 times inside
+    one task parks that task and the run goes on; one that repeats with no task in flight is a bug in Autopilot
+    itself and ends the run with the report. Autopilot never patches its own code."""
+    make = make or (lambda: Orchestrator(root))
+    seen: dict[str, int] = {}
+    for restart in range(max_restarts + 1):
+        orch = None
+        try:
+            orch = make()
+            return orch.run()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as exc:  # noqa: BLE001 — that is the point: any crash
+            state = orch.state if orch else State(Path(root) / AGENT_DIR / "state.db")
+            task = str(state.get_meta("current_task", "") or "")
+            sig, path = _crash_report(Path(root), exc, task)
+            seen[sig] = seen.get(sig, 0) + 1
+            msg = f"Autopilot crashed ({type(exc).__name__}: {str(exc)[:150]}); report: {path}"
+            notifier = orch.notify if orch else Notifier(Config.load(root), state)
+            if seen[sig] >= 3 and task:
+                state.set_task(task, status="blocked", last_error=f"Autopilot crashed 3 times on this task; see {path}")
+                state.set_meta("current_task", "")
+                notifier.send("heal", f"{msg}. Same crash 3 times on {task}: parked it, continuing with the rest.")
+            elif seen[sig] >= 3:
+                notifier.send("fatal", f"{msg}. Same crash 3 times with no task in flight: this is a bug in "
+                                       "Autopilot. Send the report to its maintainer.")
+                return f"crashed: {type(exc).__name__} (see {path})"
+            else:
+                notifier.send("heal", f"{msg}. Restarting from the saved state ({restart + 1}).")
+            sleep(min(60 * (restart + 1), 600))
+    return f"crashed {max_restarts + 1} times; see .agent/logs/crashes/"
+
+
+def _crash_report(root: Path, exc: BaseException, task: str) -> tuple[str, str]:
+    """(signature, path) of a markdown crash report with the traceback and the log tail."""
+    import platform
+    import traceback
+
+    from . import __version__
+    frames = [f for f in traceback.extract_tb(exc.__traceback__) if "autopilot" in f.filename.replace("\\", "/")]
+    where = f"{Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else "?"
+    sig = f"{type(exc).__name__}@{where}"
+    d = root / AGENT_DIR / "logs" / "crashes"
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{dt.datetime.now():%Y%m%d-%H%M%S}.md"
+    log_file = root / AGENT_DIR / "logs" / "autopilot.log"
+    tail = log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-40:] if log_file.exists() else []
+    path.write_text(
+        f"# Autopilot crash {dt.datetime.now():%Y-%m-%d %H:%M:%S}\n\n- Signature: `{sig}`\n- Task in flight: "
+        f"{task or '(none)'}\n- Autopilot {__version__}, Python {platform.python_version()}, {platform.platform()}\n\n"
+        "## Traceback\n```\n" + "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) + "```\n\n"
+        "## Last log lines\n```\n" + "\n".join(tail) + "\n```\n", encoding="utf-8")
+    return sig, str(path.relative_to(root)).replace("\\", "/")
+
+
 def model_rank(model: str) -> int:
     """haiku 0 < sonnet 1 < opus 2, by name (aliases or full ids). ponytail: an unknown name ranks as sonnet."""
     m = str(model).lower()
@@ -100,7 +157,10 @@ class Orchestrator:
         Raises the original error when no committed version loads either."""
         path = self.ad / "plan.yaml"
         broken = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
-        shas = self.git.run("log", "--format=%H", "-n", "30", "--", f"{AGENT_DIR}/plan.yaml", check=False).split()
+        # main only: agent sessions can't commit (their commits are reset after each session), so main holds only the
+        # orchestrator's and the owner's versions of the plan
+        shas = self.git.run("log", "--format=%H", "-n", "30", self.main, "--", f"{AGENT_DIR}/plan.yaml",
+                            check=False).split()
         for sha in shas:
             text = self.git.run("show", f"{sha}:{AGENT_DIR}/plan.yaml", check=False)
             if not text or text.strip() == broken.strip():
@@ -339,9 +399,11 @@ class Orchestrator:
                 continue
             task = self.plan.next_ready(view, self.cfg.get("scheduling.phase_dependency", "soft"))
             if task:
+                self.state.set_meta("current_task", task.id)  # read by the crash supervisor (run_supervised)
                 if self.execute_task(task):
                     stall_replanned = False
                     self.main_red = False  # its gate ran the full checks on top of main
+                self.state.set_meta("current_task", "")
                 self.close_finished_phases()
                 continue
 
@@ -1383,6 +1445,12 @@ class Orchestrator:
         return False, err
 
     # ------------------------------------------------------------------ self-healing: the project's environment
+    # What an environment repair may change. Anything else (app code, tests, CI) and the repair is thrown away.
+    TOOLING_FILES = ["pyproject.toml", "setup.py", "setup.cfg", "requirements*.txt", "requirements/**", "Pipfile",
+                     "Pipfile.lock", "poetry.lock", "uv.lock", "package.json", "package-lock.json", "yarn.lock",
+                     "pnpm-lock.yaml", ".npmrc", ".nvmrc", ".python-version", ".tool-versions", "go.mod", "go.sum",
+                     "Cargo.toml", "Cargo.lock", "Gemfile", "Gemfile.lock", "composer.json", "composer.lock",
+                     "**/pyproject.toml", "**/package.json", "**/requirements*.txt", "docs/RCA.md"]
     _NOT_FOUND = ("command not found", "is not recognized as an internal or external command",
                   "is not recognized as the name of a cmdlet", ": not found")
 
@@ -1435,8 +1503,12 @@ class Orchestrator:
         if res.ok:
             files = self.git.staged_files()
             problems = [f"modified protected file {f}" for f in files if f in protected_files(self.cfg)]
+            problems += [f"not a tooling or dependency file: {f}" for f in files if not _match(f, self.TOOLING_FILES)]
             problems += scan_secrets(self.git.staged_added_lines()) + test_tamper(self.cfg, self.git)
             ok, why = (False, "\n".join(problems)) if problems else self.run_setup()
+            if ok:  # the check output that started this is agent-written: the full checks must pass too
+                gate = main_gate(self.cfg)
+                ok, why = gate.ok, gate.report()
         if ok and self.git.staged_files():
             rca = res.report.get("rca") if isinstance(res.report.get("rca"), dict) else {}
             self.docs.rca("repair", "repair project environment", rca)
