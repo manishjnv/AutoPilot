@@ -36,7 +36,7 @@ def check_claude() -> list[tuple[str, str, str]]:
     # a broken install can still print a version, just not Claude Code's (seen: "Bun 1.4.3")
     if not (rc == 0 and "claude code" in out.lower() and re.search(r"\d+\.\d+\.\d+", out)):
         return [(FAIL, "claude CLI", f"`{binary} --version` gave rc {rc}: {first[:120] or 'no output'}. Reinstall "
-                 "with `npm i -g @anthropic-ai/claude-code`, or set AUTOPILOT_CLAUDE_BIN to the real binary")]
+                 f"with `{INSTALL[claude_route(binary)][1]}`, or set AUTOPILOT_CLAUDE_BIN to the real binary")]
     rc, _ = _run([binary, "auth", "status"])  # documented from 2.1.268: exit 0 = logged in
     return [(OK, "claude CLI", f"{first} ({binary})"),
             (OK, "claude login", "logged in") if rc == 0 else
@@ -65,15 +65,39 @@ def check_path() -> tuple[str, str, str]:
 
 
 # ---------- fixes: only what is safe without a person; logins, sudo and paid accounts stay with the owner ----------
+_NATIVE = "irm https://claude.ai/install.ps1 | iex" if WINDOWS else "curl -fsSL https://claude.ai/install.sh | bash"
+# H3: how Claude Code was installed -> (the repair command, the same command as the owner types it)
+INSTALL = {
+    "npm": (["npm", "i", "-g", "@anthropic-ai/claude-code"], "npm i -g @anthropic-ai/claude-code"),
+    "winget": (None, "winget upgrade Anthropic.ClaudeCode"),  # winget installs do not update themselves
+    "native": ((["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", _NATIVE] if WINDOWS
+                else ["bash", "-c", _NATIVE]), _NATIVE),
+}
+
+
+def claude_route(binary: str) -> str:
+    """H3: npm, winget or native, from where the program is. A missing program is native: no Node.js is needed."""
+    p = os.path.realpath(binary).replace("\\", "/").lower() if os.path.exists(binary) else ""
+    if "/node_modules/" in p or p.endswith((".cmd", ".bat")):
+        return "npm" if shutil.which("npm") else "native"
+    return "winget" if "/winget/" in p else "native"
+
+
 def fix_claude() -> str:
-    npm = shutil.which("npm")
-    if not npm:
-        return "cannot fix: npm not found. Install Node.js (nodejs.org), then `npm i -g @anthropic-ai/claude-code`"
+    """Reinstall Claude Code the way it was installed. The native route downloads the installer from claude.ai and
+    runs it, so the command is shown before it starts. `autofix` does not call this under AUTOPILOT_NO_AUTOFIX=1."""
+    from .backends.claude_cli import ClaudeCLIBackend
+    route = claude_route(ClaudeCLIBackend.resolve_binary())
+    cmd, shown = INSTALL[route]
+    if not cmd:
+        return f"cannot fix: Claude Code came from winget, which does not update it. Run `{shown}`"
+    print(f"fix   claude CLI: running `{shown}` (this downloads and installs Claude Code)", flush=True)
     try:
-        p = run_proc([npm, "i", "-g", "@anthropic-ai/claude-code"], timeout=900)
+        p = run_proc([shutil.which(cmd[0]) or cmd[0]] + cmd[1:], timeout=900)
     except OSError as exc:
-        return f"cannot fix: {exc}"
-    return "reinstalled with npm" if p.rc == 0 else f"npm install failed (rc {p.rc}): {(p.stderr or p.stdout)[-300:]}"
+        return f"cannot fix: {exc}. Run `{shown}` yourself"
+    return (f"reinstalled ({route})" if p.rc == 0 else
+            f"install failed (rc {p.rc}): {(p.stderr or p.stdout)[-300:]}. Run `{shown}` yourself")
 
 
 def write_launcher() -> str:
@@ -82,7 +106,7 @@ def write_launcher() -> str:
     arbitrary PATH entry. Returns where it was written, or ''."""
     if WINDOWS:
         prefer = [Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WindowsApps",
-                  Path(os.environ.get("APPDATA", "")) / "npm"]
+                  Path.home() / ".local" / "bin", Path(os.environ.get("APPDATA", "")) / "npm"]  # uv, Claude Code, npm
         name, body = "autopilot.cmd", f'@"{sys.executable}" -m autopilot %*\r\n'
     else:
         prefer = [Path.home() / ".local" / "bin", Path.home() / "bin"]

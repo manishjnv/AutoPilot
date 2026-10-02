@@ -199,6 +199,9 @@ class ClaudeCLIBackend:
     @staticmethod
     def resolve_binary() -> str:
         found = os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN") or shutil.which("claude")
+        if not found:  # H3: the native installer's folder; a terminal opened before the install has no PATH entry for it
+            native = Path.home() / ".local" / "bin" / ("claude.exe" if os.name == "nt" else "claude")
+            found = str(native) if native.is_file() else None
         if found and found.lower().endswith((".cmd", ".bat")):  # npm's Windows shim only calls this exe: skip cmd.exe
             exe = Path(found).parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
             if exe.is_file():

@@ -20,9 +20,53 @@ def test_autofix_runs_only_matching_fixes_and_respects_the_switch(monkeypatch):
     assert autofix(rows) == ["claude CLI: reinstalled"] and calls == ["claude"]  # OK rows and unfixable WARNs skipped
 
 
-def test_fix_claude_without_npm(monkeypatch):
+class Proc:
+    rc, stdout, stderr = 0, "", ""
+
+
+def test_fix_claude_without_npm_runs_the_native_installer_and_says_so_first(monkeypatch, tmp_path, capsys):
+    """H3: no npm and no Claude Code: the installer from claude.ai runs, and no message asks for Node.js."""
+    ran = []
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
-    assert "npm not found" in doctor.fix_claude()
+    monkeypatch.setattr(doctor, "run_proc", lambda cmd, **kw: ran.append(cmd) or Proc())
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", str(tmp_path / "missing-claude"))
+    assert doctor.fix_claude() == "reinstalled (native)"
+    assert "https://claude.ai/install." in ran[0][-1] and "npm" not in " ".join(ran[0])
+    said = capsys.readouterr().out
+    assert "https://claude.ai/install." in said and "downloads and installs" in said and "Node.js" not in said
+
+
+def test_fix_claude_keeps_the_route_of_the_install(monkeypatch, tmp_path):
+    """H3: an npm install is repaired with npm; a winget install gets the command and nothing runs."""
+    ran = []
+    monkeypatch.setattr(doctor, "run_proc", lambda cmd, **kw: ran.append(cmd) or Proc())
+    npm_bin = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude"
+    winget_bin = tmp_path / "WinGet" / "Links" / "claude.exe"
+    for p in (npm_bin, winget_bin):
+        p.parent.mkdir(parents=True)
+        p.write_text("x")
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/npm" if name == "npm" else None)
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", str(npm_bin))
+    assert doctor.fix_claude() == "reinstalled (npm)" and ran == [["/usr/bin/npm", "i", "-g", "@anthropic-ai/claude-code"]]
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)  # the npm program is gone: the native installer
+    assert doctor.claude_route(str(npm_bin)) == "native"
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", str(winget_bin))
+    assert "winget upgrade" in doctor.fix_claude() and len(ran) == 1
+
+
+def test_claude_is_found_in_the_native_install_folder_when_path_is_old(monkeypatch, tmp_path):
+    """H3: right after the native install, the terminal's PATH does not have ~/.local/bin yet."""
+    from autopilot.backends.claude_cli import ClaudeCLIBackend
+    for k in ("AUTOPILOT_CLAUDE_BIN", "AUTODEV_CLAUDE_BIN"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    assert ClaudeCLIBackend.resolve_binary() == "claude"
+    native = tmp_path / ".local" / "bin" / ("claude.exe" if doctor.WINDOWS else "claude")
+    native.parent.mkdir(parents=True)
+    native.write_text("x")
+    assert ClaudeCLIBackend.resolve_binary() == str(native)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the POSIX branch writes ~/.profile")
