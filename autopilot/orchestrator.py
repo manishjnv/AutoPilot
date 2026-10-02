@@ -22,7 +22,7 @@ from .backends import SessionRequest, SessionResult, get_backend
 from .config import RISKS, Config
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
-from .docs import Documenter, research_path
+from .docs import Documenter, redact_secrets, research_path
 from .gate import (TEST_GLOBS, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
                    test_tamper)
 from .gitops import Git, GitError
@@ -1702,8 +1702,9 @@ class Orchestrator:
         for f in phase.features:
             if f["id"] in got:
                 seen[f["id"]] = {"passes": got[f["id"]].get("passes") is True, "checked_at": now(),
-                                 "evidence": str(got[f["id"]].get("evidence") or "")[:500]}
+                                 "evidence": redact_secrets(str(got[f["id"]].get("evidence") or ""))[:500]}
         self.state.set_meta("features", seen)
+        self.docs.proof(phase, got)  # G4: the full evidence, committed with the next main commit like features.json
         rows = [{**f, "phase": p.id, **seen.get(f["id"], {"passes": None})} for p in self.plan.phases for f in p.features]
         (self.ad / "features.json").write_text(json.dumps({"features": rows}, indent=1), encoding="utf-8")
 

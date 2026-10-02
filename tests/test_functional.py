@@ -58,6 +58,38 @@ def test_passing_check_closes_the_phase_and_records_features(tmp_path):
     assert git(root, "status", "--porcelain").strip() == ""  # features.json committed with the phase close
 
 
+def test_the_full_evidence_is_kept_as_proof_and_linked_from_the_phase(tmp_path):
+    """G4: .agent/history/<phase>/PROOF.md has every feature's verdict, journey and full evidence; it is committed."""
+    long_evidence = "$ curl -s localhost:8000/login\n" + "\n".join(f"line {i}" for i in range(60))
+    fake_key = "AKIA" + "Z" * 16  # built at runtime so this file holds no key-shaped literal
+
+    class Verbose(Fixer):
+        def run(self, req):
+            res = super().run(req)
+            if req.prompt.startswith("# Assignment: functional check of phase"):
+                for f in res.report["features"]:
+                    f["evidence"] = f"AWS_KEY={fake_key}\n{long_evidence}\n```nested fence```"
+            return res
+    root, orch, outcome = run(tmp_path, Verbose())
+    assert outcome == "plan complete"
+    proof = (root / ".agent" / "history" / "P01" / "PROOF.md").read_text(encoding="utf-8")
+    assert "## P01-F01 · PASS" in proof and "Journey: POST /login returns a token" in proof
+    assert "line 59" in proof and len(features_json(root)["P01-F01"]["evidence"]) == 500  # proof is not cut
+    assert fake_key not in proof and "(removed: it looked like a secret)" in proof
+    assert fake_key not in (root / ".agent" / "features.json").read_text(encoding="utf-8")
+    assert proof.count("```") == 4  # two fenced blocks; the nested fence was neutralised
+    assert "[PROOF.md](PROOF.md)" in (root / ".agent" / "history" / "P01" / "PHASE.md").read_text(encoding="utf-8")
+    assert ".agent/history/P01/PROOF.md" in git(root, "ls-files")
+
+
+def test_redact_secrets_drops_a_whole_pem_block_and_keeps_ordinary_lines():
+    from autopilot.docs import REDACTED, redact_secrets
+    kind = "RSA " + "PRIVATE KEY"  # built at runtime so this file holds no key-shaped literal
+    pem = f"-----BEGIN {kind}-----\nMIIEow" + "A" * 40 + "\nQ" * 3 + f"\n-----END {kind}-----"
+    out = redact_secrets(f"$ cat key.pem\r\n{pem}\nHTTP 200 OK")
+    assert out.splitlines() == ["$ cat key.pem", REDACTED, "HTTP 200 OK"]
+
+
 def test_failing_feature_becomes_a_bug_fix_then_rechecks(tmp_path):
     root, orch, outcome = run(tmp_path, Fixer(failing={"P01-F01"}))
     assert outcome == "plan complete"

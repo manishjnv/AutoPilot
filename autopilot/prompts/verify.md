@@ -15,7 +15,9 @@ is to prove, by using the running app the way a user would, whether each feature
    - a UI journey: use the browser tools (Playwright MCP) if they are available, headless; otherwise check the
      pages and API calls behind it over HTTP;
    - an API or CLI journey: call it (curl, the CLI) and check the response.
-3. Record evidence for each feature: the command or steps and what you observed (status code, key output).
+3. Record evidence for each feature: the exact commands or steps you ran, and the key output you saw (status codes,
+   response lines, CLI output), copied rather than described. About 40 lines at most for each feature. This evidence
+   is kept as the phase's proof.
 4. Stop everything you started.
 
 A feature passes only if its whole journey worked. If the app doesn't start, every feature fails with that evidence.

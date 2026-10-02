@@ -144,7 +144,7 @@ A limit or an outage never counts as a failed attempt. The full list is in the
 | `.agent/BRAIN.md` | The architecture and the rules. Each session reads it |
 | `.agent/DECISIONS.md` | The log of decisions |
 | `.agent/HANDOFF.md` | What the last session did |
-| `.agent/history/` | A record for each task |
+| `.agent/history/` | A record for each task, and a `PROOF.md` for each phase with the full evidence of the feature check |
 | `.agent/state.db` | The progress, the sessions, and the cost |
 | `docs/NEEDS-YOU.md` | Questions for you |
 

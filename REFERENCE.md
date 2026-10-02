@@ -77,6 +77,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `HANDOFF.md` | What the last session did, and what is next | Yes |
 | `FOLLOWUPS.md` | Problems that sessions found outside their task | Yes |
 | `history/` | One file for each finished task and phase | Yes |
+| `history/<phase>/PROOF.md` | The full evidence of the feature check of the phase | Yes |
 | `audits/` | The audit reports | Yes |
 | `REPORT.md` | The live status | No |
 | `run.json` | The journal of the active run | No |
