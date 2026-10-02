@@ -6,6 +6,7 @@ import json
 import time
 
 from .context import progress_line
+from .docs import not_verified, warned_tasks
 
 VERIFY_KINDS = ("fixer", "audit", "unstick")
 
@@ -65,6 +66,14 @@ def digest(cfg, plan, state) -> str:
     here = [r for r in state.tasks("done") if (r["finished_at"] or "") >= (run.get("started_at") or "")]
     lines = [f"Built: {count(len(here))} this run, {done} of {len(tasks)} in total." if run
              else f"Built: {done} of {count(len(tasks))}."]
+    # G11: what no check covered. ponytail: reads each task's history file on every call; keep a count in the state
+    # if a plan grows to thousands of tasks.
+    checked = state.get_meta("features", {}) or {}
+    closed = [p for p in plan.phases if (state.phase(p.id) or {"status": "open"})["status"] != "open"]
+    gap = not_verified(sum(len(warned_tasks(cfg, p)) for p in plan.phases),
+                       sum(1 for p in closed for f in p.features if f["id"] not in checked))
+    if gap:
+        lines.append(gap)
     blocked = [t.id for t in tasks if status.get(t.id) == "blocked"]
     if blocked:
         lines.append(f"Blocked: {', '.join(blocked)}.")

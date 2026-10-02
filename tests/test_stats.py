@@ -70,4 +70,19 @@ def test_digest_of_a_finished_plan(tmp_path):
     orch.run()
     text = digest(orch.cfg, orch.plan, orch.state)
     assert "Built: 3 tasks this run, 3 of 3 in total." in text and "Left: nothing." in text
-    assert "Blocked" not in text and "Needs you" not in text
+    assert "Blocked" not in text and "Needs you" not in text and "Not verified" not in text
+
+
+# ---- G11: the report says what no check covered ----
+
+def test_digest_and_report_say_what_is_not_verified(tmp_path):
+    from autopilot.report import build_report, digest
+    plan = [{"id": "P01", "title": "One", "features": ["GET /items lists items"], "tasks": [
+        {"id": "P01-T01", "title": "a", "risk": "low", "files_in_scope": ["lib/**"]},  # the fake agent writes in src/
+        {"id": "P01-T02", "title": "b", "risk": "low"}]}]
+    root = make_project(tmp_path, plan, {**BASE, "functional": {"enabled": False}})  # no check: the feature stays open
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    orch.run()
+    line = "Not verified: 1 task merged with gate warnings, 1 feature not checked."
+    assert line in digest(orch.cfg, orch.plan, orch.state)
+    assert f"- {line}" in build_report(orch.cfg, orch.plan, orch.state)

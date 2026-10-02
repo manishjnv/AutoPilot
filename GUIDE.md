@@ -111,6 +111,7 @@ answer, see [Answer a question from Autopilot](HOWTO.md#answer-a-question-from-a
 
 - At the end of the run, a message shows what Autopilot built, the blocked tasks, and the questions for you. It also
   shows an estimate of the work that remains.
+- A `Not verified` line in the message shows the work that no check covered. Examine that work yourself.
 - `autopilot stats` shows the number of tasks done, the cost, the time and what you had to do.
 - The code is on the `main` branch. `CHANGELOG.md` lists the changes, and `docs/RCA.md` lists the bugs and their
   causes.

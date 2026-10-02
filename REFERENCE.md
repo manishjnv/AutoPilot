@@ -80,7 +80,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `history/` | One file for each finished task and phase | Yes |
 | `history/<phase>/PROOF.md` | The full evidence of the feature check of the phase | Yes |
 | `audits/` | The audit reports | Yes |
-| `REPORT.md` | The live status | No |
+| `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
 | `run.json` | The journal of the active run | No |
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports | No |

@@ -82,6 +82,23 @@ def test_the_full_evidence_is_kept_as_proof_and_linked_from_the_phase(tmp_path):
     assert ".agent/history/P01/PROOF.md" in git(root, "ls-files")
 
 
+def test_the_proof_and_the_digest_count_a_feature_that_the_check_did_not_report(tmp_path):
+    """G11: a feature with no result shows as not checked, and one line counts it."""
+    from autopilot.report import digest
+
+    class Partial(Fixer):
+        def run(self, req):
+            res = super().run(req)
+            if req.prompt.startswith("# Assignment: functional check of phase"):
+                res.report["features"] = res.report["features"][:1]
+            return res
+    root, orch, outcome = run(tmp_path, Partial())
+    proof = (root / ".agent" / "history" / "P01" / "PROOF.md").read_text(encoding="utf-8")
+    line = "Not verified: 0 tasks merged with gate warnings, 1 feature not checked."
+    assert outcome == "plan complete" and "## P01-F02 · not checked" in proof and f"- {line}" in proof
+    assert line in digest(orch.cfg, orch.plan, orch.state)
+
+
 def test_redact_secrets_drops_a_whole_pem_block_and_keeps_ordinary_lines():
     from autopilot.docs import REDACTED, redact_secrets
     kind = "RSA " + "PRIVATE KEY"  # built at runtime so this file holds no key-shaped literal

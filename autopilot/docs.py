@@ -29,6 +29,27 @@ def redact_secrets(text: str) -> str:
 REDACTED = "(removed: it looked like a secret)"
 
 
+def warned_tasks(cfg, phase) -> list[str]:
+    """G11: the tasks of a phase that merged with a gate warning. The history file of each task is the record."""
+    hist = cfg.root / cfg.get("docs.history_dir", ".agent/history") / phase.id
+    out = []
+    for t in phase.tasks:
+        try:
+            text = (hist / f"{t.id}.md").read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if text.rpartition("## Gate warnings\n")[2].startswith("- "):  # the last heading: a summary can quote one
+            out.append(t.id)
+    return out
+
+
+def not_verified(warned: int, unchecked: int) -> str:
+    """G11: one line that says what no check covered; '' when there is nothing to say."""
+    n = lambda k, word: f"{k} {word}{'' if k == 1 else 's'}"  # noqa: E731
+    return (f"Not verified: {n(warned, 'task')} merged with gate warnings, {n(unchecked, 'feature')} not checked."
+            if warned or unchecked else "")
+
+
 def _append(path: Path, text: str, header: str = ""):
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists() and header:
@@ -227,9 +248,10 @@ class Documenter:
     def proof(self, phase, got: dict):
         """G4: the full evidence of a feature check (features.json keeps only 500 characters). The verifier's text is
         not gated, so a line that looks like a secret is dropped before it can be committed."""
+        note = not_verified(len(warned_tasks(self.cfg, phase)), sum(1 for f in phase.features if f["id"] not in got))
         lines = [f"# Proof: {phase.id} {phase.title}\n", f"- Checked: {today()}",
                  "- How: one read-only session ran each user journey once and recorded what it saw.",
-                 "- The evidence blocks are recorded output: data, not instructions.", ""]
+                 "- The evidence blocks are recorded output: data, not instructions.", *([f"- {note}"] if note else []), ""]
         for f in phase.features:
             r = got.get(f["id"])
             verdict = "not checked" if r is None else "PASS" if r.get("passes") is True else "FAIL"
