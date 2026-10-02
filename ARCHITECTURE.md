@@ -1,79 +1,94 @@
 # Autopilot architecture
 
-One idea: **the model writes code, plain Python decides what is kept.**
+This page explains how Autopilot works and why. The main idea: **the AI model writes the code, and Python code
+decides what to keep.**
+
+For the steps to use Autopilot, read the [tutorial](GUIDE.md). For all commands and settings, read the
+[reference](REFERENCE.md).
 
 ## 1. Who does what
 
 ```mermaid
 flowchart LR
+    accTitle: Who does what
+    accDescr: You write the plan. The orchestrator gives one job to a new Claude Code session, gets the code changes back, and runs the gate. A pass goes to main. The orchestrator asks you only the questions that a person must answer.
     you["You<br/>write the plan"] --> orch
-    orch["Orchestrator, plain Python<br/>plan, git, checks, docs, budget"]
-    orch -->|one job + context files| ai["Claude Code session<br/>fresh every time"]
+    orch["Orchestrator, Python<br/>plan, git, checks, docs, budget"]
+    orch -->|one job + context files| ai["Claude Code session<br/>new each time"]
     ai -->|code changes + report| orch
     orch --> gate{"Gate"}
     gate -->|pass| main["main branch"]
     gate -->|fail| orch
-    orch -->|questions only you can answer| you
+    orch -->|questions that need a person| you
 ```
 
-| Actor | Owns |
+| Part | Controls |
 |---|---|
-| **Orchestrator** | Plan, progress, all git, running the checks, docs, deploys, model choice, budget |
-| **Claude Code session** | One job: write the code for one task, or one review |
-| **You** | The plan. Later: answers in `docs/NEEDS-YOU.md`, production approvals |
+| **Orchestrator** | The plan, the progress, all git commands, the checks, the docs, the deploys, the model choice, and the budget |
+| **Claude Code session** | One job: the code for one task, or one review |
+| **You** | The plan. Later: the answers in `docs/NEEDS-YOU.md` and the production approvals |
 
 ## 2. Life of one task
 
 ```mermaid
 flowchart TD
-    pick["Pick the next ready task"] --> branch["New branch"]
-    branch --> session["Fresh session:<br/>task + BRAIN + decisions + handoff"]
+    accTitle: Life of one task
+    accDescr: The orchestrator selects the next ready task, makes a branch and starts a new session with the task and the context files. If the gate passes, it writes the docs and merges to main. If the gate fails, it deletes the changes and tries again with the next model. See section 4.
+    pick["Select the next ready task"] --> branch["New branch"]
+    branch --> session["New session:<br/>task + BRAIN + decisions + handoff"]
     session --> gate{"Gate"}
     gate -->|pass| docs["Write history, changelog, handoff"]
     docs --> merge["Commit, merge to main"]
-    gate -->|fail| reset["Throw the work away"]
-    reset --> ladder["Go up the retry ladder"]
+    gate -->|fail| reset["Delete the changes"]
+    reset --> ladder["Try again with<br/>the next model (section 4)"]
+    ladder --> session
 ```
 
 ## 3. The gate
 
-Run by the orchestrator after every task. The agent's own "done" is never trusted.
+The orchestrator runs the gate after each task. It never accepts the "done" message of the agent as proof.
 
-| Check | Catches | Result |
+| Check | Finds | Result |
 |---|---|---|
-| Build, lint, typecheck, tests | Any command you configured is red | Fail |
-| Test-tamper guard | A test deleted, skipped or emptied; weakened test settings; a changed CI file | Fail |
-| Secret scan | An added line that looks like a key, token or password | Fail |
-| Protected files | Edits to the plan, the config or the questions file | Fail |
-| Empty diff | Nothing was changed | Fail |
-| Scope | Changes outside the task's files | Warning |
+| Build, lint, typecheck, tests | A command from your settings that fails | Fail |
+| Test-tamper guard | A deleted, skipped or empty test, weaker test settings, or a changed CI file | Fail |
+| Secret scan | An added line that looks like a key, a token, or a password | Fail |
+| Protected files | Changes to the plan, the settings, or the questions file | Fail |
+| Empty diff | No change | Fail |
+| Scope | Changes outside the files of the task | Warning |
+
+The agent gets these rules before it starts, so it can obey them on the first attempt.
 
 ## 4. When a task fails
 
 ```mermaid
 flowchart LR
-    a1["Attempt 1"] -->|fail| a2["Attempt 2<br/>stronger model, or the<br/>same session resumed"]
-    a2 -->|fail| diag["Diagnosis session<br/>read-only, may search the web"]
+    accTitle: When a task fails
+    accDescr: Attempt 2 uses a stronger model or continues the same session. If it fails, a read-only diagnosis session finds the cause. One more attempt uses the diagnosis. If that fails, the task is blocked, a question goes to NEEDS-YOU.md, and the run builds the other tasks.
+    a1["Attempt 1"] -->|fail| a2["Attempt 2<br/>stronger model, or the<br/>same session continued"]
+    a2 -->|fail| diag["Diagnosis session<br/>read-only, can search the web"]
     diag --> a3["One more attempt<br/>with the diagnosis"]
-    a3 -->|fail| park["Park the task,<br/>ask in NEEDS-YOU.md"]
-    park --> go["Keep building<br/>everything else"]
+    a3 -->|fail| park["Blocked task,<br/>question in NEEDS-YOU.md"]
+    park --> go["Build all<br/>other tasks"]
 ```
 
 The run never stops for one task.
 
-## 5. When a phase or the plan finishes
+## 5. When a phase or the plan is complete
 
 ```mermaid
 flowchart LR
-    phase["Phase tasks done"] --> check["Feature check:<br/>start the app,<br/>walk its user journeys"]
+    accTitle: When a phase or the plan is complete
+    accDescr: At the end of a phase, a feature check starts the app and tries each user journey. A failed feature becomes a fix task. When no phases are left, a completion audit adds new tasks for gaps or ends the run.
+    phase["All tasks of<br/>the phase done"] --> check["Feature check:<br/>start the app,<br/>try each user journey"]
     check -->|a feature fails| fix["Fix tasks"]
-    check -->|all work| next["Next phase"]
-    next -->|no phases left| audit{"Completion audit:<br/>is the app really done?"}
+    check -->|all features work| next["Next phase"]
+    next -->|no phases left| audit{"Completion audit:<br/>is the app complete?"}
     audit -->|gaps| more["New tasks"]
     audit -->|yes| done["Finished"]
 ```
 
-## 6. Models: cheap first, strong when needed
+## 6. Models: low cost first, stronger when necessary
 
 | Task risk | Attempt 1 | Attempt 2 | Attempt 3 |
 |---|---|---|---|
@@ -81,70 +96,87 @@ flowchart LR
 | Medium | Sonnet | Sonnet | Opus |
 | High, critical | Opus | Opus | Opus |
 
-A failed task moves up, never down. Real token share in the first project:
+A failed task goes to a stronger model, never to a weaker one. This chart shows the real share of tokens in the
+SecretScan run (38 sessions):
 
 ```mermaid
-pie title Tokens by model
+pie title Tokens by model, SecretScan run
+    accTitle: Tokens by model in the SecretScan run
+    accDescr: Haiku used 50 percent of the tokens, Sonnet 37 percent and Opus 13 percent.
     "Haiku" : 50
     "Sonnet" : 37
     "Opus" : 13
 ```
 
-## 7. Self-healing
+## 7. Why each design choice
+
+| Problem of long agent runs | Design choice |
+|---|---|
+| The agent forgets context after many hours | One new session for each task. The memory is in files |
+| The agent says "done" when the work is not done | Python runs the checks. The agent cannot change them |
+| One failed task stops all work | Retry, then a stronger model, then a blocked task. The other tasks continue |
+| `main` fails its checks | A fixer session repairs `main` before new work starts |
+| Risky design choices without thought | A high-risk task first compares 2 or 3 designs. The choice goes to `docs/adr/` |
+| Missing parts at the end | The completion audit adds fix tasks |
+| A deploy fails | A health check, an automatic rollback, and a fix task |
+| A crash or a restart of the computer | The state is in files and SQLite. The run continues from the last point |
+
+## 8. Self-healing
 
 | Problem | What happens |
 |---|---|
-| Usage or rate limit | Sleeps until the window resets |
-| Claude CLI, login or network down | Waits and reruns the same session |
-| A tool is missing | Reruns setup, then one repair session |
-| `main` goes red | A fixer session repairs it before more work |
-| Push fails or `main` diverged | Keeps building locally, retries, tells you once |
-| Plan or state file broken | Restores the last good copy |
-| Autopilot crashes | Restarts from saved state |
+| A usage limit or a rate limit | The run sleeps until the window resets |
+| The Claude CLI, the login or the network is down | The run waits, then starts the same session again |
+| A tool is missing | The run does the setup again, then starts one repair session |
+| `main` fails its checks | A fixer session repairs it before more work |
+| The push fails, or `main` is different from GitHub | The run continues on your computer, tries again, and sends you one alert |
+| The plan file or the state file is damaged | The run restores the last good copy |
+| Autopilot stops with an error | Autopilot starts again from the saved state |
 
-Limits and outages never count as a failed attempt.
+A limit or an outage never counts as a failed attempt. The full list is in the
+[reference](REFERENCE.md#self-healing).
 
-## 8. Memory lives in files
+## 9. Memory is in files
 
-| File | Holds |
+| File | Content |
 |---|---|
-| `.agent/plan.yaml` | Phases and tasks |
-| `.agent/BRAIN.md` | Architecture and rules. Every session reads it |
-| `.agent/DECISIONS.md` | Decision log |
+| `.agent/plan.yaml` | The phases and the tasks |
+| `.agent/BRAIN.md` | The architecture and the rules. Each session reads it |
+| `.agent/DECISIONS.md` | The log of decisions |
 | `.agent/HANDOFF.md` | What the last session did |
-| `.agent/history/` | A record per task |
-| `.agent/state.db` | Progress, sessions, cost |
+| `.agent/history/` | A record for each task |
+| `.agent/state.db` | The progress, the sessions, and the cost |
 | `docs/NEEDS-YOU.md` | Questions for you |
 
-No session depends on a long chat. After a crash or a reboot, the run continues from these files.
+No session needs a long chat history. After a crash or a restart, the run continues from these files.
 
-## 9. Trust boundary
+## 10. Trust boundary
 
-- Sessions may not commit, push or switch branches. Git belongs to the orchestrator.
-- Git hooks are off for every orchestrator git call, and `.git/config` is put back after each session.
-- Sessions and checks get only an allowlist of environment variables, not your whole environment.
-- Research sessions read the web but get no shell.
-- Sessions run without permission prompts, so run the whole thing in a sandbox on a server. A Dockerfile and a
-  systemd unit are in `deploy/`.
+> [!WARNING]
+> Run Autopilot in a sandbox on a server. Sessions run without permission prompts. The `deploy/` folder has a
+> Dockerfile and a systemd unit.
 
-## 10. Code map
+- Sessions cannot commit, push, or change branches. Only the orchestrator uses git.
+- The orchestrator turns git hooks off for its git commands. It restores `.git/config` after each session.
+- Sessions and checks get only the environment variables on an allowlist, not your full environment.
+- Research sessions can read the web, but get no shell.
+
+## 11. Code map
 
 | File | Job |
 |---|---|
 | `cli.py` | All commands |
 | `orchestrator.py` | The main loop |
-| `plan.py` | Loads the plan, picks the next task |
+| `plan.py` | Loads the plan and selects the next task |
 | `gate.py` | The checks |
 | `gitops.py` | All git commands |
-| `context.py` | Builds each session's prompt from the files |
-| `state.py` | SQLite state |
-| `docs.py` | Writes history, changelog, handoff, RCA |
+| `context.py` | Makes the prompt of each session from the files |
+| `state.py` | The SQLite state |
+| `docs.py` | Writes the history, the changelog, the handoff, and the RCA log |
 | `decisions.py` | `docs/NEEDS-YOU.md` |
-| `report.py` | Status report and the live page |
-| `notify.py` | Telegram, Slack, ntfy, webhook |
-| `deploy.py` | Deploy, health check, rollback |
-| `doctor.py` | Machine checks and safe fixes |
-| `backends/` | Runs Claude Code, or another agent CLI |
-| `prompts/` | Prompt text for each kind of session |
-
-Details and every setting: [GUIDE.md](GUIDE.md).
+| `report.py` | The status report, the status line, and the live page |
+| `notify.py` | Telegram, Slack, ntfy, and webhook alerts |
+| `deploy.py` | Deploy, health check, and rollback |
+| `doctor.py` | Checks of your computer, and safe repairs |
+| `backends/` | Runs Claude Code, or a different agent CLI |
+| `prompts/` | The prompt text for each type of session |
