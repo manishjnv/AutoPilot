@@ -24,3 +24,50 @@ def test_stats_before_any_run(tmp_path):
     orch.reload_plan()
     out = proof_stats(orch.cfg, orch.plan, orch.state)
     assert "| Tasks finished | 0 of 3 (0%) |" in out and "| Agent sessions | 0 |" in out and "? |" in out
+
+
+# ---- G3: the overnight digest: what is built, what is stuck, what needs the owner, about how much is left ----
+
+class Timed(FakeBackend):
+    """Every task session takes one minute of agent time."""
+
+    def run(self, req):
+        res = super().run(req)
+        res.duration_ms = 60_000
+        return res
+
+
+def five():
+    return [{"id": "P01", "title": "One",
+             "tasks": [{"id": f"P01-T0{i}", "title": f"t{i}", "risk": "low"} for i in range(1, 6)]}]
+
+
+def test_digest_says_what_is_built_and_about_how_much_is_left(tmp_path):
+    from autopilot.report import build_report, digest
+    orch = Orchestrator(make_project(tmp_path, five(), BASE), backend=Timed(), sleep=lambda s: None, max_sessions=3)
+    orch.run()  # stops at the session limit with two tasks to go
+    text = digest(orch.cfg, orch.plan, orch.state)
+    assert "Built: 3 tasks this run, 3 of 5 in total." in text
+    assert "Left: 2 tasks, about 2 min and $0.50 at this run's pace." in text
+    done = [e["message"] for e in orch.state.events(50) if e["kind"] == "run_done"]
+    assert "Built: 3 tasks this run" in done[-1] and "Left: 2 tasks" in done[-1]  # the end-of-run message carries it
+    assert "Built: 3 tasks this run" in build_report(orch.cfg, orch.plan, orch.state)
+
+
+def test_digest_names_stuck_tasks_and_open_decisions_and_never_guesses_from_too_little(tmp_path):
+    from autopilot.report import digest
+    orch = Orchestrator(make_project(tmp_path, phases_basic(), BASE), backend=FakeBackend({"P01-T01": ["blocked"]}),
+                        sleep=lambda s: None)
+    orch.run()
+    text = digest(orch.cfg, orch.plan, orch.state)
+    assert "Blocked: P01-T01." in text and "Needs you: D-001" in text
+    assert "about" not in text  # fewer than three finished tasks: no estimate
+
+
+def test_digest_of_a_finished_plan(tmp_path):
+    from autopilot.report import digest
+    orch = Orchestrator(make_project(tmp_path, phases_basic(), BASE), backend=FakeBackend(), sleep=lambda s: None)
+    orch.run()
+    text = digest(orch.cfg, orch.plan, orch.state)
+    assert "Built: 3 tasks this run, 3 of 3 in total." in text and "Left: nothing." in text
+    assert "Blocked" not in text and "Needs you" not in text

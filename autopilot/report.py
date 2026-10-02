@@ -49,6 +49,42 @@ def window_line(state) -> str:
     return text + (f" · {round(100 * week['pct'])}% of the weekly limit" if "pct" in week else "")
 
 
+def _run_file(cfg) -> dict:
+    try:
+        return json.loads((cfg.agent_dir / "run.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def digest(cfg, plan, state) -> str:
+    """G3: the run in plain words for the owner: what is built, what is stuck, what needs them, and about how much
+    is left (remaining tasks x this run's average per finished task, and only after three finished tasks)."""
+    run, status, tasks = _run_file(cfg), state.status_map(), plan.all_tasks()
+    count = lambda n: f"{n} task{'' if n == 1 else 's'}"  # noqa: E731
+    done = sum(1 for t in tasks if status.get(t.id) == "done")
+    here = [r for r in state.tasks("done") if (r["finished_at"] or "") >= (run.get("started_at") or "")]
+    lines = [f"Built: {count(len(here))} this run, {done} of {len(tasks)} in total." if run
+             else f"Built: {done} of {count(len(tasks))}."]
+    blocked = [t.id for t in tasks if status.get(t.id) == "blocked"]
+    if blocked:
+        lines.append(f"Blocked: {', '.join(blocked)}.")
+    asked = sorted(d["id"] for d in state.decisions("OPEN"))
+    if asked:
+        lines.append(f"Needs you: {', '.join(asked)} (see {cfg.get('needs_you.path', 'docs/NEEDS-YOU.md')}).")
+    left = sum(1 for t in tasks if status.get(t.id, "pending") in ("pending", "running"))
+    if not left:
+        lines.append("Left: nothing.")
+    elif run and len(here) >= 3:
+        ms, cost = state.db.execute("SELECT COALESCE(SUM(duration_ms),0), COALESCE(SUM(cost),0) FROM sessions "
+                                    "WHERE id >= ?", (int(run.get("first_session") or 0),)).fetchone()
+        mins = left * ms / len(here) / 60000
+        took = f"{round(mins)} min" if mins < 90 else f"{mins / 60:.1f} h"
+        lines.append(f"Left: {count(left)}, about {took} and ${left * cost / len(here):.2f} at this run's pace.")
+    else:
+        lines.append(f"Left: {count(left)}.")
+    return "\n".join(lines)
+
+
 def _tokens_section(state) -> list[str]:
     total, models, kinds, verif = _shares(state, 0)
     if not total:
@@ -166,7 +202,8 @@ def build_report(cfg, plan, state) -> str:
     lines = [f"# Autopilot report — {cfg.get('name', cfg.root.name)}", "",
              f"**Progress:** {progress_line(plan, status)}",
              f"**Cost:** total ${state.cost():.2f} · today ${state.cost(today=True):.2f} · "
-             f"sessions {state.session_count()}", "", "## Phases", "",
+             f"sessions {state.session_count()}", "", *[f"- {x}" for x in digest(cfg, plan, state).splitlines()],
+             "", "## Phases", "",
              "| Phase | Title | Done | Blocked | Pending | Status | Deploy |", "|---|---|---|---|---|---|---|"]
     for p in plan.phases:
         s = [status.get(t.id, "pending") for t in p.tasks]

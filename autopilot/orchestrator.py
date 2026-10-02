@@ -29,7 +29,7 @@ from .gitops import Git, GitError
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .proc import exclusive_lock, run_proc
-from .report import open_window, token_footer, window_line
+from .report import digest, open_window, token_footer, window_line
 from .schemas import REPORTS
 from .state import State, now
 
@@ -289,6 +289,13 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001
             log.warning("run journal failed: %s", exc)
 
+    def _digest(self) -> str:
+        try:
+            return digest(self.cfg, self.plan, self.state)
+        except Exception as exc:  # noqa: BLE001 — a summary must never break the end of a run
+            log.warning("digest failed: %s", exc)
+            return ""
+
     def _footer(self) -> str:
         return "\n".join(x for x in (token_footer(self.state, self.first_session), window_line(self.state)) if x)
 
@@ -345,13 +352,14 @@ class Orchestrator:
         except Stop as s:
             outcome = s.reason
             self.notify.send("fatal" if s.fatal else "budget" if "budget" in s.reason else "run_done",
-                             f"{s.reason}\n{self._footer()}")
+                             "\n".join(x for x in (s.reason, self._digest(), self._footer()) if x))
             return outcome
         finally:
             self._journal(status="finished", outcome=outcome, current="")
             self.write_report()
         self.notify.send("run_done", f"{outcome} — {progress_line(self.plan, self.state.status_map())}, "
-                                     f"total cost ${self.state.cost():.2f}\n{self._footer()}")
+                                     f"total cost ${self.state.cost():.2f}\n"
+                                     + "\n".join(x for x in (self._digest(), self._footer()) if x))
         return outcome
 
     def _prepare_repo(self):
