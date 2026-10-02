@@ -234,4 +234,4 @@ notify:
   slack_webhook_env: AUTOPILOT_SLACK_WEBHOOK
   webhook_env: AUTOPILOT_WEBHOOK
   ntfy_topic_env: AUTOPILOT_NTFY_TOPIC
-  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, needs_you, budget, stalled, run_done, fatal, quality, window]
+  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, needs_you, budget, stalled, run_done, fatal, quality, window, heal]

@@ -1,4 +1,5 @@
-"""P4: GitHub is the source of truth (pull before work, stop on divergence), a failed push stops the run, PR mode."""
+"""P4: GitHub is the source of truth (pull before work), PR mode, and self-healing: a diverged main is replayed on
+top of the remote, and a failed push or a conflicting divergence never stops the build."""
 import subprocess
 
 import yaml
@@ -45,17 +46,47 @@ def test_run_start_pulls_new_commits_and_their_plan(tmp_path):
     assert orch.state.status_map().get("P01-T09") == "done"
 
 
-def test_diverged_history_stops_the_run(tmp_path):
+def test_diverged_history_heals_by_replaying_local_commits(tmp_path):
     root, _, owner = with_remote(tmp_path)
     add_task_upstream(owner)
     (root / "local.txt").write_text("x")
     commit(root, "local-only commit")
-    before = git(root, "rev-parse", "main")
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    assert orch.run() == "plan complete"
+    log = git(root, "log", "--format=%s")
+    assert "owner adds a task" in log and "local-only commit" in log  # both kept, nothing lost
+    assert orch.state.status_map().get("P01-T09") == "done"
+    assert any("replayed the local commits" in e["message"] for e in orch.state.events(50) if e["kind"] == "heal")
+
+
+def test_conflicting_divergence_keeps_building_locally(tmp_path):
+    root, remote, owner = with_remote(tmp_path, {"git": {"push": True}})
+    (owner / "same.txt").write_text("owner")
+    commit(owner, "owner edit")
+    git(owner, "push", "-q", "origin", "main")
+    (root / "same.txt").write_text("local")
+    commit(root, "local edit")
     orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
     outcome = orch.run()
-    assert "diverged" in outcome and "Reconcile" in outcome
-    assert git(root, "rev-parse", "main") == before and not orch.state.tasks("done")
-    assert any("diverged" in e["message"] for e in orch.state.events(50) if e["kind"] == "fatal")
+    assert outcome.startswith("plan complete (GitHub not updated:") and "rebase conflicts" in outcome
+    assert orch.state.status_map()["P01-T01"] == "done" and "local edit" in git(root, "log", "--format=%s")
+    assert "owner edit" in git(remote, "log", "--format=%s", "main")  # the owner's work on GitHub is untouched
+    assert git(root, "status", "--porcelain") == ""  # no half-finished rebase left behind
+
+
+def test_stale_index_lock_is_removed(tmp_path):
+    import os
+    import time
+
+    from autopilot.gitops import Git
+    root = make_project(tmp_path, phases_basic()[:1], BASE)
+    g = Git(root)
+    g.ensure_repo("main")
+    lock = root / ".git" / "index.lock"
+    lock.write_text("")
+    os.utime(lock, (time.time() - 3600, time.time() - 3600))  # left by a git that died an hour ago
+    (root / "new.txt").write_text("x")
+    assert g.commit_all("after a crash") and not lock.exists()
 
 
 def test_offline_remote_only_skips_the_sync(tmp_path):
@@ -65,16 +96,17 @@ def test_offline_remote_only_skips_the_sync(tmp_path):
     assert Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None).run() == "plan complete"
 
 
-def test_failed_push_stops_the_run_after_one_retry(tmp_path):
+def test_failed_push_keeps_building_and_retries_later(tmp_path):
     root = make_project(tmp_path, phases_basic(), {**BASE, "git": {"push": True, "pull": False}})
     git(root, "init", "-q")
     git(root, "remote", "add", "origin", str(tmp_path / "gone.git"))
     sleeps = []
     orch = Orchestrator(root, backend=FakeBackend(), sleep=sleeps.append)
     outcome = orch.run()
-    assert outcome.startswith("push to origin failed") and 30 in sleeps
-    assert orch.state.status_map()["P01-T01"] == "done"  # merged before the push: never redone
-    assert orch.state.status_map()["P01-T02"] == "pending"
+    assert outcome.startswith("plan complete (GitHub not updated:") and sleeps.count(30) == 1  # one retry, once
+    assert all(v == "done" for v in orch.state.status_map().values())
+    heals = [e["message"] for e in orch.state.events(200) if e["kind"] == "heal"]
+    assert len(heals) == 1 and "Continuing locally" in heals[0]  # told once, not on every commit
 
 
 def test_push_reaches_the_remote(tmp_path):

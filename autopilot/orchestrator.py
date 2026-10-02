@@ -69,6 +69,8 @@ class Orchestrator:
         self.max_sessions = limit or None
         self.sessions_this_run = 0
         self.rate_limit_streak = 0
+        self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
+        self.git_offline = ""   # self-healing: why this run neither pulls nor pushes ('' = it does)
         self.run_info: dict = {}
         self.first_session = 0
         self.plan: Plan | None = None
@@ -100,36 +102,53 @@ class Orchestrator:
         self._push()
 
     def _push(self):
-        """P4: a push that fails twice stops the run: GitHub must not silently fall behind the local main."""
-        if not self.cfg.get("git.push"):
+        """P4 + self-healing: a push is retried once after 30 s. If it still fails (credentials, network, a protected
+        branch), the run keeps building locally, tells the owner once, and tries again with every later commit;
+        nothing is lost, GitHub only lags until a push works."""
+        if not self.cfg.get("git.push") or self.git_offline:
             return
         remote = self.cfg.get("git.remote", "origin")
         try:
             self.git.push(remote, self.main)
+            if self.push_failing:
+                self.push_failing = ""
+                self.notify.send("heal", f"push to {remote} works again; GitHub is up to date")
             return
         except GitError as exc:
+            if self.push_failing:  # already reported: just try again with the next commit
+                return
             log.warning("push failed, retrying once: %s", exc)
         self.sleep(30)
         try:
             self.git.push(remote, self.main)
         except GitError as exc:
-            raise Stop(f"push to {remote} failed: {str(exc)[:500]}. Fix the remote or credentials, then run again.",
-                       fatal=True) from exc
+            self.push_failing = str(exc)[:300]
+            self.notify.send("heal", f"push to {remote} failed: {self.push_failing}. Continuing locally; every later "
+                                     "commit retries the push. Fix the remote or credentials when you can.")
 
     def sync(self) -> bool:
-        """P4: GitHub is the source of truth. Fast-forward main to the remote before work; stop if they diverged.
-        No remote, or a fetch that fails (offline), only skips the sync. True = new commits were pulled."""
+        """P4: GitHub is the source of truth. Fast-forward main to the remote before work. Self-healing when they
+        diverged: replay the local-only commits on top of the remote; if that conflicts, keep building locally
+        (no more pulls or pushes this run) and tell the owner. No remote or offline only skips the sync.
+        True = new commits were pulled."""
         remote = self.cfg.get("git.remote", "origin")
-        if not self.cfg.get("git.pull", True) or not self.git.has_remote(remote):
+        if not self.cfg.get("git.pull", True) or not self.git.has_remote(remote) or self.git_offline:
             return False
         try:
             how = self.git.sync(remote, self.main)
         except GitError as exc:
-            if "diverged" in str(exc):
-                raise Stop(f"git: {exc}. Reconcile {self.main} by hand (merge or rebase), then run again.",
-                           fatal=True) from exc
-            log.info("git sync skipped: %s", str(exc)[:300])
-            return False
+            if "diverged" not in str(exc):
+                log.info("git sync skipped: %s", str(exc)[:300])
+                return False
+            try:
+                self.git.rebase_on_fetched(self.main)
+            except GitError as conflict:
+                self.git_offline = f"{self.main} diverged from {remote}/{self.main} and a rebase conflicts"
+                self.notify.send("heal", f"{self.git_offline} ({str(conflict)[:200]}). Continuing locally without "
+                                         "pulling or pushing; merge the two by hand when you can.")
+                return False
+            self.notify.send("heal", f"{self.main} had diverged from {remote}; replayed the local commits on top")
+            how = "pulled"
         if how != "pulled":
             return False
         log.info("pulled new commits on %s from %s", self.main, remote)
@@ -198,6 +217,8 @@ class Orchestrator:
                 self.start_main_red()
             self.close_finished_phases()
             outcome = self.loop()
+            if self.git_offline or self.push_failing:
+                outcome += f" (GitHub not updated: {self.git_offline or self.push_failing})"
         except Stop as s:
             outcome = s.reason
             self.notify.send("fatal" if s.fatal else "budget" if "budget" in s.reason else "run_done",
@@ -478,9 +499,7 @@ class Orchestrator:
             self.sleep(secs)
             return
         steps = self.cfg.get("retries.rate_limit_backoff_sec", [60, 300, 900, 1800, 3600])
-        self.rate_limit_streak += 1
-        if self.rate_limit_streak > 30:
-            raise Stop("rate limited 30 times in a row", fatal=True)
+        self.rate_limit_streak += 1  # self-healing: never give up on a rate limit, the longest step just repeats
         wait = steps[min(self.rate_limit_streak - 1, len(steps) - 1)]
         self.notify.send("rate_limit", f"rate limited — waiting {wait}s (streak {self.rate_limit_streak})")
         self.sleep(wait)

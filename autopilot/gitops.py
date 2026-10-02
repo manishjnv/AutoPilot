@@ -27,11 +27,26 @@ class Git:
         self.new_tags: set[str] = set()   # pushed explicitly; tags an agent creates are never pushed
 
     def run(self, *args: str, check: bool = True) -> str:
-        p = subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace")
+        p = self._git(args)
+        if p.returncode != 0 and self._clear_stale_lock(p.stderr):  # heal: a crashed git left index.lock behind
+            p = self._git(args)
         if check and p.returncode != 0:
             raise GitError(f"git {' '.join(args)} failed: {p.stderr.strip() or p.stdout.strip()}")
         return p.stdout.strip()
+
+    def _git(self, args):
+        return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+
+    def _clear_stale_lock(self, stderr: str, min_age: float = 60) -> bool:
+        """`index.lock': File exists` from a git process that died (crash, reboot): remove the lock once it is older
+        than `min_age` seconds. A live git holds it for milliseconds, so an old lock is a dead one."""
+        import time
+        lock = self.root / ".git" / "index.lock"
+        if "index.lock" not in (stderr or "") or not lock.exists() or time.time() - lock.stat().st_mtime < min_age:
+            return False
+        lock.unlink(missing_ok=True)
+        return True
 
     def ok(self, *args: str) -> bool:
         return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True,
@@ -195,6 +210,16 @@ class Git:
         self.checkout_main(main)
         self.run("merge", "-q", "--ff-only", theirs)
         return "pulled"
+
+    def rebase_on_fetched(self, main: str):
+        """Heal a diverged main: replay the local-only commits on top of the fetched remote main (run sync() first).
+        On a conflict the rebase is aborted, main is left as it was, and GitError is raised."""
+        self.checkout_main(main)
+        try:
+            self.run("-c", "user.name=Autopilot", "-c", "user.email=autopilot@localhost", "rebase", "-q", "FETCH_HEAD")
+        except GitError:
+            self.run("rebase", "--abort", check=False)
+            raise
 
     def push(self, remote: str, main: str):
         self.run("push", "-q", remote, f"refs/heads/{main}:refs/heads/{main}")
