@@ -1,287 +1,156 @@
-# Autopilot: autonomous development agent
+# Autopilot
 
-**Autopilot builds your app overnight, and it proves the work is done.**
+**Give it a plan tonight. Wake up to a working app, and proof that it works.**
 
-Coding agents say "done" when the work isn't. They report passing tests they never ran, or they quietly weaken a
-test until it passes. Autopilot does not take the agent's word for it:
+Autopilot drives Claude Code through your whole project plan, one task per fresh session, with nobody watching.
+A plain Python orchestrator, not the model, decides what counts as done. It runs your build, lint, typecheck and
+tests itself, and only green work reaches `main`.
 
-- **It runs the checks itself.** After every task, a plain Python orchestrator (not the model) runs your build, lint,
-  typecheck and tests. Only a green result reaches `main`.
-- **The agent can't game the checks.** Deleting or skipping tests, lowering the test count, or editing test config,
-  CI files or the plan fails the gate. So do secrets and empty diffs.
-- **Features are tried, not just tested.** At the end of each phase, one session starts the app and walks through
-  its user journeys. A broken feature becomes a fix task.
-- **"Finished" is audited.** When the plan runs out, a completion audit asks whether the app is actually done. Any gap
-  becomes new work.
+[![CI](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-It is made for a **solo developer**: write a plan, start a run on your PC or your own server, and come back to a
-finished app, a changelog and a short list of decisions only you can make (`docs/NEEDS-YOU.md`). It runs
-**alongside Claude Code**, with one fresh Claude Code session per task, and it never stops to wait for you.
+## The problem
 
-> Formerly **AutoDev**. Existing projects keep working: the `.agent/` folder is unchanged and the old `AUTODEV_*` environment variables are still read.
+Coding agents say "done" when the work isn't.
 
-## Getting started
+- They report passing tests they never ran.
+- They skip or weaken a failing test until it passes.
+- They lose the thread after a few hours, or stop at 2 a.m. to ask a question nobody will answer.
+- "Finished" means the plan ran out, not that the app works.
 
-### 1. One-time setup on your machine
-You need: **Python 3.10+**, **git**, **Node.js** (for Claude Code) and a **Claude Pro/Max subscription** (or an API key).
+## What Autopilot does about it
 
-```powershell
-npm i -g @anthropic-ai/claude-code       # Claude Code, the agent Autopilot drives
-claude                                   # log in once with /login, then /exit
-git clone https://github.com/manishjnv/AutoPilot
-python -m pip install -e ./AutoPilot     # installs the `autopilot` command
-```
-
-The same commands work in PowerShell, bash and zsh. If `autopilot` is "not recognized" (pip may put it in a folder
-that isn't on PATH), use `python -m autopilot` instead. It runs the same thing, and the first `quickstart` adds the
-folder to your PATH for new terminals.
-
-### 2. Start a new project
-1. Make an empty folder with git: `mkdir myapp`, `cd myapp`, `git init -b main`.
-2. Plan it, in one of two ways:
-   - **Just an idea:** run `autopilot quickstart`. With no `PLAN.md` in the folder it asks what you want to build
-     (or pass it: `autopilot quickstart --idea "a CLI that finds leaked secrets in a repo"`, or a text file). A
-     Claude Code session writes a full `PLAN.md`: architecture, rules, modules, phases and testable tasks.
-   - **Your own plan:** put it in `PLAN.md` (or pass `--plan-doc <file>`). Describe the product, the architecture
-     and the phases with their features. The more exact the acceptance criteria, the better the result.
-3. Turn the plan into tasks:
-   ```powershell
-   autopilot quickstart                      # sets up .agent/, one Opus session writes the task plan, then checks the machine
-   autopilot next                            # shows every task in order, with the model it will use
-   ```
-4. Read `.agent/plan.yaml` and `.agent/BRAIN.md`. Edit them if something is wrong. This is the cheapest moment to
-   change the plan.
-
-### 3. Let it build
-```powershell
-autopilot run --max-sessions 10     # first time: a short run to see it working; later just `autopilot run`
-```
-Each task prints live lines such as `▸ P01-T01 Project skeleton [haiku] · Write src/app/cli.py · 1m12s`.
-Leave it running. It fixes failing tasks itself, and it never stops to wait for you.
-
-**Follow it from anywhere.** The live page opens in your browser by itself when the run starts (`--no-browser` to skip), and typing `autopilot` (or `autopilot run`) in another terminal while it runs shows it live:
-- **Browser:** the run opens a live page at http://127.0.0.1:8765/ (refreshes every 10 s): what it is doing now,
-  the last steps, progress, cost and decisions waiting for you.
-- **Any terminal:** `autopilot watch`. It shows progress and the current step, then every step live until the run
-  ends. Ctrl+C stops watching, not the run.
-- **The file:** `.agent/logs/autopilot.log` in the project has every line.
-
-### 4. While it runs
-| You want to… | Do this |
+| A coding agent on its own | With Autopilot |
 |---|---|
-| See progress | `autopilot watch` (live), the page at http://127.0.0.1:8765/, or `autopilot status` (a snapshot) |
-| Answer a question it couldn't decide | Read `docs/NEEDS-YOU.md`, then `autopilot answer D-001 "your answer"` |
-| Pause or stop | `autopilot stop` (it stops before the next session); continue with `autopilot run` |
-| Get pinged on your phone | Set `AUTOPILOT_TG_TOKEN` + `AUTOPILOT_TG_CHAT` (Telegram) or `AUTOPILOT_NTFY_TOPIC` |
+| Says the tests pass | **Runs the checks itself** after every task. Only a green result is merged |
+| Deletes or skips a failing test | **Test-tamper guard.** Deleted, skipped or weakened tests fail the task. So do secrets and empty diffs |
+| Drifts after hours of context | **One fresh session per task.** Memory lives in files, not in a chat |
+| Stops to ask a question | **Never waits.** It retries on a stronger model, diagnoses, then writes the question to `docs/NEEDS-YOU.md` and builds everything else |
+| A crash or a usage limit ends the night | **Heals itself.** Crashes, usage limits, a broken environment and git trouble are repaired or waited out |
+| Calls the plan "finished" | **Tries the features** at the end of each phase, then **audits completion**. Gaps become new tasks |
 
-### 5. When it finishes
-`autopilot stats` prints the result: tasks done, cost, time, and what you had to do. The code is on `main`, with
-`CHANGELOG.md`, `docs/RCA.md` and the per-task history in `.agent/history/`. To add features later, put ideas in
-`docs/BACKLOG.md` (one `- idea` per line) and run `autopilot run` again.
+## Real results
 
-### Use it on an existing project
-Same as above, from the project's folder: `autopilot quickstart --plan-doc <your plan or roadmap>`. Without a plan
-document, onboarding reads the repository and README and proposes one.
+The first real project: **SecretScan**, a command-line tool that finds leaked secrets in a repository. The plan
+had 13 tasks. Two completion audits then found 14 more problems on their own, for example a baseline that would
+have hidden newly added private keys. Autopilot fixed those too.
 
-### Share it with someone
-1. Send them the repo link: https://github.com/manishjnv/AutoPilot (the repo has no license yet, so ask the owner
-   before reusing the code).
-2. They follow **step 1** on their own machine with their own Claude subscription. Autopilot never shares your
-   login, and every run uses the account of the person running it.
-3. For a ready project, they clone it and run `autopilot run` in it. The `.agent/` folder carries the plan and
-   history; the state database is local and starts fresh.
-4. To run it on a server instead of a PC, see [Running unattended on a VPS](#running-unattended-on-a-vps)
-   (`sudo deploy/install.sh <name> <git-url>`).
+| Measure | Result |
+|---|---|
+| Tasks merged to `main` | **27 of 27** (13 planned, 14 found by the audits) |
+| Tasks stuck | **0** |
+| Passed every check on the first try | 25 of 27 (93%) |
+| Decisions the owner had to make | **0** |
+| Agent time | 2.2 hours over 38 sessions |
+| Cost | $17.13 at API prices. It ran on a Claude subscription |
+| Tests in the finished project | 149 |
+
+The checks earned their keep on the way: an agent marked a test to be skipped, the gate refused the task, and
+the retry passed without the skip. Numbers come from `autopilot stats`.
+
+## Quick start
+
+You need Python 3.10+, git, Node.js and a Claude Pro or Max subscription (or an API key).
+
+```powershell
+npm i -g @anthropic-ai/claude-code      # the agent Autopilot drives. Run `claude` once and /login
+git clone https://github.com/manishjnv/AutoPilot
+python -m pip install -e ./AutoPilot    # installs the `autopilot` command
+
+mkdir myapp; cd myapp; git init -b main
+autopilot quickstart --idea "a CLI that finds leaked secrets in a repo"
+autopilot run --max-sessions 10         # a short first run. Later, just `autopilot run`
+```
+
+`quickstart` writes the plan, turns it into tasks and checks your machine. Read `.agent/plan.yaml` before you
+run: it is the cheapest moment to change anything. Already have a plan? Use
+`autopilot quickstart --plan-doc PLAN.md`. It also works on an existing project.
+
+## What a run looks like
+
+Real output from the project above, trimmed:
+
+```text
+run_start: 0/13 tasks done (0%), 0 blocked, 13 pending across 4 phases
+session #3 task P01-T01 model=haiku attempt=1
+  ▸ P01-T01 Project skeleton and tooling [haiku] · Write src/secretscan/__init__.py · 2m01s
+task P01-T01 done (haiku, $0.45)
+...
+session #9 task P02-T01 model=sonnet attempt=1
+task P02-T01 attempt 1 failed: PROBLEM: skip/focus marker added in tests/test_walker.py: pytest.skip("symlinks unsupported")
+session #10 task P02-T01 model=sonnet attempt=2
+task P02-T01 done (sonnet, $0.39)
+phase_done: P02 Scanning a folder: done. 7/13 tasks done (53%), 0 blocked, 6 pending across 4 phases.
+...
+audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
+```
+
+**While it runs.** A live page opens in your browser at `http://127.0.0.1:8765/`. `autopilot watch` follows the
+run from any terminal. Set `AUTOPILOT_TG_TOKEN` and `AUTOPILOT_TG_CHAT` (Telegram) or `AUTOPILOT_NTFY_TOPIC` to
+get pinged on your phone. With Telegram and `chat.enabled: true` you can answer its questions from there too.
+
+**In the morning.** The code is on `main`, with a `CHANGELOG.md`, a root-cause log in `docs/RCA.md`, a record of
+every task in `.agent/history/`, and a short list of decisions only you can make in `docs/NEEDS-YOU.md`.
+`autopilot stats` prints the numbers.
 
 ## How it works
 
-```
-┌─────────────────────────── orchestrator loop (deterministic Python) ───────────────────────────┐
-│ next ready task (deps + phase order, corrective phases first)                                  │
-│   └─ fresh session on branch autopilot/<task> ← context pack: BRAIN + DECISIONS + HANDOFF + spec│
-│        └─ gate run by the orchestrator: build · lint · typecheck · test · secret scan · scope  │
-│             pass → docs (history, decisions, changelog, handoff) → commit → merge to main       │
-│             fail → reset, retry with the error output on the next model in the ladder          │
-│                    (same model → the retry resumes the failed session: context + cache kept)   │
-│             N fails → park as BLOCKED, move on (never stop the run for one task)               │
-│ phase finished → phase gate (+phase_verify) → staging deploy → health/smoke → rollback on fail │
-│                  → prod (auto for low-risk phases, else queued for `autopilot approve`)         │
-│ phase finished → FUNCTIONAL CHECK: start the app, run each feature's journey once → fix tasks  │
-│ stuck task → diagnose (may research) → decide → else ask in docs/NEEDS-YOU.md and move on      │
-│ optional, every N phases → AUDIT / REPLAN (off by default: one check per level)                │
-│ plan exhausted → COMPLETION AUDIT: "is the app actually done?" gaps → new tasks → loop again    │
-└────────────────────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    plan["PLAN.md<br/>your idea, or your own plan"] --> next["Next ready task"]
+    next --> session["Fresh Claude Code session<br/>on its own branch"]
+    session --> gate{"Gate, run by Python:<br/>build, lint, types, tests,<br/>secret scan, test-tamper guard"}
+    gate -->|pass| merge["Write the docs,<br/>merge to main"]
+    gate -->|fail| retry["Retry with the error<br/>on a stronger model"]
+    retry --> session
+    retry -->|still failing| park["Diagnose, ask in NEEDS-YOU.md,<br/>keep building the rest"]
+    park --> next
+    merge -->|next task| next
+    merge -->|phase finished| check["Feature check:<br/>start the app, walk its user journeys"]
+    check -->|more phases| next
+    check -->|plan finished| audit{"Completion audit:<br/>is the app really done?"}
+    audit -->|gaps become tasks| next
+    audit -->|yes| done["Finished app on main"]
 ```
 
-| Concern | How Autopilot handles it |
+- **Cheap first, strong when needed.** Low-risk tasks start on Haiku, medium on Sonnet, high-risk on Opus. A
+  failed task moves up, never down.
+- **Memory in files.** Every session reads `BRAIN.md` (architecture and rules), the decision log and the last
+  handoff. Nothing depends on a long chat.
+- **Limits you set.** Cost caps per session, task, phase and day. On a subscription it sleeps through usage
+  limits and can keep a share of the 5-hour window free for you.
+- **State that survives.** Progress lives in SQLite and git. After a crash or a reboot it continues where it
+  stopped.
+
+## Everyday commands
+
+| Command | What it does |
 |---|---|
-| Context rot over 100+ sessions | One task per fresh session. Memory lives in files: `BRAIN.md`, `DECISIONS.md`, `HANDOFF.md`, `history/` |
-| "Done" that isn't done | The orchestrator runs the checks itself; empty diffs, protected-file edits and secrets all fail |
-| One failure freezing the run | Retry, then escalate the model, then park as blocked; independent work continues (`phase_dependency: soft`) |
-| Main branch breaks | A fixer session repairs it (gated) before any more work runs |
-| Risky design choices made blind | High/critical tasks first get a read-only decide session that scores 2-3 options; the choice is written as an ADR in `docs/adr/` and the implementer must follow it |
-| Plan drift | The replanner rewrites remaining tasks against the real code; it's validated and can't touch done tasks |
-| Missed integration or quality gaps | Periodic and completion audits create corrective tasks automatically |
-| Deploy failures | Health check and smoke tests, automatic rollback to the last good ref, plus a corrective task |
-| Rate limits | Exponential backoff that doesn't count as a failed attempt |
-| Cost | Caps per session, task, phase, day and total; daily cap sleeps until midnight |
-| Crashes and reboots | SQLite state; `running` tasks reset; partial branches discarded; resumes where it stopped |
-| Session docs | Written by the orchestrator (not left to the model): per-task history, decision log, changelog, handoff, phase summary, audit reports |
+| `autopilot quickstart` | Set up the project, write the plan, check the machine |
+| `autopilot run` | Build until the completion audit passes |
+| `autopilot watch` | Follow a run live from any terminal |
+| `autopilot status` | Progress, cost, blocked tasks, open decisions |
+| `autopilot answer D-001 "use Stripe"` | Answer a question from `docs/NEEDS-YOU.md` |
+| `autopilot stop` | Stop before the next session. `autopilot run` continues |
+| `autopilot stats` | Tasks done, first-try rate, cost, time |
+| `autopilot doctor --fix` | Check the machine and repair what needs no person |
 
-## The project contract (same for every project type)
+## Good to know
 
-```
-.agent/
-  project.yaml    # stack, verify/deploy commands, model ladder, budgets, cadence  (see template, fully commented)
-  plan.yaml       # phases → tasks (id, risk, description, acceptance_criteria, files_in_scope, depends_on)
-  BRAIN.md        # architecture, conventions, invariants — read by every session
-  DECISIONS.md    # append-only decision log (written from session reports)
-  HANDOFF.md      # what the last session did + what's next
-  FOLLOWUPS.md    # out-of-scope issues sessions noticed → consumed by audit/replan
-  history/<phase>/<task>.md, PHASE.md     # audit trail
-  audits/*.md     # audit reports
-  REPORT.md       # live status (ignored by git)
-  state.db        # progress, sessions, costs (ignored by git)
-```
+- **Made for a solo developer** with a plan and a Claude subscription, on a PC or on your own server.
+- **Sessions run without permission prompts** (`bypassPermissions`). Use a folder and a machine you are happy to
+  let an agent work in. For a server, the guide has a sandboxed Docker setup and a network allowlist.
+- **Early software.** Version 0.1.0, one real project so far. The test suite runs the whole loop end to end with
+  a scripted fake agent, on Ubuntu and Windows.
+- **Other agent CLIs** (Codex, Gemini, OpenCode) work through presets. They are tested less than Claude Code.
+- Formerly AutoDev. Existing projects keep working.
 
-Stack presets include python, node, go, rust, java, docker, static and generic. Any project works as long as you
-put its build and test commands in `commands:`.
+## Documentation
 
-### Risk tier → model ladder
-Attempt *n* uses `ladder[risk][n]`. By default: low `haiku→sonnet→opus`, medium `sonnet→sonnet→opus`, high/critical `opus`.
-Mark auth, payments, tenant isolation, crypto and migrations as `high`/`critical`.
-To route through LiteLLM/OpenRouter, set `agent.env.ANTHROPIC_BASE_URL`. To use a different agent CLI entirely,
-set `agent.backend: command` with either your own `agent.command` or a ready-made `agent.preset: codex | gemini |
-opencode`. `agent.model_map` maps the ladder names (haiku, sonnet, opus) to that CLI's models; unmapped names use
-its default model. These presets come from each CLI's docs and are not tested as much as Claude Code. They also run
-with auto-approval, so use the same sandbox advice as for Claude Code.
+The **[guide](GUIDE.md)** has everything else: the full command list, the self-healing table, usage pacing,
+bug intake from GitHub issues, running on a VPS, and how to write plans that run well unattended.
 
-## Commands
+## License
 
-| Command | Purpose |
-|---|---|
-| `autopilot init [--stack X]` | Create `.agent/`, `.gitignore` entries and a `CLAUDE.md` pointer |
-| `autopilot onboard --plan-doc PLAN.md` | AI session writes BRAIN.md, real commands and plan.yaml |
-| `autopilot validate` | Schema, dependency and cycle check; warns about weak acceptance criteria |
-| `autopilot doctor [--fix]` | Checks the machine before a run: the `autopilot` command is on PATH, the claude CLI really starts and is logged in, git, `gh` (when needed), sandbox tools, notifications, config errors. `--fix` repairs what needs no person (adds pip's Scripts folder to PATH, reinstalls a broken claude CLI with npm); `quickstart` and `run` do this by themselves, and `run` refuses to start on a claude CLI that can't run a session |
-| `autopilot next -n 20` | Preview the execution order and models |
-| `autopilot run [--max-sessions N]` | Autonomous run until the completion audit passes |
-| `autopilot status` | Progress, cost, blocked tasks with reasons, pending approvals |
-| `autopilot stats` | The numbers of a run worth publishing: tasks finished and stuck, first-try rate, cost, tokens, time, owner actions |
-| `autopilot serve [--port 8765]` | The same report as a live page in the browser (read-only, refreshes every 30 s) |
-| `autopilot unblock T1 T2` / `skip T3` | Clear the blocked queue whenever you like (edit the task spec first) |
-| `autopilot answer D-003 "text"` | Answer a decision from `docs/NEEDS-YOU.md` (works while a run is active) |
-| `autopilot approve P05` | Deploy a queued phase to prod |
-| `autopilot review --kind periodic\|completion\|replan` | Force a review now |
-| `autopilot stop` / `resume` | Graceful stop before the next session |
-
-All commands take `-C <project path>`.
-
-**Needs you.** A stuck task first gets one read-only diagnosis session (it may search the web) and one more attempt.
-Only what truly needs you (credentials, a paid account, a business or legal call) is written in plain words to
-`docs/NEEDS-YOU.md`; that feature is parked and everything else keeps being built. Answer with `autopilot answer`, or
-write your answer after "Your answer:" in the file and commit it while no run is active. The run never stops for a red
-check either: a failing main or phase gate becomes a corrective phase first.
-
-## Self-healing: what can stop a run, and what Autopilot does instead
-A run stops only for what truly needs you, or for a limit you set. Every heal is reported as a `heal` notification
-and in the event log.
-
-| Problem | What Autopilot does |
-|---|---|
-| A task's code fails its checks | Retries with the error on a stronger model, then a diagnose session (root cause, research), then asks in `docs/NEEDS-YOU.md` and builds everything else |
-| A check fails because a tool is missing | Re-runs the setup command and checks the same work again; if still broken, one repair session fixes the tooling/dependency files (kept only if setup then passes, with an RCA entry). The lost attempt isn't counted |
-| The setup command fails | The same repair session (on a new, empty project this is expected and skipped) |
-| The claude CLI can't run, the login is gone, the network or API is down | Not a failed attempt: reinstalls a broken CLI, tells you (with `/login` when needed), waits 1→60 min and reruns the same session |
-| Usage or rate limit | Sleeps until the window resets; never gives up |
-| `autopilot` command not found | A one-line launcher in a folder already on PATH, plus the Scripts folder added to PATH |
-| Push to GitHub fails | Keeps building locally, retries the push with every commit, tells you once |
-| `main` diverged from GitHub | Replays the local commits on top of GitHub's; if they conflict, keeps building locally and tells you |
-| Stale `.git/index.lock` from a crash | Removed, and the git command is retried |
-| `plan.yaml` broken | Restores the newest committed version that loads; your copy goes to `.agent/logs/plan.yaml.broken` |
-| `state.db` corrupt | Restores the backup taken at run start, then marks tasks done whose commits are on `main` |
-| A config error with a safe fallback | Turns off just that part for the run (a deploy with no command; PR mode without push) |
-| Autopilot itself crashes | Writes `.agent/logs/crashes/<time>.md`, restarts from the saved state; the same crash 3× in one task parks only that task |
-
-**Still needs you:** a Claude login (`claude`, then `/login`), the budget or session limits you set, the STOP file,
-config errors with no safe fallback (no checks at all, a sandbox that can't run), decisions in
-`docs/NEEDS-YOU.md`, and a crash that repeats outside any task (a bug in Autopilot: send the crash report). Autopilot
-never rewrites its own code.
-
-## Usage, pacing and the RCA log
-- Every session's tokens (input, output, cache read/write) and cost are stored per model. `.agent/REPORT.md` (and `autopilot status`) has a **Tokens** section with per-model and per-kind totals and the verification share (fixer, audit and unstick sessions); above 20% it warns that checks use more than intended. The `run_done` notification ends with a one-line token footer.
-- When the CLI reports a usage limit with a reset time, the run sleeps until the window reopens (plus two minutes) and notifies you; that wait is never a task attempt and never counts toward the 30-in-a-row stop.
-- **Window budget** (`usage:`, for `billing: subscription`): Autopilot counts its own spend in the current 5-hour
-  window. When only `reserve_pct` (15%) is left, it pauses until the window resets, so you can still use Claude
-  yourself. The window's size comes from `usage.window_usd`, or it is learned the first time the limit is hit. With
-  `opus_by_pct`, Opus decide, audit and replan sessions only start early in a window. Set `billing: api` to use only
-  the `budget_usd` caps.
-- Corrective (FIX) tasks must add a regression test (bugs) and report a root cause. Entries land in `docs/RCA.md` (symptom, root cause, fix, prevention), committed with the fix; main-branch repairs add a lenient entry.
-- `.agent/run.json` is the live run journal; `REPORT.md` has a **This run** section with the next action.
-- **Quality:** every finished task logs one line, `task · model · risk · attempts · reworked Y/N · tokens` (event
-  `quality`). `REPORT.md` has a **Quality** table per risk tier (first-try pass rate, average attempts and tokens) and
-  the cache-read share. Every `quality.every` (20) finished tasks, you get rule-based suggestions for the model ladder,
-  such as "medium: 100% of 20 tasks passed on the first try with sonnet; a cheaper first model may hold". They are only
-  suggestions; you change `project.yaml` yourself.
-
-## Bug intake from GitHub
-With `intake.enabled: true` (and `gh` logged in), the run checks GitHub at start and then every `intake.poll_minutes`:
-- **Issues labelled `autopilot`** (`intake.label`). On GitHub only people with triage access can add labels, so the
-  label is the trust gate. Each issue is read once by a triage session (Haiku) that has **no tools**. It rewrites a real
-  bug in its own words as a corrective task. The coding session sees only that rewrite, never the issue text. Autopilot
-  comments on the issue when the task is queued, and closes it when the fix is merged. If it gets stuck, it comments
-  and asks you in `docs/NEEDS-YOU.md`. Questions, feature requests and text that tries to instruct the agent are
-  declined with a comment.
-- **Failed CI on main** (`intake.ci`): the latest completed run of each workflow. A failure becomes one corrective task
-  with the log tail; while that fix is open, the workflow is not taken in again.
-- Feature requests go to `docs/BACKLOG.md` (see below) instead.
-
-## Roadmap sync
-- `.agent/plan.yaml` is the source of truth. `docs/STATUS.md` is the plan as a checklist, regenerated with every commit.
-- Put new ideas in `docs/BACKLOG.md`, one per line starting with `- `. Then one replan session adds them to the plan:
-  it drops ideas the plan already covers and turns the rest into tasks. The imported ideas move under
-  `## Imported`, and the import is logged in `DECISIONS.md`. Agent sessions may not edit the backlog.
-
-## Running unattended on a VPS
-
-One command sets it up: `sudo deploy/install.sh <name> <git-url>` from an Autopilot checkout. It builds the image,
-creates the `autopilot` user, clones the project to `/srv/autopilot/<name>`, writes an empty secrets file and installs
-the systemd unit, then prints the login, check and start commands. It never starts the run by itself and touches
-nothing outside those paths. The steps it automates:
-
-1. Log in once with your Claude subscription (see the comments in `deploy/autopilot@.service`), or use an **API key
-   or LiteLLM gateway** (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`) and set `usage.billing: api`.
-2. Run inside a sandbox, because sessions use `bypassPermissions`. `deploy/autopilot@.service` runs the
-   `deploy/Dockerfile` image (`docker build -t autopilot -f deploy/Dockerfile .`) once per project: checkout at
-   `/srv/autopilot/<name>` (its own tree, so it never touches other apps on a shared server), secrets in
-   `/etc/autopilot/<name>.env` (mode 600). Start with `sudo systemctl enable --now autopilot@<name>` and follow
-   with `journalctl -u autopilot@<name> -f`. Claude Code is pinned in the image (`CLAUDE_CODE_VERSION`); bump it
-   deliberately. Keep prod secrets out of the agent's environment; the deploy commands should read them from CI or
-   the server.
-3. Notifications: set `AUTOPILOT_TG_TOKEN`/`AUTOPILOT_TG_CHAT` (Telegram), `AUTOPILOT_SLACK_WEBHOOK`, `AUTOPILOT_NTFY_TOPIC`
-   or `AUTOPILOT_WEBHOOK`. With `chat.enabled: true` you can also reply to the Telegram bot in your **private** chat
-   with it (`AUTOPILOT_TG_CHAT` = your user id): `status`, `answer D-003 use Stripe`, `approve P05`,
-   `unblock P04-T02`. A run that is waiting for your answers wakes up as soon as you send one. Messages sent before
-   the first run are ignored. Use one bot per project.
-4. Status page: `autopilot serve` shows the live report on `127.0.0.1:8765`. From your PC, open it through an SSH
-   tunnel (`ssh -L 8765:127.0.0.1:8765 your-vps`). Serving on any other address needs `AUTOPILOT_STATUS_TOKEN`
-   and the URL `http://host:8765/?token=...`; the page shows task errors and open decisions, so keep it private.
-5. Network allowlist (optional): `sandbox.enabled: true` with `sandbox.allowed_domains: [pypi.org, github.com]` turns
-   on Claude Code's own sandbox for every session, so shell commands can reach only those hosts (no retry outside
-   the sandbox). It needs Linux, WSL2 or macOS (Linux: `bubblewrap` and `socat`, already in the Docker image). The
-   sandbox does not cover web tools, so with it on, coding, audit and decide sessions lose WebFetch/WebSearch, and
-   research sessions keep the web but cannot read the repo. Project MCP servers are not loaded, and agents may not
-   edit `.claude/settings*.json` or `.mcp.json`. Autopilot's own gate and deploy commands run outside the sandbox.
-6. Your only job is to answer `docs/NEEDS-YOU.md` and approve prod deploys when notified.
-
-## Writing plans that run well autonomously
-- Keep each task to one session (~1–3 files of real logic) and give it 2–5 **testable** acceptance criteria.
-- Put the real invariants in BRAIN.md: auth model, tenant isolation, API contracts.
-- Put slow end-to-end checks in `commands.phase_verify`, not in the per-task gate.
-- Treat `blocked` as a signal that the spec was unclear. Fix the spec, then run `autopilot unblock`.
-
-## Development
-```
-pip install -e '.[dev]' && pytest -q      # end-to-end tests with a scripted fake agent, no API calls
-```
-Runs on Linux, macOS and Windows; CI tests Ubuntu and Windows.
+[MIT](LICENSE). Free to use, change and share.
