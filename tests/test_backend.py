@@ -1,6 +1,9 @@
 """Backend hardening: limit detection, reset parsing, least-privilege env, Windows shim argv."""
+import json
 import sys
 from datetime import datetime, timezone
+
+import pytest
 
 from autopilot.backends import SessionRequest, detect_limit, parse_reset
 from autopilot.backends.claude_cli import ClaudeCLIBackend
@@ -70,6 +73,43 @@ def test_subscription_limit_sets_reset(tmp_path, monkeypatch):
     res = run_stub(tmp_path, monkeypatch,
                    "print(json.dumps({'is_error': True, 'result': \"You've hit your session limit \\u00b7 resets 4pm\"}))\n")
     assert res.rate_limited is True and res.reset_at and res.reset_at > datetime.now().timestamp()
+
+
+# G1: a real line from a session log (SecretScan, 2026-10-02); the field names are observed, not documented
+RATE_EVENT = {"type": "rate_limit_event", "rate_limit_info": {
+    "status": "allowed", "resetsAt": 1790919000, "rateLimitType": "five_hour", "overageStatus": "rejected",
+    "isUsingOverage": False, "unifiedWindows": {"five_hour": {"utilization": 0.35, "resetsAt": 1790919000},
+                                                "seven_day": {"utilization": 0.1, "resetsAt": 1791475200}}}}
+
+
+def test_rate_limit_event_gives_the_usage_window(tmp_path, monkeypatch):
+    res = run_stub(tmp_path, monkeypatch, f"print(json.dumps({RATE_EVENT!r}))\n"
+                                          "print(json.dumps({'type': 'result', 'result': 'done'}))\n")
+    assert res.ok and res.window == {"five_hour": {"pct": 0.35, "reset": 1790919000.0},
+                                     "seven_day": {"pct": 0.1, "reset": 1791475200.0}, "status": "allowed"}
+
+
+def test_no_or_malformed_rate_limit_event_means_no_window(tmp_path, monkeypatch):
+    plain = run_stub(tmp_path, monkeypatch, "print(json.dumps({'type': 'result', 'result': 'done'}))\n")
+    assert plain.ok and plain.window == {}
+    odd = run_stub(tmp_path, monkeypatch,
+                   "print(json.dumps({'type': 'rate_limit_event', 'rate_limit_info': 'soon'}))\n"
+                   "print(json.dumps({'type': 'rate_limit_event', 'rate_limit_info': "
+                   "{'unifiedWindows': {'five_hour': {'utilization': 'high'}}}}))\n"
+                   "print(json.dumps({'type': 'result', 'result': 'done'}))\n")
+    assert odd.ok and odd.window == {}
+
+
+@pytest.mark.parametrize("pct,reset", [
+    (float("nan"), 1790919000), (float("inf"), 1790919000), (True, 1790919000), (-0.1, 1790919000),
+    (5, 1790919000), (35, 1790919000),  # a 0..100 scale would otherwise pause every session
+    (0.5, -1), (0.5, float("nan")), (0.5, 1e18)])
+def test_odd_usage_numbers_are_ignored_not_trusted(tmp_path, monkeypatch, pct, reset):
+    ev = {"type": "rate_limit_event", "rate_limit_info": {"unifiedWindows": {
+        "five_hour": {"utilization": pct, "resetsAt": reset}, "seven_day": {"utilization": pct, "resetsAt": reset}}}}
+    res = run_stub(tmp_path, monkeypatch, f"print({json.dumps(ev)!r})\n"
+                                          "print(json.dumps({'type': 'result', 'result': 'done'}))\n")
+    assert res.ok and res.window == {}
 
 
 def test_agent_env_is_least_privilege(tmp_path, monkeypatch):

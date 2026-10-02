@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import shutil
 import time
@@ -97,6 +98,25 @@ def result_event(raw: str) -> dict:
         return data if isinstance(data, dict) else {}
     except ValueError:
         return {}
+
+
+def window_info(raw: str) -> dict:
+    """G1: the usage window as the CLI reports it in the stream's last `rate_limit_event`:
+    {five_hour: {pct, reset}, seven_day: {pct, reset}, status}; pct is 0..1, reset is unix seconds. The field names
+    are observed, not documented, so anything missing or odd gives {} and the caller keeps its own estimate."""
+    info = next((ev.get("rate_limit_info") for ev in reversed(list(_events(raw)))
+                 if ev.get("type") == "rate_limit_event"), None)
+    wins = info.get("unifiedWindows") if isinstance(info, dict) else None
+    out = {}
+    for name in ("five_hour", "seven_day"):
+        w = wins.get(name) if isinstance(wins, dict) else None
+        pct, reset = (w.get("utilization"), w.get("resetsAt")) if isinstance(w, dict) else (None, None)
+        real = all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in (pct, reset))
+        if real and 0 <= pct <= 1 and 0 < reset < 4e9:  # another scale, NaN, a broken clock: not trusted
+            out[name] = {"pct": float(pct), "reset": float(reset)}
+    if out:
+        out["status"] = str(info.get("status") or "")
+    return out
 
 
 def first_session_id(raw: str) -> str:
@@ -255,7 +275,7 @@ class ClaudeCLIBackend:
         if p.timed_out or p.stopped:  # killed: no result event, so tokens come from the messages seen so far
             usage = partial_usage(p.stdout, req.model)
             killed = dict(ok=False, session_id=first_session_id(p.stdout), usage=usage,
-                          cost=round(sum(u["cost"] for u in usage.values()), 6))
+                          cost=round(sum(u["cost"] for u in usage.values()), 6), window=window_info(p.stdout))
             if p.timed_out:
                 return SessionResult(error=f"session timed out after {req.timeout_sec}s", timed_out=True, **killed)
             return SessionResult(error=p.stopped, stuck=True, **killed)
@@ -279,5 +299,5 @@ class ClaudeCLIBackend:
             ok=not is_error, text=text, cost=own["cost"], session_id=str(data.get("session_id", "")),
             report=report or {}, error=err or (f"{infra} failure" if infra else ""), rate_limited=limited, reset_at=reset_at, infra=infra,
             usage=own["usage"],
-            num_turns=own["num_turns"], duration_ms=own["duration_ms"], totals=totals,
+            num_turns=own["num_turns"], duration_ms=own["duration_ms"], totals=totals, window=window_info(raw),
         )

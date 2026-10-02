@@ -135,3 +135,15 @@ def test_fallback_learning_without_agent_text(tmp_path):
     Orchestrator(root, backend=FakeBackend(behaviours={"P01-T01": ["break", "ok"]}), sleep=lambda s: None).run()
     text = (root / ".agent" / "LEARNINGS.md").read_text(encoding="utf-8")
     assert "[P01-T01] failed first with:" in text and "passed on attempt 2 with" in text
+
+
+def test_parallel_sessions_also_bring_the_cli_usage_figure(tmp_path):
+    import time
+
+    class Metered(Together):  # G1: every session reports the CLI's own usage figure
+        def run(self, req):
+            res = super().run(req)
+            res.window = {"five_hour": {"pct": 0.4, "reset": time.time() + 3600}, "status": "allowed"}
+            return res
+    _, orch, outcome = run(tmp_path, independent(3), Metered(3))
+    assert outcome == "plan complete" and orch.state.get_meta("window_seen")["five_hour"]["pct"] == 0.4

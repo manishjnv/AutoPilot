@@ -113,6 +113,7 @@ class SessionResult:
     duration_ms: int = 0
     totals: dict = field(default_factory=dict)  # whole-session {cost, usage, num_turns, duration_ms}, for a later resume
     infra: str = ""                              # 'cli' | 'auth' | 'network': the machinery failed, not the work
+    window: dict = field(default_factory=dict)  # G1: the CLI's own usage figure {five_hour: {pct, reset}, seven_day, status}
 
 
 def since(totals: dict, base: dict) -> dict:

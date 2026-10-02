@@ -1,7 +1,9 @@
 """Human-readable status report (.agent/REPORT.md and `autopilot status`)."""
 from __future__ import annotations
 
+import datetime as dt
 import json
+import time
 
 from .context import progress_line
 
@@ -26,6 +28,25 @@ def token_footer(state, since_session: int = 0) -> str:
         return "Tokens: none recorded"
     parts = [f"{m} {_n(v['total'])} {round(100 * v['total'] / total)}%" for m, v in models]
     return f"Tokens: {_n(total)} total — " + " · ".join(parts + [f"verification {round(100 * verif)}%"])
+
+
+def open_window(state, hours: float = 5) -> dict:
+    """G1: the five-hour figure {pct, reset} the CLI last reported, if it is for a window still open; else {}.
+    A reset further away than a window lasts means a wrong clock, so that figure is ignored as well."""
+    five = (state.get_meta("window_seen", {}) or {}).get("five_hour") or {}
+    left = float(five.get("reset") or 0) - time.time()
+    return five if "pct" in five and 0 < left <= hours * 3600 + 600 else {}
+
+
+def window_line(state) -> str:
+    """G1: the usage window as the CLI last reported it, or '' when there is no figure for a window still open."""
+    five = open_window(state)
+    if not five:
+        return ""
+    week = (state.get_meta("window_seen", {}) or {}).get("seven_day") or {}
+    text = (f"Usage window: {round(100 * five['pct'])}% of the 5-hour window "
+            f"(resets {dt.datetime.fromtimestamp(five['reset']):%H:%M})")
+    return text + (f" · {round(100 * week['pct'])}% of the weekly limit" if "pct" in week else "")
 
 
 def _tokens_section(state) -> list[str]:
@@ -137,7 +158,7 @@ def _this_run(cfg, plan, state) -> list[str]:
     return ["", "## This run", "", f"- Started: {run.get('started_at', '?')} ({run.get('status', '?')})",
             f"- Outcome: {run.get('outcome') or 'still running'}", f"- Tasks done this run: {len(done)}",
             f"- Sessions this run: {sessions}", f"- Open decisions: {len(open_d)}", f"- Next action: {action}",
-            f"- {token_footer(state, first)}"]
+            f"- {token_footer(state, first)}"] + [f"- {w}" for w in (window_line(state),) if w]
 
 
 def build_report(cfg, plan, state) -> str:
@@ -196,7 +217,6 @@ def proof_stats(cfg, plan, state) -> str:
                                  "AND prod_status != 'awaiting_approval'").fetchone()[0]
 
     def hours(a, b):
-        import datetime as dt
         try:
             return f"{(dt.datetime.fromisoformat(b) - dt.datetime.fromisoformat(a)).total_seconds() / 3600:.1f} h"
         except (TypeError, ValueError):

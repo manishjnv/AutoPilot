@@ -157,7 +157,8 @@ usage:                    # the subscription's 5-hour window (claude -p draws fr
   billing: subscription   # subscription | api (api = no window, only the budget_usd caps)
   window_hours: 5
   reserve_pct: 15         # leave this share of each window for you: pause until it resets (0 = off)
-  window_usd: 0           # cost-equivalent of a full window; 0 = learn it from the first usage-limit hit
+  window_usd: 0           # only used when the CLI reports no usage figure: cost-equivalent of a full window;
+                          # 0 = learn it from the first usage-limit hit
   opus_by_pct: 0          # Opus decide/audit/replan sessions start only before this share of the usable window
                           # is spent, else wait for a fresh window (0 = off; waiting costs wall-clock time)
 

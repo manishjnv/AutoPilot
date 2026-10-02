@@ -29,7 +29,7 @@ from .gitops import Git, GitError
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .proc import exclusive_lock, run_proc
-from .report import token_footer
+from .report import open_window, token_footer, window_line
 from .schemas import REPORTS
 from .state import State, now
 
@@ -290,7 +290,7 @@ class Orchestrator:
             log.warning("run journal failed: %s", exc)
 
     def _footer(self) -> str:
-        return token_footer(self.state, self.first_session)
+        return "\n".join(x for x in (token_footer(self.state, self.first_session), window_line(self.state)) if x)
 
     def _run(self) -> str:
         self.heal_config()
@@ -573,35 +573,52 @@ class Orchestrator:
 
     def window_gate(self, kind: str, model: str):
         """Before a session: keep `usage.reserve_pct` of the window for the owner (pause until it resets), and start
-        Opus-heavy sessions only early in a window (`usage.opus_by_pct`). Only Autopilot's own spend is counted, which
-        is why the reserve exists. Needs the window size: `usage.window_usd`, or learned at the first limit hit."""
+        Opus-heavy sessions only early in a window (`usage.opus_by_pct`). G1: when the last session brought the CLI's
+        own usage figure for the open window, that decides; it also counts the owner's use. Otherwise only Autopilot's
+        own spend is counted, against `usage.window_usd` or the size learned at the first limit hit."""
         u = self.cfg.get
         if u("usage.billing", "subscription") != "subscription":
             return
-        span = float(u("usage.window_hours", 5) or 5) * 3600
-        start = float(self.state.get_meta("window_start", 0) or 0)
-        if time.time() >= start + span:  # no open window: this session opens one
-            self.state.set_meta("window_start", time.time())
-            return
-        cap = float(u("usage.window_usd", 0) or 0) or float(self.state.get_meta("window_capacity_usd", 0) or 0)
         reserve = float(u("usage.reserve_pct", 15) or 0) / 100
         opus_by = float(u("usage.opus_by_pct", 0) or 0) / 100
-        if not cap or not (reserve or opus_by):
-            return
-        limit = cap * (1 - reserve)
         heavy = opus_by and kind in self.OPUS_HEAVY and model_rank(model) == 2
-        if heavy:
-            limit *= opus_by
-        used = self._window_used(start)
-        if used < limit:
-            return
-        wake = start + span + 120
+        share = (1 - reserve) * (opus_by if heavy else 1)  # the part of the window this session may start in
+        five = open_window(self.state, float(u("usage.window_hours", 5) or 5))
+        if five:
+            if not (reserve or opus_by) or five["pct"] < share:
+                return
+            wake, used = five["reset"] + 120, f"{round(100 * five['pct'])}% of this usage window is used"
+        else:
+            span = float(u("usage.window_hours", 5) or 5) * 3600
+            start = float(self.state.get_meta("window_start", 0) or 0)
+            if time.time() >= start + span:  # no open window: this session opens one
+                self.state.set_meta("window_start", time.time())
+                return
+            cap = float(u("usage.window_usd", 0) or 0) or float(self.state.get_meta("window_capacity_usd", 0) or 0)
+            if not cap or not (reserve or opus_by):
+                return
+            spent = self._window_used(start)
+            if spent < cap * share:
+                return
+            wake, used = start + span + 120, f"used about ${spent:.2f} of ~${cap:.2f} this usage window"
         why = "Opus-heavy work waits for a fresh window" if heavy else f"keeping {round(100 * reserve)}% of it for you"
-        self.notify.send("window", f"used about ${used:.2f} of ~${cap:.2f} this usage window; {why}. Pausing until "
-                                   f"{dt.datetime.fromtimestamp(wake):%H:%M}.")
+        self.notify.send("window", f"{used}; {why}. Pausing until {dt.datetime.fromtimestamp(wake):%H:%M}.")
         self._journal(current="waiting for the usage window to reset")
         self.sleep(max(60.0, wake - time.time()))
         self.state.set_meta("window_start", 0)
+        self.state.set_meta("window_seen", {})  # that figure belonged to the window that just ended
+
+    def note_window(self, res: SessionResult):
+        """G1: keep the CLI's own usage figure for `window_gate`, and say once when the weekly limit is nearly used."""
+        if not res.window:
+            return
+        self.state.set_meta("window_seen", res.window)
+        week = res.window.get("seven_day") or {}
+        day = int(week.get("reset", 0) // 86400)  # once per weekly window, even if its reset time drifts
+        if week.get("pct", 0) >= 0.9 and self.state.get_meta("week_warned") != day:
+            self.state.set_meta("week_warned", day)
+            self.notify.send("window", f"{round(100 * week['pct'])}% of the weekly usage limit is used; it resets "
+                                       f"{dt.datetime.fromtimestamp(week['reset']):%a %H:%M}.")
 
     def learn_window(self, reset_at: float):
         """A usage-limit hit says when the window ends: align the window to it and learn its size from what Autopilot
@@ -667,6 +684,7 @@ class Orchestrator:
                                duration_ms=res.duration_ms)
         if task_id:
             self.state.set_task(task_id, cost=self.state.cost(task_id=task_id))
+        self.note_window(res)
         if res.rate_limited and res.reset_at:
             self.learn_window(res.reset_at)
         if res.rate_limited:
@@ -1189,6 +1207,7 @@ class Orchestrator:
                                    log_path=str(log_path), usage=res.usage, num_turns=res.num_turns,
                                    duration_ms=res.duration_ms)
             self.state.set_task(t.id, cost=self.state.cost(task_id=t.id))
+            self.note_window(res)
             try:
                 if res.rate_limited:
                     limited = res
