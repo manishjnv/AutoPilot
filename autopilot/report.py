@@ -363,8 +363,11 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
                          ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
                          ("Referrer-Policy", "no-referrer")):  # the token rides in the URL
                 self.send_header(k, v)
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.end_headers()
+                self.wfile.write(data)
+            except ConnectionError:  # the browser closed the tab or reloaded mid-write
+                pass
 
         def log_message(self, *a):  # quiet: the URL holds the token
             pass
