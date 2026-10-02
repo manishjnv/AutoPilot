@@ -102,6 +102,11 @@ def model_rank(model: str) -> int:
     return next((i for i, name in enumerate(MODEL_ORDER) if name in m), 1)
 
 
+# G8: the word the status line shows for each kind of session
+STATE = {"task": "Code", "fixer": "Fix", "unstick": "Fix", "repair": "Fix", "verify": "Review", "audit": "Review",
+         "replan": "Plan", "decide": "Plan", "research": "Plan", "onboard": "Plan", "triage": "Plan"}
+
+
 class Stop(Exception):
     """Ends the run cleanly (budget, stop file, fatal condition)."""
 
@@ -118,7 +123,7 @@ class Orchestrator:
         self.state = State(self.ad / "state.db")
         self.git = Git(self.root)
         self.backend = backend or get_backend(self.cfg)
-        self.sleep = sleep
+        self._nap = sleep  # every pause goes through sleep(), which shows it as Wait (G8)
         self.notify = Notifier(self.cfg, self.state)
         self.docs = Documenter(self.cfg)
         self.main = self.cfg.main_branch
@@ -282,12 +287,25 @@ class Orchestrator:
     def _journal(self, **kw):
         """.agent/run.json: what this run is doing right now. A write failure never breaks the run."""
         try:
-            self.run_info.update(kw, sessions=self.sessions_this_run, updated_at=now())
+            self.run_info.update(kw, sessions=self.sessions_this_run, updated_at=now(),
+                                 git="Off" if self.git_offline else "Push!" if self.push_failing else "OK",
+                                 build="Red" if self.main_red else "OK")
             tmp = self.ad / "run.json.tmp"
             tmp.write_text(json.dumps(self.run_info, indent=1), encoding="utf-8")
             os.replace(tmp, self.ad / "run.json")
         except Exception as exc:  # noqa: BLE001
             log.warning("run journal failed: %s", exc)
+
+    def sleep(self, secs: float):
+        """G8: every pause shows as `Wait` in the run journal; then the state it interrupted comes back. A run that
+        waits for the owner's answers keeps saying `Block`."""
+        was = self.run_info.get("state")
+        if was != "Block":
+            self._journal(state="Wait")
+        try:
+            self._nap(secs)
+        finally:
+            self._journal(state=was)
 
     def _digest(self) -> str:
         try:
@@ -317,7 +335,7 @@ class Orchestrator:
             self.reload_plan()
         except (PlanError, FileNotFoundError) as e:
             self.notify.send("fatal", f"plan.yaml invalid and no committed version loads either: {e}")
-            self._journal(status="finished", outcome="fatal: invalid plan", current="")
+            self._journal(status="finished", outcome="fatal: invalid plan", current="", state="Done", task="")
             return "fatal: invalid plan"
         if self.state.healed:
             recovered = self._recover_from_git()
@@ -355,7 +373,7 @@ class Orchestrator:
                              "\n".join(x for x in (s.reason, self._digest(), self._footer()) if x))
             return outcome
         finally:
-            self._journal(status="finished", outcome=outcome, current="")
+            self._journal(status="finished", outcome=outcome, current="", state="Done", task="", live_tokens=0)
             self.write_report()
         self.notify.send("run_done", f"{outcome} — {progress_line(self.plan, self.state.status_map())}, "
                                      f"total cost ${self.state.cost():.2f}\n"
@@ -441,7 +459,7 @@ class Orchestrator:
                 if self.state.get_meta("needs_you_digest") != ids:
                     self.state.set_meta("needs_you_digest", ids)
                     self.notify.send("needs_you", f"{len(ids)} decisions need you, see {path}: {', '.join(ids)}")
-                self._journal(current="waiting for answers")
+                self._journal(current="waiting for answers", state="Block", task="")
                 self._wait(float(self.cfg.get("needs_you.poll_minutes", 15)) * 60)
                 continue
             if pending or self.main_red:
@@ -663,7 +681,9 @@ class Orchestrator:
         effort = effort or self.cfg.get(f"models.effort.{kind}", "")  # U5: role effort; agent.effort is the fallback
         budget = self.session_budget(task_id)
         self._journal(current=label or " ".join(
-            x for x in (kind, task_id, f"attempt {attempt}" if kind == "task" else "") if x))
+            x for x in (kind, task_id, f"attempt {attempt}" if kind == "task" else "") if x),
+            state=STATE.get(kind, "Code"), task=task_id or "", attempt=attempt, model=model, live_tokens=0,
+            max_attempts=max(attempt, int(self.cfg.get("retries.max_attempts_per_task", 3))))
         sid = self.state.start_session(kind, task_id, phase, attempt, model)
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
@@ -676,9 +696,11 @@ class Orchestrator:
                              budget_usd=budget, system_append=self.ctx.system_append(),
                              read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort,
                              web_only=web_only, mcp_config=mcp_config, no_tools=no_tools,
-                             resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {})
+                             resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {},
+                             on_tokens=lambda n: self._journal(live_tokens=n))
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
         res = self._run_backend(req)
+        self._journal(live_tokens=0)  # from here its tokens are in the ledger
         undone = self.git.guard_config(config_before)  # e.g. husky's core.hooksPath: harmless, but never kept
         if undone:
             log.warning("session %s changed git config: %s", sid, "; ".join(undone))
@@ -823,6 +845,7 @@ class Orchestrator:
                 agent_blocked = True
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
+                self._journal(state="Test")
                 gate = task_gate(self.cfg, self.git, task)
                 if not gate.ok and self.env_problem(gate.report()):  # a missing tool, not the agent's code
                     self.run_setup()
@@ -1089,6 +1112,7 @@ class Orchestrator:
             self.notify.send("main_fixed", "checks on main pass again")
 
     def _complete_task(self, task, phase, res, model, attempt, gate: GateResult, branch, prior_error: str = ""):
+        self._journal(state="Commit")
         if attempt > 1:  # it failed before: keep what fixed it for every later session (LEARNINGS.md)
             first = next((l.strip() for l in (prior_error or "").splitlines() if l.strip()), "an earlier error")
             self.docs.learning(task, str(res.report.get("learning") or "").strip()
@@ -1167,7 +1191,7 @@ class Orchestrator:
         from concurrent.futures import ThreadPoolExecutor
         self.check_stop()
         self.window_gate("task", "")
-        self._journal(current="parallel: " + ", ".join(t.id for t in tasks))
+        self._journal(current="parallel: " + ", ".join(t.id for t in tasks), state="Code", task="")
         base, config_before = self.git.ref(self.main), self.git.config_text()
         jobs = []
         for t in tasks:

@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import sys
+import threading
 from pathlib import Path
 
 import yaml
@@ -226,6 +227,92 @@ def cmd_validate(args):
     return 0 if ok else 1
 
 
+def enable_vt() -> bool:
+    """Can this terminal take escape codes? Windows consoles need virtual terminal mode switched on first."""
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        kernel, mode = ctypes.windll.kernel32, ctypes.c_uint()
+        handle = kernel.GetStdHandle(-11)  # stdout
+        return bool(kernel.GetConsoleMode(handle, ctypes.byref(mode)) and kernel.SetConsoleMode(handle, mode.value | 0x0004))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+class StatusBar:
+    """G8: keeps one line on the terminal's bottom row and current, while normal output scrolls above it. The same
+    line goes into the window title. Only on a real terminal: a pipe, a log file or AUTOPILOT_PLAIN=1 gets nothing,
+    so no escape code ever lands in a file. `line(width)` gives the text; a failing `line` is skipped."""
+
+    def __init__(self, line, out=None, every: float = 1.0):
+        self.line, self.out, self.every = line, out or sys.stdout, every
+        self.on, self.rows, self.lock, self.done = False, 0, threading.Lock(), threading.Event()
+
+    def _write(self, text: str):
+        with self.lock:
+            try:
+                self.out.write(text)
+                self.out.flush()
+            except Exception:  # noqa: BLE001 — a status line must never break a run
+                pass
+
+    def start(self) -> bool:
+        if os.environ.get("AUTOPILOT_PLAIN") or not self.out.isatty() or not enable_vt():
+            return False
+        self.on, self.rows = True, shutil.get_terminal_size().lines
+        # two fresh lines, then rows 1..n-1 scroll and the cursor waits on the last of them; row n is the line's
+        self._write(f"\n\n\x1b[1;{self.rows - 1}r\x1b[{self.rows - 1};1H")
+        if self.every:
+            threading.Thread(target=self._loop, daemon=True).start()
+        return True
+
+    def _loop(self):
+        while not self.done.wait(self.every):
+            self.draw()
+
+    def draw(self):
+        if not self.on:
+            return
+        try:
+            size = shutil.get_terminal_size()
+            # only printable characters reach the terminal: a control code in the text must not act on it
+            text = "".join(c for c in str(self.line(size.columns - 1)) if c.isprintable())[:size.columns - 1]
+        except Exception:  # noqa: BLE001 — e.g. the plan is being rewritten right now: keep the last line
+            return
+        refit = ""
+        if size.lines != self.rows:  # the window was resized: move the reserved row
+            self.rows, refit = size.lines, f"\x1b7\x1b[1;{size.lines - 1}r\x1b8"
+        # save the cursor, draw the bottom row, put the cursor back; then the window title
+        self._write(f"{refit}\x1b7\x1b[{self.rows};1H\x1b[2K{text}\x1b8\x1b]0;{text}\x07")
+
+    def stop(self):
+        if not self.on:
+            return
+        self.done.set()
+        self.on = False
+        self._write(f"\x1b[r\x1b[{self.rows};1H\x1b[2K")  # whole-screen scrolling again, the row cleared
+
+
+def status_reader(root: Path):
+    """line(width) for the project at `root`: the status line, read fresh from run.json and state.db on each call.
+    It only reads, and keeps its own database connection, so use one reader per thread."""
+    from .report import run_journal, status_line
+    from .state import State
+    box: dict = {}
+
+    def line(width=None):
+        plan_file = root / AGENT_DIR / "plan.yaml"
+        stamp = plan_file.stat().st_mtime
+        if box.get("stamp") != stamp:  # first call, or the plan gained tasks
+            if "state" in box:
+                box["state"].db.close()
+            box.update(cfg=Config.load(root), plan=Plan.load(plan_file), state=State(root / AGENT_DIR / "state.db"),
+                       stamp=stamp)
+        return status_line(box["cfg"], box["plan"], box["state"], run_journal(root), width)
+    return line
+
+
 def cmd_run(args):
     from .orchestrator import Orchestrator, run_supervised
 
@@ -252,7 +339,12 @@ def cmd_run(args):
             print(f"opened a {how} with `autopilot watch`", flush=True)
     print(f"\nFollow this run: {url + ' in a browser, or ' if url else ''}`autopilot watch` in another terminal "
           f"(log: {root / AGENT_DIR / 'logs' / 'autopilot.log'})\n", flush=True)
-    outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions))
+    bar = StatusBar(status_reader(root))  # G8: the status line stays on the bottom row while the run prints above it
+    bar.start()
+    try:
+        outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions))
+    finally:
+        bar.stop()
     print(f"\nrun finished: {outcome}\nreport: {root / AGENT_DIR / 'REPORT.md'}")
     from .report import next_steps_text
     print(next_steps_text(root, running=False))
@@ -269,8 +361,10 @@ def _open_state(root: Path):
 
 
 def cmd_status(args):
-    from .report import build_report, next_steps_text
+    from .report import build_report, next_steps_text, run_journal, status_line
     cfg, plan, state = _open_state(Path(args.path).resolve())
+    print(status_line(cfg, plan, state, run_journal(cfg.root),
+                      shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None) + "\n")
     print(build_report(cfg, plan, state))
     print(next_steps_text(Path(args.path).resolve()))
 
@@ -304,9 +398,24 @@ def cmd_watch(args):
         print("\n".join(lines[-args.lines:]))
         pos = log.stat().st_size
     quiet = 0.0
+    line = status_reader(root)
+    bar = StatusBar(line)  # G8: a terminal gets the status line pinned to its bottom row
+    pinned, shown = bar.start(), [None]
+
+    def moved():  # not a terminal: print the line when the run moves on, and never an escape code
+        now = run_journal(root)
+        key = (now.get("status"), now.get("state"), now.get("task"))
+        if not pinned and key != shown[0]:
+            shown[0] = key
+            try:
+                print(line(), flush=True)
+            except Exception:  # noqa: BLE001 — no plan yet: the log is still worth following
+                pass
+    moved()
     try:
         while True:
             time.sleep(1)
+            moved()
             if log.exists() and log.stat().st_size > pos:
                 with open(log, encoding="utf-8", errors="replace") as fh:
                     fh.seek(pos)
@@ -323,6 +432,8 @@ def cmd_watch(args):
                 return 0
     except KeyboardInterrupt:
         return 0
+    finally:
+        bar.stop()
 
 
 def open_watch_window(root: Path) -> str:

@@ -98,6 +98,18 @@ def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, caps
     assert "0/3 tasks done" in out and "now: task P01-T01" in out and "session #1" in out
     assert "Write src/x.py" in out and "run finished: plan complete" in out
     assert out.rstrip().endswith("all commands")  # ends with the next-steps hint
+    # G8: not a terminal, so the status line is printed when the run moves on, and never an escape code
+    assert "Done │ Task 0/3 0% │ Ph 0/2 │ Blk 0" in out and "\x1b" not in out
+
+
+def test_page_title_and_first_line_are_the_status_line(serve, tmp_path):
+    import json
+    agent = tmp_path / "proj" / ".agent"
+    (agent / "run.json").write_text(json.dumps({"status": "running", "state": "Code", "task": "P01-T01",
+                                                "attempt": 1, "max_attempts": 3, "git": "OK", "build": "OK"}))
+    body = get(serve())[1]
+    assert "<title>ON │ Code │ Task 0/3 0% │ Ph 0/2 │ Blk 0</title>" in body  # the tab shows it even in the background
+    assert body.index("ON │ Code │ P01-T01 Try 1/3 │ Task 0/3 0%") < body.index("Now (running)")
 
 
 def test_a_second_run_or_plain_autopilot_follows_the_active_run(tmp_path, monkeypatch, capsys):

@@ -85,6 +85,59 @@ def digest(cfg, plan, state) -> str:
     return "\n".join(lines)
 
 
+SEP = " │ "
+MODEL_SHORT = {"haiku": "Hai", "sonnet": "Son", "opus": "Opus"}
+LINE_ORDER = ("state", "task", "tasks", "phases", "blocked", "tok", "models", "cost", "win", "health")
+LINE_DROP = ("health", "runtime", "models", "cost", "tok", "win", "task")  # what goes first when the line is too wide
+
+
+def _runtime(started) -> str:
+    try:
+        secs = (dt.datetime.now() - dt.datetime.fromisoformat(started)).total_seconds()
+    except (TypeError, ValueError):
+        return ""
+    return "" if secs < 0 else f"{int(secs // 3600)}h{int(secs % 3600 // 60):02d}m" if secs >= 3600 else f"{int(secs // 60)}m"
+
+
+def status_line(cfg, plan, state, run: dict, width: int | None = None) -> str:
+    """G8: the state of a run in one line, the same in every view (bottom row of `run` and `watch`, window title,
+    live page, `status`). Too wide for `width`: parts go in the order of LINE_DROP; the state word, tasks, phases and
+    blocked always stay. `run` is .agent/run.json."""
+    status, tasks = state.status_map(), plan.all_tasks()
+    done = sum(1 for t in tasks if status.get(t.id) == "done")
+    live = run.get("status") == "running"
+    total, models, _, _ = _shares(state, 0)
+    top = sorted(((m, v["total"]) for m, v in models if v["total"]), key=lambda x: -x[1])[:2]
+    short = lambda m: next((s for k, s in MODEL_SHORT.items() if k in str(m).lower()), str(m)[:4])  # noqa: E731
+    five = open_window(state)
+    parts = {
+        "head": "ON" if live else "Done" if run.get("status") == "finished" else "Idle",
+        "runtime": _runtime(run.get("started_at")) if live else "",
+        "state": str(run.get("state") or "") if live else "",
+        "task": f"{run['task']} Try {run.get('attempt') or 1}/{run.get('max_attempts') or '?'}" if live and run.get("task") else "",
+        "tasks": f"Task {done}/{len(tasks)} {100 * done // len(tasks) if tasks else 0}%",
+        "phases": f"Ph {sum(1 for p in plan.phases if p.tasks and all(status.get(t.id) == 'done' for t in p.tasks))}"
+                  f"/{len(plan.phases)}",
+        "blocked": f"Blk {sum(1 for t in tasks if status.get(t.id) == 'blocked')}",
+        "tok": f"Tok {_n(total + (int(run.get('live_tokens') or 0) if live else 0))}",
+        "models": " ".join(f"{short(m)} {round(100 * n / total)}%" for m, n in top),
+        "cost": f"Cost ${state.cost():.2f}",
+        "win": f"Win {round(100 * five['pct'])}%" if five else "",
+        "health": f"Git {run['git']} Bld {run['build']}" if live and run.get("git") and run.get("build") else "",
+    }
+
+    def render(skip):
+        p = {k: v for k, v in parts.items() if v and k not in skip}
+        return SEP.join([" ".join(x for x in (p["head"], p.get("runtime")) if x)] + [p[k] for k in LINE_ORDER if k in p])
+    line, skip = render(()), []
+    for name in LINE_DROP:
+        if width is None or len(line) <= width:
+            break
+        skip.append(name)
+        line = render(skip)
+    return line
+
+
 def _tokens_section(state) -> list[str]:
     total, models, kinds, verif = _shares(state, 0)
     if not total:
@@ -352,12 +405,12 @@ def live_section(root, lines: int = 15) -> str:
 
 
 # ---------- P5: live status page ----------
-def html_page(md: str, refresh: int = 30) -> str:
+def html_page(md: str, refresh: int = 30, title: str = "Autopilot status") -> str:
     """The report as one self-refreshing HTML page. ponytail: escaped markdown in <pre>, no renderer dependency."""
     import html
     return ("<!doctype html><html><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<meta http-equiv=refresh content={int(refresh)}><title>Autopilot status</title>"
+            f"<meta http-equiv=refresh content={int(refresh)}><title>{html.escape(title)}</title>"
             "<style>:root{color-scheme:light dark}body{margin:16px;font:14px/1.5 ui-monospace,Consolas,monospace}"
             "pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head>"
             f"<body><pre>{html.escape(md)}</pre></body></html>")
@@ -406,7 +459,9 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
                 cfg, plan = Config.load(root), Plan.load(root / AGENT_DIR / "plan.yaml")
                 state = State(root / AGENT_DIR / "state.db")
                 try:
-                    body = html_page(live_section(root) + "\n" + build_report(cfg, plan, state), refresh)
+                    run = run_journal(root)  # G8: the status line is the page's first line and the tab's title
+                    body = html_page(status_line(cfg, plan, state, run) + "\n\n" + live_section(root) + "\n"
+                                     + build_report(cfg, plan, state), refresh, status_line(cfg, plan, state, run, 0))
                 finally:
                     state.db.close()
             except Exception as exc:  # noqa: BLE001  a half-written plan mid-replan must not kill the server

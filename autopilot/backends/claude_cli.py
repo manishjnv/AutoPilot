@@ -78,6 +78,24 @@ def partial_usage(raw: str, model: str) -> dict:
     return out
 
 
+def usage_meter():
+    """G8: a running token total for one stream, fed line by line (the fields `partial_usage` reads). A message
+    split over several events repeats its usage, so the last one per message id counts."""
+    last: dict = {}
+
+    def feed(line: str) -> int:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            ev = None
+        msg = ev.get("message") if isinstance(ev, dict) and ev.get("type") == "assistant" else None
+        if isinstance(msg, dict) and isinstance(msg.get("usage"), dict):
+            last[msg.get("id") or len(last)] = sum(_num(msg["usage"].get(k)) for k in (
+                "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+        return sum(last.values())
+    return feed
+
+
 def _events(raw: str):
     for line in raw.splitlines():
         try:
@@ -253,10 +271,17 @@ class ClaudeCLIBackend:
             log = open(req.log_path, "w", encoding="utf-8")  # noqa: SIM115
             log.write(f"$ {' '.join(cmd[:10])} ...\n\nSTDOUT:\n")
 
+        meter, told = usage_meter(), [float("-inf")]
+
         def on_line(line: str) -> str:
             if log:
                 log.write(line)
                 log.flush()
+            if req.on_tokens:  # G8: the status line counts this session's tokens while it runs (every 5 s at most)
+                tokens = meter(line)
+                if tokens and time.monotonic() - told[0] >= 5:
+                    told[0] = time.monotonic()
+                    req.on_tokens(tokens)
             act = activity(line)
             if act:
                 secs = int(time.monotonic() - started)
