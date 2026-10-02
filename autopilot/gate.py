@@ -35,6 +35,9 @@ SKIP_RX = re.compile(r"@pytest\.mark\.skip|pytest\.skip\(|@unittest\.skip|\.skip
 ASSERT_RX = re.compile(r"\bassert\w*\b|\bexpect\s*\(|\bt\.(?:Error|Fatal)\w*\(|\brequire\.\w+\(|\.should\b")
 COLLECT_RX = re.compile(r"pytest_collection_modifyitems|pytest_ignore_collect|collect_ignore|deselect")
 PLACEHOLDER_RX = re.compile(r"(?i)example|placeholder|change_?me|dummy|fake|sample|your[_-]|xxx|\*\*\*|<[^>]*>|\$\{|\{\{|%\(")
+# G2: each finding says how to fix it. The retry reads these; no rule is weaker for it.
+SKIP_HINT = " (skips are not allowed: make the test run, or guard it on a real platform condition)"
+FAKE_HINT = " (test data? use a value containing example, dummy or fake)"
 SETTINGS_FILES = {"pyproject.toml", "setup.cfg", "package.json", "tox.ini", "pytest.ini"}
 SETTINGS_REMOVED_RX = re.compile(r'addopts|testpaths|python_files|"test"\s*:|testMatch|testPathIgnorePatterns')
 SETTINGS_ADDED_RX = re.compile(r"--ignore|--deselect|(^|\s)-k\s|testPathIgnorePatterns|modulePathIgnorePatterns|"
@@ -98,13 +101,16 @@ def run_commands(cmds: list[str], cwd: Path, timeout: int, env: dict | None = No
 
 
 def scan_secrets(lines: list[str]) -> list[str]:
-    found = []
+    found, hint = [], FAKE_HINT  # the hint rides on the first such finding only
     for line in lines:
         for rx, label in SECRET_PATTERNS:
             m = rx.search(line)
             if m and not (label == "hardcoded credential" and PLACEHOLDER_RX.search(m.group(0))):
                 # redacted: these messages reach logs, prompts and notifications
-                found.append(f"possible {label} added: {line.replace(m.group(0), m.group(0)[:4] + '…').strip()[:80]}")
+                msg = f"possible {label} added: {line.replace(m.group(0), m.group(0)[:4] + '…').strip()[:80]}"
+                if label == "hardcoded credential":
+                    msg, hint = msg + hint, ""
+                found.append(msg)
     return found
 
 
@@ -136,7 +142,12 @@ def test_tamper(cfg, git, allow: bool = False) -> list[str]:
     tests = cfg.get("gate.test_globs") or TEST_GLOBS
     protected = cfg.get("gate.protected") or []
     ci = cfg.get("gate.ci_files") or CI_GLOBS
-    out, tag = [], "(allowed) " if allow else ""
+    out, tag, hint = [], "(allowed) " if allow else "", "" if allow else SKIP_HINT
+
+    def skips(path):  # one hint per file: the retry prompt keeps only the tail of the report
+        marks = [f"{tag}skip/focus marker added in {path}: {l.strip()[:80]}" for l in _added(git, path) if SKIP_RX.search(l)]
+        return [marks[0] + hint, *marks[1:]] if marks else []
+
     status = git.run("-c", "core.quotepath=false", "diff", "--cached", "--name-status", "-M")
     for line in status.splitlines():
         st, *paths = line.split("\t")
@@ -147,7 +158,7 @@ def test_tamper(cfg, git, allow: bool = False) -> list[str]:
             out.append(f"{tag}CI pipeline file {dict(A='added', C='added', D='deleted').get(st, 'changed')}: {new}")
         if st == "A" or st == "C":
             if st == "A" and _match(new, tests):
-                out += [f"{tag}skip/focus marker added in {new}: {l.strip()[:80]}" for l in _added(git, new) if SKIP_RX.search(l)]
+                out += skips(new)
             continue
         if _match(old, tests):
             if st == "D":
@@ -163,7 +174,7 @@ def test_tamper(cfg, git, allow: bool = False) -> list[str]:
                 before, after = len(ASSERT_RX.findall(head)), len(ASSERT_RX.findall(staged))
                 if after < before:  # tests kept but emptied
                     out.append(f"{tag}assertion count dropped in {new}: {before} -> {after}")
-                out += [f"{tag}skip/focus marker added in {new}: {l.strip()[:80]}" for l in _added(git, new) if SKIP_RX.search(l)]
+                out += skips(new)
         if _match(old, protected):
             out.append(f"{tag}protected file {'deleted' if st == 'D' else 'modified'}: {old}")
         if st == "M" and new.rsplit("/", 1)[-1] in SETTINGS_FILES:

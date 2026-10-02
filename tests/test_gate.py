@@ -231,6 +231,37 @@ def test_secret_messages_redacted_and_placeholders_skipped():
     assert scan_secrets(['password = "hunter2hunter2hunter2"'])
 
 
+# ---- G2: the agent is told the gate's rules, and each finding says how to fix it (no rule is weakened) ----
+
+def test_skip_finding_says_what_to_do_instead(repo):
+    put(repo, "tests/test_n.py", "import pytest\n\n\ndef test_n():\n    pytest.skip('x')\n")
+    assert any("skip/focus" in f and "not allowed" in f and "condition" in f for f in tamper(repo))
+    assert not any("not allowed" in f for f in tamper(repo, allow=True))  # a task that may change tests: no such hint
+
+
+def test_each_hint_appears_once_however_many_findings(repo):
+    put(repo, "tests/test_n.py", "import pytest\n\n\ndef test_n():\n    pytest.skip('x')\n\n\n"
+                                 "def test_m():\n    pytest.skip('y')\n\n\ndef test_o():\n    pytest.skip('z')\n")
+    found = tamper(repo)  # the retry prompt keeps only the tail of the report: hints must not crowd findings out
+    assert sum("skip/focus" in f for f in found) == 3 and sum("not allowed" in f for f in found) == 1
+    creds = scan_secrets(['password = "hunter2hunter2hunter2"', 'token = "abcdefabcdefabcdef12"', 'secret = "qwertyqwertyqwerty"'])
+    assert len(creds) == 3 and sum("example, dummy or fake" in c for c in creds) == 1
+
+
+def test_credential_finding_says_how_to_write_test_data():
+    assert "example, dummy or fake" in scan_secrets(['password = "hunter2hunter2hunter2"'])[0]
+    key = "sk-ant-" + "api03-" + "Q" * 30
+    assert "dummy" not in scan_secrets([f'KEY = "{key}"'])[0]  # a real-looking key gets no "just rename it" hint
+
+
+def test_the_agent_is_told_the_gate_rules_and_the_advice_passes_the_gate():
+    from autopilot.context import PROMPTS
+    system = (PROMPTS / "system.md").read_text(encoding="utf-8")
+    assert "skip" in system and all(w in system for w in ("example", "dummy", "fake"))
+    for word in ("example", "dummy", "fake"):  # the advice must be true: such values pass the secret scan
+        assert scan_secrets([f'token = "{word}-token-for-tests-123"']) == []
+
+
 def test_needs_you_file_is_protected(tmp_path):
     from autopilot.gate import protected_files
     assert "docs/NEEDS-YOU.md" in protected_files(Config.load(tmp_path))   # an agent must not answer its own decision
