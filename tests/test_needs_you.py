@@ -98,6 +98,27 @@ def test_owner_decision_parks_task_and_run_continues(tmp_path):
     assert "D-001 · P01-T01 a · DONE" in (root / "docs" / "NEEDS-YOU.md").read_text(encoding="utf-8")
 
 
+def test_answer_without_arguments(tmp_path, monkeypatch, capsys):
+    (tmp_path / "a").mkdir()
+    empty = make_project(tmp_path / "a", phases_basic())
+    assert cli_main(["answer", "-C", str(empty)]) == 0 and "no open questions" in capsys.readouterr().out
+    root, _, orch, _ = parked_run(tmp_path)
+    capsys.readouterr()
+    assert cli_main(["answer", "-C", str(root)]) == 1                       # no terminal: list + usage, nothing asked
+    out = capsys.readouterr().out
+    assert "D-001" in out and "Which payment provider?" in out and "suggestion: Stripe" in out
+    assert 'autopilot answer <id> "text"' in out and orch.state.decision("D-001")["status"] == "OPEN"
+    assert cli_main(["answer", "-C", str(root), "D-001"]) == 1               # id only, no terminal: usage
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    lines = iter(["", "use X"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(lines))
+    assert cli_main(["answer", "-C", str(root)]) == 0                       # terminal: empty line skips, nothing stored
+    assert orch.state.decision("D-001")["status"] == "OPEN"
+    assert cli_main(["answer", "-C", str(root), "D-001"]) == 0              # id only: asks for that one answer
+    assert orch.state.decision("D-001")["answer"] == "use X"
+
+
 def test_answer_written_in_file_is_applied(tmp_path):
     root, _, _, _ = parked_run(tmp_path)
     path = root / "docs" / "NEEDS-YOU.md"

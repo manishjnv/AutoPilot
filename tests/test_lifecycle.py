@@ -3,7 +3,10 @@ import json
 import time
 from pathlib import Path
 
+import yaml
+
 from autopilot.backends import SessionResult
+from autopilot.cli import main as cli_main
 from autopilot.orchestrator import Orchestrator
 from test_autopilot import FakeBackend, git, make_project, phases_basic
 
@@ -35,6 +38,59 @@ class FixBackend(FakeBackend):
                 (Path(req.cwd) / "tests").mkdir(exist_ok=True)
                 (Path(req.cwd) / "tests" / "test_regress.py").write_text("def test_x():\n    assert True\n")
         return res
+
+
+class Planner(FakeBackend):
+    """Its replan session adds one task to plan.yaml."""
+
+    def run(self, req):
+        if "replan remaining work" not in req.prompt:
+            return super().run(req)
+        self.calls.append(("replan", req.model))
+        p = Path(req.cwd) / ".agent" / "plan.yaml"
+        d = yaml.safe_load(p.read_text(encoding="utf-8"))
+        d["phases"][-1]["tasks"].append({"id": "P02-T09", "title": "dark mode", "risk": "low", "acceptance_criteria": ["x"]})
+        p.write_text(yaml.safe_dump(d), encoding="utf-8")
+        return SessionResult(ok=True, cost=0.2, report={"summary": "added dark mode", "added": ["P02-T09"]})
+
+
+def change_project(tmp_path, monkeypatch, fake):
+    root = make_project(tmp_path, phases_basic())
+    monkeypatch.setattr("autopilot.orchestrator.get_backend", lambda cfg: fake)
+    return root, root / ".agent" / "plan.yaml"
+
+
+def test_change_needs_yes_without_a_terminal(tmp_path, monkeypatch, capsys):
+    fake = Planner()
+    root, plan = change_project(tmp_path, monkeypatch, fake)
+    assert cli_main(["change", "-C", str(root), "add dark mode"]) == 1
+    out = capsys.readouterr().out
+    assert "one replan session" in out and "--yes" in out and not fake.calls
+    assert "P02-T09" not in plan.read_text(encoding="utf-8")
+
+
+def test_change_yes_adds_task_and_names_it(tmp_path, monkeypatch, capsys):
+    fake = Planner()
+    root, plan = change_project(tmp_path, monkeypatch, fake)
+    assert cli_main(["change", "-C", str(root), "--yes", "add dark mode"]) == 0
+    assert "added: P02-T09 dark mode" in capsys.readouterr().out
+    assert "P02-T09" in plan.read_text(encoding="utf-8") and git(root, "status", "--porcelain").strip() == ""
+    assert [c[0] for c in fake.calls] == ["replan"]
+
+
+def test_change_undo_restores_plan_and_backlog(tmp_path, monkeypatch, capsys):
+    root, plan = change_project(tmp_path, monkeypatch, Planner())
+    before = plan.read_bytes()
+    answers = iter(["1", "2"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert cli_main(["change", "-C", str(root), "add dark mode"]) == 0
+    assert "undone" in capsys.readouterr().out
+    assert plan.read_bytes() == before and git(root, "status", "--porcelain").strip() == ""
+    backlog = root / "docs" / "BACKLOG.md"
+    assert not backlog.exists() or "dark mode" not in backlog.read_text(encoding="utf-8")
+    assert Orchestrator(root, backend=Planner()).state.task("P02-T09")["status"] == "skipped"
 
 
 def run_fix(tmp_path, attempts, desc="broken thing"):

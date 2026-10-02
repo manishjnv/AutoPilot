@@ -575,15 +575,116 @@ def cmd_unblock(args):
         print("note: add hints for the agent to the task description in plan.yaml or to .agent/BRAIN.md")
 
 
+def _tty() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _ask(prompt: str) -> str | None:
+    """One line from the owner; None on Ctrl+C or end of input, so callers stop cleanly."""
+    try:
+        return input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+
+
+def _store_answer(state, did: str, text: str) -> int:
+    if state.answer_decision(did, text):
+        print(f"{did} answered; the run applies it on its next loop (or at the next `autopilot run`)")
+        return 0
+    row = state.decision(did)
+    print(f"unknown decision {did}" if not row else f"{did} is not open (status {row['status']})")
+    return 1
+
+
 def cmd_answer(args):
     from .state import State
-    state = State(Path(args.path).resolve() / AGENT_DIR / "state.db")
-    if state.answer_decision(args.decision_id, args.text):
-        print(f"{args.decision_id} answered; the run applies it on its next loop (or at the next `autopilot run`)")
+    state = State(Path(args.path).resolve() / AGENT_DIR / "state.db")  # no run lock: works while a run is active
+    if args.decision_id and args.text is not None:
+        return _store_answer(state, args.decision_id, args.text)
+    usage = 'autopilot answer <id> "text"'
+    if args.decision_id:
+        if not _tty():
+            print(f"usage: {usage}")
+            return 1
+        text = _ask(f"{args.decision_id} answer> ")
+        return _store_answer(state, args.decision_id, text) if text else 1
+    rows = state.decisions("OPEN")[::-1]
+    if not rows:
+        print("no open questions")
         return 0
-    row = state.decision(args.decision_id)
-    print(f"unknown decision {args.decision_id}" if not row else f"{args.decision_id} is not open (status {row['status']})")
-    return 1
+    for r in rows:
+        q = " ".join((r["question"] or "").split())
+        print(f"{r['id']}  {r['title']}\n    {q[:200]}" + (f"\n    suggestion: {r['suggestion']}" if r["suggestion"] else ""))
+    if not _tty():
+        print(f"usage: {usage}")
+        return 1
+    for r in rows:
+        text = _ask(f"{r['id']} answer (empty = skip)> ")
+        if text is None:
+            break
+        if text:
+            _store_answer(state, r["id"], text)
+    return 0
+
+
+def _plan_view(plan) -> dict:
+    return {t.id: (t.title, t.description, list(t.acceptance_criteria)) for t in plan.all_tasks()}
+
+
+def _change(orch, args, model) -> int:
+    print(f"A plan change costs one replan session ({model}).")
+    if not args.yes:
+        if not _tty():
+            print("no terminal: add --yes to start it")
+            return 1
+        if _ask("1 start, 2 stop> ") != "1":
+            print("stopped; nothing changed")
+            return 0
+    orch.git.ensure_repo(orch.main)
+    orch._prepare_repo()
+    orch.reload_plan()
+    before, head0, idea = _plan_view(orch.plan), orch.git.head(), " ".join(args.text.split())
+    orch.docs.backlog_add(idea)
+    orch._commit_main("[autopilot] backlog: plan change")  # committed first: the replan session starts with a git discard
+
+    def undo():  # revert commits, not a reset: they may already be pushed. The idea leaves the backlog with them.
+        if orch.git.head() != head0:
+            orch.git.run("revert", "--no-edit", f"{head0}..HEAD")
+            orch._push()
+        orch.reload_plan()
+    if not orch.replan("change", backlog=[idea]):
+        undo()
+        print("replan rejected or failed; nothing changed")
+        return 1
+    after = _plan_view(orch.plan)
+    added, gone = [i for i in after if i not in before], [i for i in before if i not in after]
+    changed = [i for i in after if i in before and after[i] != before[i]]
+    for label, ids, view in (("added", added, after), ("changed", changed, after), ("removed", gone, before)):
+        for i in ids:
+            print(f"{label}: {i} {view[i][0]}")
+    if not (added or changed or gone):
+        print("no change")
+    if not args.yes and _ask("1 keep, 2 undo> ") == "2":
+        undo()
+        for i in gone:  # sync_plan skipped the tasks the replan removed; they are back in the plan now
+            orch.state.set_task(i, status="pending", note="plan change undone")
+        print("undone; the plan is as it was before")
+    return 0
+
+
+def cmd_change(args):
+    from .orchestrator import Orchestrator
+    root = Path(args.path).resolve()
+    setup_logging(root, False)
+    orch = Orchestrator(root)
+    try:
+        with exclusive_lock(root / AGENT_DIR / "run.lock"):
+            return _change(orch, args, orch.cfg.get("models.replanner", "opus"))
+    except BlockingIOError:
+        orch.docs.backlog_add(args.text)
+        print("a run is active; the idea is in docs/BACKLOG.md and the run takes it at its next replan")
+        return 0
 
 
 def cmd_hint(args):
@@ -696,7 +797,9 @@ def main(argv=None):
     p = add("unblock", cmd_unblock, "reset blocked task(s) to pending")
     p.add_argument("task_ids", nargs="+"); p.add_argument("--note")
     p = add("answer", cmd_answer, "answer an open decision from docs/NEEDS-YOU.md")
-    p.add_argument("decision_id"); p.add_argument("text")
+    p.add_argument("decision_id", nargs="?"); p.add_argument("text", nargs="?")
+    p = add("change", cmd_change, "change the plan in plain words (one replan session; you can undo it)")
+    p.add_argument("text"); p.add_argument("--yes", action="store_true", help="no questions: start and keep the result")
     p = add("hint", cmd_hint, "give a task advice for its next session (works while a run is active)")
     p.add_argument("task_id"); p.add_argument("text")
     p = add("skip", cmd_skip, "skip task(s)"); p.add_argument("task_ids", nargs="+")
