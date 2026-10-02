@@ -39,7 +39,32 @@ def safe_env(passthrough=(), extra: dict | None = None) -> dict:
     keep = SAFE_ENV | {str(k).upper() for k in passthrough}
     env = {k: v for k, v in os.environ.items() if k.upper() in keep or k.upper().startswith(SAFE_PREFIXES)}
     env.update({str(k): str(v) for k, v in (extra or {}).items()})
-    return env
+    return with_tool_dirs(env)
+
+
+def python_tool_dirs() -> list[str]:
+    """Where `pip install` puts command-line tools for this Python: the interpreter's Scripts/bin folder and the
+    per-user one (used when the system folder isn't writable, e.g. C:\\Python3xx on Windows)."""
+    import sysconfig
+    out = []
+    for scheme in (None, sysconfig.get_preferred_scheme("user")):
+        try:
+            d = sysconfig.get_path("scripts", scheme) if scheme else sysconfig.get_path("scripts")
+        except KeyError:
+            continue
+        if d and os.path.isdir(d) and d not in out:
+            out.append(d)
+    return out
+
+
+def with_tool_dirs(env: dict) -> dict:
+    """`env` with the Python tool folders appended to PATH when missing. Without this a check like `ruff check .`
+    fails as "command not found" right after setup installed ruff (seen on the first real run)."""
+    key = next((k for k in env if k.upper() == "PATH"), "PATH")
+    parts = [p for p in str(env.get(key, "")).split(os.pathsep) if p]
+    have = {os.path.normcase(p.rstrip("\\/")) for p in parts}
+    parts += [d for d in python_tool_dirs() if os.path.normcase(d.rstrip("\\/")) not in have]
+    return {**env, key: os.pathsep.join(parts)}
 
 
 def agent_env(cfg) -> dict:

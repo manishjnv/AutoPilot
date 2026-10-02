@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .proc import agent_env, run_proc
+from .proc import agent_env, run_proc, with_tool_dirs
 
 SECRET_PATTERNS = [
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}"), "AWS access key"),
@@ -81,7 +81,7 @@ class GateResult:
 def run_commands(cmds: list[str], cwd: Path, timeout: int, env: dict | None = None,
                  stop_on_fail: bool = True, base_env: dict | None = None) -> list[CmdResult]:
     results = []
-    full_env = {**(base_env if base_env is not None else os.environ), **(env or {})}
+    full_env = with_tool_dirs({**(base_env if base_env is not None else os.environ), **(env or {})})
     for cmd in cmds:
         t0 = time.time()
         try:

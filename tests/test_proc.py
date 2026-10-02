@@ -1,4 +1,5 @@
 import sys
+import os
 import time
 
 import pytest
@@ -45,3 +46,15 @@ def test_safe_env_drops_secrets(monkeypatch):
     env = safe_env(passthrough=["DATABASE_URL"], extra={"FOO": 1})
     assert "AUTOPILOT_TG_TOKEN" not in env
     assert env["DATABASE_URL"] == "postgres://x" and env["ANTHROPIC_API_KEY"] == "k" and env["FOO"] == "1"
+
+
+def test_python_tool_folders_are_on_path_for_checks_and_sessions(monkeypatch, tmp_path):
+    from autopilot import proc
+    tools = tmp_path / "Scripts"
+    tools.mkdir()
+    monkeypatch.setattr(proc, "python_tool_dirs", lambda: [str(tools)])
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    env = proc.safe_env()
+    key = next(k for k in env if k.upper() == "PATH")
+    assert env[key].split(os.pathsep) == [str(tmp_path / "bin"), str(tools)]
+    assert proc.with_tool_dirs(env)[key] == env[key]  # added once, never twice
