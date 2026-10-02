@@ -23,7 +23,7 @@ jobs:
       - name: Lint public docs (fail on errors only)
         run: |
           files=""
-          for f in README.md GUIDE.md HOWTO.md REFERENCE.md ARCHITECTURE.md examples/smoke/README.md; do
+          for f in README.md GUIDE.md HOWTO.md REFERENCE.md ARCHITECTURE.md SECURITY.md examples/smoke/README.md; do
             [ -f "$f" ] && files="$files $f"
           done
           vale --minAlertLevel=error $files
