@@ -233,6 +233,9 @@ def cmd_run(args):
         stop.unlink()
     if not preflight(Config.load(root)):  # every session would fail: stop before the first one
         return 1
+    url = "" if getattr(args, "no_page", False) else start_status_page(root)
+    print(f"\nFollow this run: {url + ' in a browser, or ' if url else ''}`autopilot watch` in another terminal "
+          f"(log: {root / AGENT_DIR / 'logs' / 'autopilot.log'})\n", flush=True)
     outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions))
     print(f"\nrun finished: {outcome}\nreport: {root / AGENT_DIR / 'REPORT.md'}")
     return 0
@@ -257,6 +260,64 @@ def cmd_stats(args):
     from .report import proof_stats
     cfg, plan, state = _open_state(Path(args.path).resolve())
     print(proof_stats(cfg, plan, state))
+
+
+def cmd_watch(args):
+    """Follow a run from any terminal: progress, current step, then every live line until the run finishes."""
+    import time
+
+    from .report import run_journal
+    root = Path(args.path).resolve()
+    log = root / AGENT_DIR / "logs" / "autopilot.log"
+    try:
+        cfg, plan, state = _open_state(root)
+        from .context import progress_line
+        print(f"{cfg.get('name', root.name)}: {progress_line(plan, state.status_map())}")
+    except Exception:  # noqa: BLE001 — a project without a plan yet still has a log to show
+        pass
+    run = run_journal(root)
+    print(f"run: {run.get('status', 'no run yet')} · now: {run.get('current') or '-'}  (Ctrl+C stops watching, "
+          "not the run)\n")
+    pos = 0
+    if log.exists():
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+        print("\n".join(lines[-args.lines:]))
+        pos = log.stat().st_size
+    quiet = 0.0
+    try:
+        while True:
+            time.sleep(1)
+            if log.exists() and log.stat().st_size > pos:
+                with open(log, encoding="utf-8", errors="replace") as fh:
+                    fh.seek(pos)
+                    chunk = fh.read()
+                    pos = fh.tell()
+                print(chunk, end="", flush=True)
+                quiet = 0
+                continue
+            quiet += 1
+            run = run_journal(root)
+            if run.get("status") == "finished" and quiet >= 3:
+                print(f"\nrun finished: {run.get('outcome', '?')}")
+                return 0
+    except KeyboardInterrupt:
+        return 0
+
+
+def start_status_page(root: Path, port: int = 8765) -> str:
+    """Start the read-only status page in the background for this process (loopback only). Returns its URL, or ''
+    when no port is free. ponytail: tries 10 ports, then gives up quietly."""
+    import threading
+
+    from .report import status_server
+    for p in range(port, port + 10):
+        try:
+            srv = status_server(root, "127.0.0.1", p, "", 10)
+        except OSError:
+            continue
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return f"http://127.0.0.1:{p}/"
+    return ""
 
 
 def cmd_serve(args):
@@ -425,9 +486,12 @@ def main(argv=None):
     p.add_argument("--fix", action="store_true", help="also fix what needs no person: PATH, reinstall the claude CLI")
     p = add("run", cmd_run, "run autonomously until the app is complete")
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
+    p.add_argument("--no-page", action="store_true", help="don't start the live status page")
     p.add_argument("-v", "--verbose", action="store_true")
     add("status", cmd_status, "progress, cost, blocked tasks, approvals")
     add("stats", cmd_stats, "the numbers of a run worth publishing (markdown table)")
+    p = add("watch", cmd_watch, "follow a run live from any terminal (progress, current step, every step)")
+    p.add_argument("-n", "--lines", type=int, default=20, help="recent lines to show first")
     p = add("serve", cmd_serve, "live read-only status page in the browser")
     p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8765)
     p.add_argument("--refresh", type=int, default=30, help="seconds between page reloads")

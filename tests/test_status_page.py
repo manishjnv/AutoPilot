@@ -63,5 +63,41 @@ def test_public_bind_without_token_is_refused(tmp_path):
     assert not is_loopback("0.0.0.0") and not is_loopback("example.com")
 
 
+def test_page_starts_with_what_the_run_is_doing_now(serve, tmp_path):
+    import json
+    agent = tmp_path / "proj" / ".agent"
+    (agent / "logs").mkdir(parents=True, exist_ok=True)
+    (agent / "run.json").write_text(json.dumps({"status": "running", "current": "task P01-T01 attempt 1"}))
+    (agent / "logs" / "autopilot.log").write_text(
+        "2026-10-02 09:44:55 INFO   ▸ P01-T01 Skeleton [haiku] · Write src/app/cli.py · 2m02s\n", encoding="utf-8")
+    body = get(serve())[1]
+    assert body.index("Now (running)") < body.index("Autopilot report")
+    assert "task P01-T01 attempt 1" in body and "Write src/app/cli.py" in body and "09:44:55" not in body
+
+
+def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, capsys):
+    import json
+    import threading
+    import time
+
+    from autopilot.cli import main as cli_main
+    root = make_project(tmp_path, phases_basic())
+    log = root / ".agent" / "logs" / "autopilot.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("2026-10-02 09:00:00 INFO session #1 task P01-T01 model=haiku attempt=1\n", encoding="utf-8")
+    (root / ".agent" / "run.json").write_text(json.dumps({"status": "running", "current": "task P01-T01"}))
+
+    def finish():
+        time.sleep(1.5)
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write("2026-10-02 09:01:00 INFO   ▸ P01-T01 · Write src/x.py · 0m30s\n")
+        (root / ".agent" / "run.json").write_text(json.dumps({"status": "finished", "outcome": "plan complete"}))
+    threading.Thread(target=finish).start()
+    assert cli_main(["watch", "-C", str(root)]) == 0
+    out = capsys.readouterr().out
+    assert "0/3 tasks done" in out and "now: task P01-T01" in out and "session #1" in out
+    assert "Write src/x.py" in out and out.rstrip().endswith("run finished: plan complete")
+
+
 def test_report_text_is_escaped():
     assert "<script>" not in html_page("<script>alert(1)</script>") and "&lt;script&gt;" in html_page("<script>")

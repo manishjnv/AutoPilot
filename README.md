@@ -59,10 +59,17 @@ autopilot run --max-sessions 10     # first time: a short run to see it working;
 Each task prints live lines such as `▸ P01-T01 Project skeleton [haiku] · Write src/app/cli.py · 1m12s`.
 Leave it running. It fixes failing tasks itself, and it never stops to wait for you.
 
+**Follow it from anywhere** (it prints these when it starts):
+- **Browser:** the run opens a live page at http://127.0.0.1:8765/ (refreshes every 10 s): what it is doing now,
+  the last steps, progress, cost and decisions waiting for you.
+- **Any terminal:** `autopilot watch`. It shows progress and the current step, then every step live until the run
+  ends. Ctrl+C stops watching, not the run.
+- **The file:** `.agent/logs/autopilot.log` in the project has every line.
+
 ### 4. While it runs
 | You want to… | Do this |
 |---|---|
-| See progress | `autopilot status`, or `autopilot serve` and open http://127.0.0.1:8765/ |
+| See progress | `autopilot watch` (live), the page at http://127.0.0.1:8765/, or `autopilot status` (a snapshot) |
 | Answer a question it couldn't decide | Read `docs/NEEDS-YOU.md`, then `autopilot answer D-001 "your answer"` |
 | Pause or stop | `autopilot stop` (it stops before the next session); continue with `autopilot run` |
 | Get pinged on your phone | Set `AUTOPILOT_TG_TOKEN` + `AUTOPILOT_TG_CHAT` (Telegram) or `AUTOPILOT_NTFY_TOPIC` |

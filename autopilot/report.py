@@ -218,6 +218,32 @@ def proof_stats(cfg, plan, state) -> str:
     return "\n".join(out) + "\n\n" + token_footer(state) + "\n"
 
 
+# ---------- live view: `autopilot watch` and the "Now" section of the status page ----------
+def run_journal(root) -> dict:
+    from pathlib import Path
+
+    from . import AGENT_DIR
+    try:
+        return json.loads((Path(root) / AGENT_DIR / "run.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def live_section(root, lines: int = 15) -> str:
+    """What the run is doing right now: status, current step, and the last few live lines from the project log."""
+    from pathlib import Path
+
+    from . import AGENT_DIR
+    run = run_journal(root)
+    log = Path(root) / AGENT_DIR / "logs" / "autopilot.log"
+    tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:] if log.exists() else []
+    state = run.get("status", "no run yet")
+    head = [f"## Now ({state})", "",
+            f"- Current: {run.get('current') or ('finished: ' + run.get('outcome', '?') if state == 'finished' else '-')}",
+            f"- Started: {run.get('started_at', '-')} · last update {run.get('updated_at', '-')}", "", "```"]
+    return "\n".join(head + [line[20:] if line[:2] == "20" else line for line in tail] + ["```", ""])
+
+
 # ---------- P5: live status page ----------
 def html_page(md: str, refresh: int = 30) -> str:
     """The report as one self-refreshing HTML page. ponytail: escaped markdown in <pre>, no renderer dependency."""
@@ -273,7 +299,7 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
                 cfg, plan = Config.load(root), Plan.load(root / AGENT_DIR / "plan.yaml")
                 state = State(root / AGENT_DIR / "state.db")
                 try:
-                    body = html_page(build_report(cfg, plan, state), refresh)
+                    body = html_page(live_section(root) + "\n" + build_report(cfg, plan, state), refresh)
                 finally:
                     state.db.close()
             except Exception as exc:  # noqa: BLE001  a half-written plan mid-replan must not kill the server
