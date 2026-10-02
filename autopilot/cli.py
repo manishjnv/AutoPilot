@@ -137,7 +137,9 @@ def cmd_quickstart(args):
         print("fix the FAIL lines, then `autopilot run`")
         return 1
     if not args.run:
-        print("next: review .agent/plan.yaml and .agent/BRAIN.md, then `autopilot run`")
+        from .report import next_steps_text
+        print("review .agent/plan.yaml and .agent/BRAIN.md (the cheapest moment to change the plan)")
+        print(next_steps_text(root, running=False))
         return 0
     return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
 
@@ -244,10 +246,16 @@ def cmd_run(args):
             webbrowser.open(url, new=2)
         except Exception:  # noqa: BLE001
             pass
+    if not sys.stdout.isatty() and not getattr(args, "no_watch", False) and not os.environ.get("AUTOPILOT_NO_BROWSER"):
+        how = open_watch_window(root)  # no terminal of our own: put `autopilot watch` on screen
+        if how:
+            print(f"opened a {how} with `autopilot watch`", flush=True)
     print(f"\nFollow this run: {url + ' in a browser, or ' if url else ''}`autopilot watch` in another terminal "
           f"(log: {root / AGENT_DIR / 'logs' / 'autopilot.log'})\n", flush=True)
     outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions))
     print(f"\nrun finished: {outcome}\nreport: {root / AGENT_DIR / 'REPORT.md'}")
+    from .report import next_steps_text
+    print(next_steps_text(root, running=False))
     return 0
 
 
@@ -261,9 +269,10 @@ def _open_state(root: Path):
 
 
 def cmd_status(args):
-    from .report import build_report
+    from .report import build_report, next_steps_text
     cfg, plan, state = _open_state(Path(args.path).resolve())
     print(build_report(cfg, plan, state))
+    print(next_steps_text(Path(args.path).resolve()))
 
 
 def cmd_stats(args):
@@ -276,7 +285,7 @@ def cmd_watch(args):
     """Follow a run from any terminal: progress, current step, then every live line until the run finishes."""
     import time
 
-    from .report import run_journal
+    from .report import next_steps_text, run_journal
     root = Path(args.path).resolve()
     log = root / AGENT_DIR / "logs" / "autopilot.log"
     try:
@@ -287,7 +296,8 @@ def cmd_watch(args):
         pass
     run = run_journal(root)
     print(f"run: {run.get('status', 'no run yet')} · now: {run.get('current') or '-'}  (Ctrl+C stops watching, "
-          "not the run)\n")
+          "not the run)")
+    print(next_steps_text(root))
     pos = 0
     if log.exists():
         lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -309,9 +319,33 @@ def cmd_watch(args):
             run = run_journal(root)
             if run.get("status") == "finished" and quiet >= 3:
                 print(f"\nrun finished: {run.get('outcome', '?')}")
+                print(next_steps_text(root, running=False))
                 return 0
     except KeyboardInterrupt:
         return 0
+
+
+def open_watch_window(root: Path) -> str:
+    """A run without its own terminal (started in the background, by a tool or another program) opens a separate
+    terminal window running `autopilot watch`, so the live view is always on screen. Returns how, or '' when there is
+    no desktop to open one on (a server, CI)."""
+    import subprocess
+    cmd = [sys.executable, "-m", "autopilot", "watch", "-C", str(root)]
+    try:
+        if os.name == "nt":
+            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)  # noqa: S603
+            return "new console window"
+        if sys.platform == "darwin":
+            script = " ".join(f"'{c}'" for c in cmd)
+            subprocess.Popen(["osascript", "-e", f'tell application "Terminal" to do script "{script}"'])
+            return "Terminal window"
+        term = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal") or shutil.which("xterm")
+        if term and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            subprocess.Popen([term, "--", *cmd] if term.endswith("gnome-terminal") else [term, "-e", *cmd])
+            return "terminal window"
+    except OSError:
+        pass
+    return ""
 
 
 def run_active(root: Path) -> bool:
@@ -510,6 +544,8 @@ def main(argv=None):
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("--no-page", action="store_true", help="don't start the live status page")
     p.add_argument("--no-browser", action="store_true", help="start the live page but don't open the browser")
+    p.add_argument("--no-watch", action="store_true",
+                   help="when run without a terminal, don't open a window with `autopilot watch`")
     p.add_argument("-v", "--verbose", action="store_true")
     add("status", cmd_status, "progress, cost, blocked tasks, approvals")
     add("stats", cmd_stats, "the numbers of a run worth publishing (markdown table)")
@@ -536,7 +572,9 @@ def main(argv=None):
         if run_active(Path.cwd()):
             print("a run is active here; following it (Ctrl+C stops watching, not the run)\n")
             return cmd_watch(argparse.Namespace(path=".", lines=20))
-        ap.print_help()
+        from .report import next_steps_text
+        print(f"autopilot {__version__}: builds your project with Claude Code, checks every step, never waits.")
+        print(next_steps_text(Path.cwd()))
         return 0
     return args.fn(args) or 0
 

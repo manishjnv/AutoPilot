@@ -40,7 +40,7 @@ def test_happy_path_ends_with_doctor(tmp_path, monkeypatch, capsys):
     rc = cli_main(["quickstart", "-C", str(proj), "--plan-doc", str(tmp_path / "PLAN.md")])
     out = capsys.readouterr().out
     assert "onboarding session" in out and "--- doctor" in out
-    assert rc == 0 and "ready for `autopilot run`" in out and "then `autopilot run`" in out
+    assert rc == 0 and "ready for `autopilot run`" in out and "What you can do next" in out
 
 
 def test_no_plan_and_no_idea_asks_for_one(tmp_path, monkeypatch, capsys):

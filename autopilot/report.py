@@ -218,6 +218,54 @@ def proof_stats(cfg, plan, state) -> str:
     return "\n".join(out) + "\n\n" + token_footer(state) + "\n"
 
 
+# ---------- on-screen help: what the owner can do next ----------
+def next_steps(root, running: bool | None = None) -> list[str]:
+    """Short, situation-aware hints: no project yet, ready to run, running, decisions waiting, blocked tasks, done."""
+    from pathlib import Path
+
+    from . import AGENT_DIR
+    root = Path(root)
+    if not (root / AGENT_DIR / "project.yaml").exists():
+        return ["autopilot quickstart            set up this folder; asks what to build if there is no PLAN.md",
+                "autopilot quickstart --idea \"...\"   or describe it in one go"]
+    if running is None:
+        running = run_journal(root).get("status") == "running"
+    tips = []
+    try:
+        from .config import Config
+        from .plan import Plan
+        from .state import State
+        cfg, plan = Config.load(root), Plan.load(root / AGENT_DIR / "plan.yaml")
+        state = State(root / AGENT_DIR / "state.db")
+        status, open_d = state.status_map(), state.decisions("OPEN")
+        blocked = state.tasks("blocked")
+        pending = sum(1 for t in plan.all_tasks() if status.get(t.id, "pending") in ("pending", "running"))
+        state.db.close()
+    except Exception:  # noqa: BLE001 — no plan yet, or a plan being rewritten
+        return ["autopilot quickstart            turn your plan or idea into tasks"]
+    path = cfg.get("needs_you.path", "docs/NEEDS-YOU.md")
+    if open_d:
+        first = sorted(d["id"] for d in open_d)[0]
+        tips.append(f"{len(open_d)} question(s) for you in {path}: autopilot answer {first} \"your answer\"")
+    if blocked:
+        tips.append(f"{len(blocked)} task(s) blocked: fix the spec in .agent/plan.yaml, then autopilot unblock "
+                    f"{blocked[0]['id']}")
+    if running:
+        tips += ["autopilot watch                 follow the run live (Ctrl+C stops watching only)",
+                 "autopilot stop                  stop before the next session; autopilot run continues later"]
+    elif pending:
+        tips += [f"autopilot run                   build the {pending} remaining task(s)  (autopilot next: the order)"]
+    else:
+        tips += ["autopilot stats                 the results of the build",
+                 f"add ideas to {cfg.get('docs.backlog', 'docs/BACKLOG.md')} (one '- idea' per line), then "
+                 "autopilot run"]
+    return tips + ["autopilot status                progress, cost and blocked tasks · autopilot -h: all commands"]
+
+
+def next_steps_text(root, running: bool | None = None) -> str:
+    return "\nWhat you can do next:\n" + "\n".join(f"  {t}" for t in next_steps(root, running)) + "\n"
+
+
 # ---------- live view: `autopilot watch` and the "Now" section of the status page ----------
 def run_journal(root) -> dict:
     from pathlib import Path
@@ -241,7 +289,9 @@ def live_section(root, lines: int = 15) -> str:
     head = [f"## Now ({state})", "",
             f"- Current: {run.get('current') or ('finished: ' + run.get('outcome', '?') if state == 'finished' else '-')}",
             f"- Started: {run.get('started_at', '-')} · last update {run.get('updated_at', '-')}", "", "```"]
-    return "\n".join(head + [line[20:] if line[:2] == "20" else line for line in tail] + ["```", ""])
+    return "\n".join(head + [line[20:] if line[:2] == "20" else line for line in tail] + ["```", ""]
+                     + ["## What you can do next", ""] + [f"- `{t}`" for t in next_steps(root, state == "running")]
+                     + [""])
 
 
 # ---------- P5: live status page ----------

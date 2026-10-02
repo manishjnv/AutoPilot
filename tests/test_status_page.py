@@ -96,7 +96,8 @@ def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, caps
     assert cli_main(["watch", "-C", str(root)]) == 0
     out = capsys.readouterr().out
     assert "0/3 tasks done" in out and "now: task P01-T01" in out and "session #1" in out
-    assert "Write src/x.py" in out and out.rstrip().endswith("run finished: plan complete")
+    assert "Write src/x.py" in out and "run finished: plan complete" in out
+    assert out.rstrip().endswith("all commands")  # ends with the next-steps hint
 
 
 def test_a_second_run_or_plain_autopilot_follows_the_active_run(tmp_path, monkeypatch, capsys):
@@ -114,7 +115,21 @@ def test_a_second_run_or_plain_autopilot_follows_the_active_run(tmp_path, monkey
         assert "already active" in capsys.readouterr().out
         monkeypatch.chdir(root)
         assert cli_main([]) == 0 and "following it" in capsys.readouterr().out
-    assert cli_main([]) == 0 and "usage:" in capsys.readouterr().out  # no run: plain help
+    assert cli_main([]) == 0 and "What you can do next" in capsys.readouterr().out  # no run: next steps
+
+
+def test_a_headless_run_opens_a_watch_window(tmp_path, monkeypatch):
+    import subprocess
+
+    from autopilot import cli
+    started = []
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: started.append((cmd, kw)))
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/xterm" if name == "xterm" else None)
+    how = cli.open_watch_window(tmp_path)
+    assert how and started
+    cmd, kw = started[0]
+    assert cmd[-4:] == ["autopilot", "watch", "-C", str(tmp_path)] or "watch" in " ".join(map(str, cmd))
 
 
 def test_report_text_is_escaped():
