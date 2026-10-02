@@ -57,6 +57,7 @@ agent:
   max_turns: 200          # --max-turns per session (~ the 1-hour timeout at 10-20 s a turn); 0 = no limit
   cache_ttl: ""           # 5m | 1h (CLAUDE_CODE_PROMPT_CACHE_TTL). 1h writes cost more but survive the gaps
                           # when sessions alternate models (decide on opus, task on sonnet); empty = CLI default
+  exclude_dynamic_prompt: false   # G5, opt-in: --exclude-dynamic-system-prompt-sections (better cache reuse); measure first
   stuck_repeats: 4        # abort a session that makes the same tool call this many times in a row (0 = off)
   effort: ""              # low | medium | high | xhigh | max  (empty = CLI default)
   allowed_tools: []
@@ -70,6 +71,8 @@ agent:
   extra_args: []          # e.g. ["--bare"] with API-key billing only (it skips OAuth, hooks, plugins and CLAUDE.md)
   env_passthrough: []    # extra env var names sessions and checks may see (e.g. DATABASE_URL)
   env: {}                 # e.g. ANTHROPIC_BASE_URL: http://localhost:4000  (LiteLLM)
+                          # G5, opt-in: env: {BASH_MAX_OUTPUT_LENGTH: "12000"} gives shorter tool output per call;
+                          # keep it only if a real run shows fewer tokens and the same first-try rate
 
 # Network egress allowlist (P5) on Claude Code's own sandbox, passed with --settings to every session.
 # Shell commands reach only these hosts, and coding sessions lose WebFetch/WebSearch (the sandbox doesn't cover

@@ -239,6 +239,8 @@ class ClaudeCLIBackend:
             cmd += ["--effort", req.effort or c.get("agent.effort")]
         if req.system_append and not self.shim:
             cmd += ["--append-system-prompt", req.system_append]
+        if c.get("agent.exclude_dynamic_prompt"):  # G5, opt-in; only applies with the default prompt (we append, never replace)
+            cmd += ["--exclude-dynamic-system-prompt-sections"]
         if req.schema and not self.shim:  # quotes through cmd.exe are fragile; the report is then parsed from text
             cmd += ["--json-schema", json.dumps(req.schema, separators=(",", ":"))]
         allowed = c.get("agent.allowed_tools", [])
