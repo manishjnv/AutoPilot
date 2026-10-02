@@ -21,6 +21,7 @@ finished app, a changelog and a short list of decisions only you can make (`docs
 > Formerly **AutoDev**. Existing projects keep working: the `.agent/` folder is unchanged and the old `AUTODEV_*` environment variables are still read.
 
 ```
+python -m pip install -e <path to this repo>   # then `python -m autopilot doctor --fix` if `autopilot` isn't found
 autopilot quickstart --plan-doc docs/PLAN.md   # init + plan from your doc + doctor check (add --run to start)
 autopilot run             # runs until the app is complete
 
@@ -100,7 +101,7 @@ with auto-approval, so use the same sandbox advice as for Claude Code.
 | `autopilot init [--stack X]` | Create `.agent/`, `.gitignore` entries and a `CLAUDE.md` pointer |
 | `autopilot onboard --plan-doc PLAN.md` | AI session writes BRAIN.md, real commands and plan.yaml |
 | `autopilot validate` | Schema, dependency and cycle check; warns about weak acceptance criteria |
-| `autopilot doctor` | Checks the machine before a run: the claude CLI really starts and is logged in, git, `gh` (when needed), sandbox tools, notifications, config errors |
+| `autopilot doctor [--fix]` | Checks the machine before a run: the `autopilot` command is on PATH, the claude CLI really starts and is logged in, git, `gh` (when needed), sandbox tools, notifications, config errors. `--fix` repairs what needs no person (adds pip's Scripts folder to PATH, reinstalls a broken claude CLI with npm); `quickstart` and `run` do this by themselves, and `run` refuses to start on a claude CLI that can't run a session |
 | `autopilot next -n 20` | Preview the execution order and models |
 | `autopilot run [--max-sessions N]` | Autonomous run until the completion audit passes |
 | `autopilot status` | Progress, cost, blocked tasks with reasons, pending approvals |

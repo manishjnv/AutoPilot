@@ -103,16 +103,12 @@ def cmd_onboard(args):
 
 
 def cmd_quickstart(args):
-    """M5: init → (claude CLI check) → onboard → doctor → optionally run, in one command."""
-    from .doctor import FAIL, check_claude
+    """M5: init → environment fixes → (claude CLI check) → onboard → doctor → optionally run, in one command."""
     root = Path(args.path).resolve()
     if not (root / AGENT_DIR / "project.yaml").exists():
         cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False))
-    if Config.load(root).get("agent.backend", "claude_cli") == "claude_cli":
-        bad = [r for r in check_claude() if r[0] == FAIL]
-        if bad:  # don't start onboarding on a CLI that can't run a session
-            print(f"FAIL  {bad[0][1]}: {bad[0][2]}")
-            return 1
+    if not preflight(Config.load(root)):  # don't start onboarding on a CLI that can't run a session
+        return 1
     if args.plan_doc and not Path(args.plan_doc).is_file():
         print(f"plan document not found: {args.plan_doc}")
         return 1
@@ -127,6 +123,21 @@ def cmd_quickstart(args):
         print("next: review .agent/plan.yaml and .agent/BRAIN.md, then `autopilot run`")
         return 0
     return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
+
+
+def preflight(cfg) -> bool:
+    """Before quickstart or a run: fix the machine where possible (PATH, the claude CLI), then make sure the agent CLI
+    can start. False = it can't, and the reason is printed."""
+    from .doctor import FAIL, autofix, check_claude, check_path
+    rows = [check_path()] + (check_claude() if cfg.get("agent.backend", "claude_cli") == "claude_cli" else [])
+    for line in autofix(rows):
+        print(f"fix   {line}")
+    if cfg.get("agent.backend", "claude_cli") == "claude_cli":
+        bad = [r for r in check_claude() if r[0] == FAIL]
+        if bad:
+            print(f"FAIL  {bad[0][1]}: {bad[0][2]}")
+            return False
+    return True
 
 
 def cmd_validate(args):
@@ -166,6 +177,8 @@ def cmd_run(args):
     stop = root / AGENT_DIR / "STOP"
     if stop.exists() and args.clear_stop:
         stop.unlink()
+    if not preflight(Config.load(root)):  # every session would fail: stop before the first one
+        return 1
     orch = Orchestrator(root, max_sessions=args.max_sessions)
     outcome = orch.run()
     print(f"\nrun finished: {outcome}\nreport: {root / AGENT_DIR / 'REPORT.md'}")
@@ -214,12 +227,20 @@ def cmd_serve(args):
 
 
 def cmd_doctor(args):
-    from .doctor import FAIL, checks
+    from .doctor import FAIL, autofix, checks
     root = Path(args.path).resolve()
     if not (root / AGENT_DIR / "project.yaml").exists():
         print(f"FAIL  project        no {AGENT_DIR}/project.yaml in {root}: run `autopilot init` first")
         return 1
-    rows = checks(Config.load(root))
+    cfg = Config.load(root)
+    rows = checks(cfg)
+    if getattr(args, "fix", False):
+        done = autofix(rows)
+        for line in done:
+            print(f"fix   {line}")
+        if done:
+            rows = checks(cfg)
+            print()
     for level, name, detail in rows:
         print(f"{level:5s} {name:14s} {detail}")
     bad = sum(r[0] == FAIL for r in rows)
@@ -346,7 +367,8 @@ def main(argv=None):
     p.add_argument("--plan-doc"); p.add_argument("--budget", default="15")
     p.add_argument("--run", action="store_true", help="start the run when the doctor finds no problems")
     add("validate", cmd_validate, "validate project.yaml and plan.yaml")
-    add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
+    p = add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
+    p.add_argument("--fix", action="store_true", help="also fix what needs no person: PATH, reinstall the claude CLI")
     p = add("run", cmd_run, "run autonomously until the app is complete")
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true")

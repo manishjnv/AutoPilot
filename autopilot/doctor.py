@@ -1,13 +1,16 @@
-"""`autopilot doctor`: check this machine and project before a run. Read-only; never starts an agent session."""
+"""`autopilot doctor`: check this machine and project before a run, and fix what can be fixed without a person.
+Checks are read-only and never start an agent session; fixes run only through `autofix()`."""
 from __future__ import annotations
 
 import os
 import re
 import shutil
 import sys
+import sysconfig
+from pathlib import Path
 
 from .config import Config
-from .proc import run_proc
+from .proc import WINDOWS, run_proc
 
 OK, WARN, FAIL = "ok", "WARN", "FAIL"
 NOTIFY_ENVS = ("telegram_token_env", "slack_webhook_env", "webhook_env", "ntfy_topic_env")
@@ -40,9 +43,84 @@ def check_claude() -> list[tuple[str, str, str]]:
             (WARN, "claude login", "not logged in, or a CLI older than 2.1.268: run `claude` and /login once")]
 
 
+def scripts_dir() -> Path | None:
+    """The folder pip put the `autopilot` command in: the interpreter's, or the per-user one (`pip install --user`,
+    or a system Python whose folder isn't writable)."""
+    for scheme in (None, sysconfig.get_preferred_scheme("user")):
+        try:
+            d = Path(sysconfig.get_path("scripts", scheme) if scheme else sysconfig.get_path("scripts"))
+        except KeyError:
+            continue
+        if (d / "autopilot.exe").is_file() or (d / "autopilot").is_file():
+            return d
+    return None
+
+
+def check_path() -> tuple[str, str, str]:
+    if shutil.which("autopilot"):
+        return OK, "autopilot cmd", "on PATH"
+    d = scripts_dir()
+    return WARN, "autopilot cmd", (f"installed in {d}, which is not on PATH" if d else "not installed as a command") \
+        + "; `python -m autopilot` works meanwhile"
+
+
+# ---------- fixes: only what is safe without a person; logins, sudo and paid accounts stay with the owner ----------
+def fix_claude() -> str:
+    npm = shutil.which("npm")
+    if not npm:
+        return "cannot fix: npm not found. Install Node.js (nodejs.org), then `npm i -g @anthropic-ai/claude-code`"
+    try:
+        p = run_proc([npm, "i", "-g", "@anthropic-ai/claude-code"], timeout=900)
+    except OSError as exc:
+        return f"cannot fix: {exc}"
+    return "reinstalled with npm" if p.rc == 0 else f"npm install failed (rc {p.rc}): {(p.stderr or p.stdout)[-300:]}"
+
+
+def fix_path() -> str:
+    d = scripts_dir()
+    if not d:
+        return "cannot fix: the autopilot command is not installed (`python -m pip install -e <autopilot repo>`)"
+    os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + str(d)
+    if WINDOWS:
+        _add_user_path_windows(d)
+        return f"added {d} to your user PATH (new terminals)"
+    profile, line = Path.home() / ".profile", f'export PATH="$PATH:{d}"'
+    text = profile.read_text(encoding="utf-8") if profile.exists() else ""
+    if line not in text:
+        profile.write_text(text + ("" if not text or text.endswith("\n") else "\n") + line + "\n", encoding="utf-8")
+    return f"added {d} to PATH in {profile} (new login shells)"
+
+
+def _add_user_path_windows(d: Path):
+    """HKCU\\Environment Path, appended in place (not setx, which truncates at 1024 characters)."""
+    import ctypes
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ | winreg.KEY_WRITE) as k:
+        try:
+            cur, kind = winreg.QueryValueEx(k, "Path")
+        except FileNotFoundError:
+            cur, kind = "", winreg.REG_EXPAND_SZ
+        parts = [p for p in str(cur).split(";") if p]
+        if str(d).rstrip("\\").lower() not in {p.rstrip("\\").lower() for p in parts}:
+            winreg.SetValueEx(k, "Path", 0, kind, ";".join(parts + [str(d)]))
+    # tell running programs (Explorer, new terminals) that the environment changed
+    ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x1A, 0, "Environment", 0x2, 5000, None)
+
+
+FIXES = {"claude CLI": fix_claude, "autopilot cmd": fix_path}
+
+
+def autofix(rows: list[tuple[str, str, str]]) -> list[str]:
+    """Apply the fix for each failed or warned check that has one; returns what was done. AUTOPILOT_NO_AUTOFIX=1
+    turns this off (the test suite sets it: a test must never reinstall software or edit PATH)."""
+    if os.environ.get("AUTOPILOT_NO_AUTOFIX"):
+        return []
+    return [f"{name}: {FIXES[name]()}" for level, name, _ in rows if level != OK and name in FIXES]
+
+
 def checks(cfg: Config) -> list[tuple[str, str, str]]:
     """(level, name, detail) per check. FAIL = the run would break; WARN = it runs, but something is missing."""
-    out = []
+    out = [check_path()]
     if cfg.get("agent.backend", "claude_cli") == "claude_cli":
         out += check_claude()
     elif cfg.get("agent.backend") == "command":
