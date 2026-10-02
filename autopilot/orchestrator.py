@@ -70,6 +70,7 @@ class Orchestrator:
         self.sessions_this_run = 0
         self.rate_limit_streak = 0
         self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
+        self.env_repair_tried = False  # self-healing: one environment repair session per run
         self.git_offline = ""   # self-healing: why this run neither pulls nor pushes ('' = it does)
         self.run_info: dict = {}
         self.first_session = 0
@@ -269,13 +270,12 @@ class Orchestrator:
             if crashed:
                 log.info("recovered crashed tasks: %s", crashed)
             self.notify.send("run_start", progress_line(self.plan, self.state.status_map()))
-            setup = self.cfg.commands("setup")
-            if setup:
-                bad = [r for r in run_commands(setup, self.root, int(self.cfg.get("verify_timeout_sec", 1200)))
-                       if r.rc != 0]
-                if bad:
-                    log.warning("setup command failed (continuing): %s\n%s", bad[0].cmd, bad[0].output[-800:])
             greenfield = not self.state.tasks("done")  # nothing built yet: checks can't pass on an empty repo
+            ok, why = self.run_setup()
+            if not ok:  # on a greenfield repo that's expected (the first task creates the tooling)
+                log.warning("setup command failed (continuing): %s", why[:800])
+                if not greenfield and self.repair_env(why):
+                    self.run_setup()
             if not greenfield and not self.ensure_main_green():
                 self.start_main_red()
             self.close_finished_phases()
@@ -736,6 +736,18 @@ class Orchestrator:
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 gate = task_gate(self.cfg, self.git, task)
+                if not gate.ok and self.env_problem(gate.report()):  # a missing tool, not the agent's code
+                    self.run_setup()
+                    gate = task_gate(self.cfg, self.git, task)  # the same work, after reinstalling the tools
+                    if not gate.ok and self.env_problem(gate.report()) and not self.env_repair_tried:
+                        report = gate.report()
+                        self.git.discard()
+                        self.git.checkout_main(self.main)
+                        if self.repair_env(report):  # redo the task on the repaired main; not counted
+                            attempts -= 1
+                            self.state.set_task(task.id, attempts=attempts)
+                            continue
+                        self.git.start_branch(branch, self.main)  # repair failed: a normal failed attempt
                 problem = self._fix_problem(task, phase, res.report) if gate.ok else ""
                 if problem:
                     last_error = problem
@@ -1369,6 +1381,76 @@ class Orchestrator:
         self.git.checkout_main(self.main)
         self.git.delete_branch(branch)
         return False, err
+
+    # ------------------------------------------------------------------ self-healing: the project's environment
+    _NOT_FOUND = ("command not found", "is not recognized as an internal or external command",
+                  "is not recognized as the name of a cmdlet", ": not found")
+
+    def env_problem(self, output: str) -> str:
+        """Does this check output say a tool is missing (an environment problem, not a code problem)? Returns the
+        matching line, or ''. 'No module named X' counts only for a module the project's own commands run."""
+        heads = set()
+        for cmd in self.cfg.commands("setup", "build", "lint", "typecheck", "test"):
+            words = str(cmd).split()
+            heads.update(w.lower() for w in words[:1])
+            if "-m" in words[:-1]:
+                heads.add(words[words.index("-m") + 1].lower())
+        for line in (output or "").splitlines():
+            low = line.lower()
+            if any(p in low for p in self._NOT_FOUND) or any(
+                    f"no module named {h}" in low or f"no module named '{h}'" in low for h in heads):
+                return line.strip()[:300]
+        return ""
+
+    def run_setup(self) -> tuple[bool, str]:
+        setup = self.cfg.commands("setup")
+        if not setup:
+            return True, ""
+        bad = [r for r in run_commands(setup, self.root, int(self.cfg.get("verify_timeout_sec", 1200))) if r.rc != 0]
+        return (False, f"$ {bad[0].cmd}\n{bad[0].output[-3000:]}") if bad else (True, "")
+
+    def repair_env(self, problem: str) -> bool:
+        """Self-healing: one repair session (once per run) for a broken project environment: a setup command that
+        fails, or checks that can't find their tools. It may fix tooling and dependency files only; the repair is
+        kept only when the setup command then passes, with an RCA entry, like any other fix."""
+        if self.env_repair_tried:
+            return False
+        self.env_repair_tried = True
+        self.notify.send("heal", f"the project environment is broken ({problem.splitlines()[0][:150] if problem else ''}); "
+                                 "starting a repair session")
+        branch = "autopilot/repair-env"
+        base = self.git.start_branch(branch, self.main)
+        prompt = ("# Assignment: repair the project's environment\n\nThe project's setup or check commands fail for an "
+                  "environment reason (a missing tool, a dependency that won't install, broken tool config), not "
+                  "because of application logic. Find the root cause and fix it in the tooling and dependency files "
+                  "(e.g. pyproject.toml, requirements*.txt, package.json and lock files, tool config). Do not change "
+                  "application code or tests, and do not weaken any check.\n\nSetup commands:\n"
+                  + "\n".join(self.cfg.commands("setup")) + f"\n\nError output:\n```\n{problem[-4000:]}\n```\n\n"
+                  "End with a JSON report: {\"status\": \"done\"|\"blocked\", \"summary\": \"...\", "
+                  "\"rca\": {\"symptom\": \"...\", \"root_cause\": \"...\", \"fix\": \"file:line ...\", "
+                  "\"prevention\": \"...\"}}")
+        res = self.session("repair", prompt, self.cfg.get("models.repair", "sonnet"), label="repair environment")
+        self.git.normalize_after_session(branch, base)
+        ok, why = False, f"session failed: {res.error}"
+        if res.ok:
+            files = self.git.staged_files()
+            problems = [f"modified protected file {f}" for f in files if f in protected_files(self.cfg)]
+            problems += scan_secrets(self.git.staged_added_lines()) + test_tamper(self.cfg, self.git)
+            ok, why = (False, "\n".join(problems)) if problems else self.run_setup()
+        if ok and self.git.staged_files():
+            rca = res.report.get("rca") if isinstance(res.report.get("rca"), dict) else {}
+            self.docs.rca("repair", "repair project environment", rca)
+            self.git.commit_all(f"[autopilot] repair: project environment\n\n{res.report.get('summary', '')}")
+            self.git.merge(branch, self.main, "[autopilot] repair: project environment (merge)")
+            self.git.delete_branch(branch)
+            self._push()
+            self.notify.send("heal", f"environment repaired: {str(res.report.get('summary', ''))[:200]}")
+            return True
+        self.git.discard()
+        self.git.checkout_main(self.main)
+        self.git.delete_branch(branch)
+        self.notify.send("heal", f"environment repair did not work ({(why or 'no change')[:200]}); continuing")
+        return False
 
     def ensure_main_green(self, phase_checks: bool = False) -> bool:
         gate = main_gate(self.cfg, phase=phase_checks)

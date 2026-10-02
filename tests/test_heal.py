@@ -1,4 +1,7 @@
-"""Self-healing: outages of the machinery (CLI, login, network) are healed and retried, never counted as attempts."""
+"""Self-healing: outages of the machinery (CLI, login, network) are healed and retried, never counted as attempts;
+broken plans, state databases, config and project environments are repaired instead of stopping the run."""
+from pathlib import Path
+
 from autopilot.backends import SessionRequest, SessionResult, detect_infra
 from autopilot.backends.claude_cli import ClaudeCLIBackend
 from autopilot.config import Config
@@ -84,6 +87,57 @@ def test_deploy_enabled_without_a_command_is_switched_off_not_fatal(tmp_path):
                         backend=FakeBackend(), sleep=lambda s: None)
     assert orch.run() == "plan complete"
     assert any("staging deploys are off" in e["message"] for e in orch.state.events(50) if e["kind"] == "heal")
+
+
+def _tool_cmd(marker):
+    """A check that fails like a missing tool unless `marker` exists."""
+    return (f"python -c \"import os,sys; ok=os.path.exists(r'{marker}'); "
+            f"print('' if ok else 'mytool: command not found'); sys.exit(0 if ok else 127)\"")
+
+
+def test_a_tool_that_vanished_is_reinstalled_by_setup_not_blamed_on_the_task(tmp_path):
+    marker = tmp_path / "tool-installed"
+    cfg = {**BASE, "commands": {"setup": [f"python -c \"open(r'{marker}', 'w').close()\""],
+                                "lint": [_tool_cmd(marker)]}}
+
+    class VenvBreaks(FakeBackend):
+        def run(self, req):
+            marker.unlink(missing_ok=True)  # e.g. the agent recreated the virtualenv
+            return super().run(req)
+    orch = Orchestrator(make_project(tmp_path, phases_basic()[:1], cfg), backend=VenvBreaks(), sleep=lambda s: None)
+    assert orch.run() == "plan complete"
+    assert orch.state.task("P01-T01")["attempts"] == 1 and not orch.env_repair_tried
+
+
+def test_a_broken_environment_gets_one_repair_session(tmp_path):
+    cfg = {**BASE, "commands": {"setup": ["python -c \"import os,sys; sys.exit(0 if os.path.exists('deps.txt') else 1)\""],
+                                "lint": [_tool_cmd("deps.txt")]}}
+
+    class Repairs(FakeBackend):
+        repairs = 0
+
+        def run(self, req):
+            if req.prompt.startswith("# Assignment: repair the project's environment"):
+                Repairs.repairs += 1
+                (Path(req.cwd) / "deps.txt").write_text("mytool\n")
+                return SessionResult(ok=True, report={"status": "done", "summary": "declared mytool", "rca": {
+                    "symptom": "mytool missing", "root_cause": "not declared", "fix": "deps.txt:1",
+                    "prevention": "declare tools"}})
+            return super().run(req)
+    root = make_project(tmp_path, phases_basic()[:1], cfg)
+    orch = Orchestrator(root, backend=Repairs(), sleep=lambda s: None)
+    assert orch.run() == "plan complete" and Repairs.repairs == 1
+    assert orch.state.task("P01-T01")["attempts"] == 1  # the attempt lost to the environment is not counted
+    assert (root / "deps.txt").exists() and "repair project environment" in (root / "docs" / "RCA.md").read_text()
+
+
+def test_env_problem_ignores_ordinary_test_failures(tmp_path):
+    orch = Orchestrator(make_project(tmp_path, phases_basic()[:1], {**BASE, "commands": {"test": ["python -m pytest -q"]}}),
+                        backend=FakeBackend(), sleep=lambda s: None)
+    assert orch.env_problem("/usr/bin/python: No module named pytest")
+    assert orch.env_problem("'ruff' is not recognized as an internal or external command")
+    assert not orch.env_problem("E   ModuleNotFoundError: No module named 'myapp.utils'")  # the agent's own code
+    assert not orch.env_problem("FAILED tests/test_x.py::test_y - AssertionError")
 
 
 def test_infra_is_read_from_the_cli_messages_only():
