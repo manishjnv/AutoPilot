@@ -83,7 +83,8 @@ def fix_path() -> str:
     os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + str(d)
     if WINDOWS:
         _add_user_path_windows(d)
-        return f"added {d} to your user PATH (new terminals)"
+        return (f"added {d} to your user PATH. Open terminals keep their old PATH (VS Code: restart it); until then use "
+                "`python -m autopilot`")
     profile, line = Path.home() / ".profile", f'export PATH="$PATH:{d}"'
     text = profile.read_text(encoding="utf-8") if profile.exists() else ""
     if line not in text:
