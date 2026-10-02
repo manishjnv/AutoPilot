@@ -49,6 +49,43 @@ def test_the_stop_file_ends_a_heal_wait(tmp_path):
     assert orch.run() == "stopped by .agent/STOP file"
 
 
+def test_a_broken_plan_is_restored_from_git(tmp_path):
+    from test_autopilot import git
+    root = make_project(tmp_path, phases_basic()[:1], BASE)
+    git(root, "add", "-A")
+    git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
+    (root / ".agent" / "plan.yaml").write_text("phases: [unclosed\n")  # a bad hand edit
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    assert orch.run() == "plan complete"
+    assert (root / ".agent" / "logs" / "plan.yaml.broken").read_text() == "phases: [unclosed\n"
+    assert any("restored the version from commit" in e["message"] for e in orch.state.events(100))
+
+
+def test_a_corrupt_state_database_is_restored_and_recovered_from_git(tmp_path):
+    from autopilot.state import State
+    root = make_project(tmp_path, phases_basic()[:1], BASE)
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    assert orch.run() == "plan complete"  # both tasks done and merged; the run start took a backup (no tasks yet)
+    orch.state.close()
+    db = root / ".agent" / "state.db"
+    for extra in ("-wal", "-shm"):
+        (root / ".agent" / f"state.db{extra}").unlink(missing_ok=True)
+    db.write_bytes(b"this is not a database" * 100)
+    orch2 = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    assert orch2.state.healed and "restored the backup" in orch2.state.healed
+    assert orch2.run() == "plan complete"
+    assert orch2.state.task("P01-T01")["note"] == "recovered from git after a state restore"  # not built twice
+    assert not [c for c in orch2.backend.calls if c[0].startswith("P01-")]
+    assert list((root / ".agent").glob("state.db-corrupt-*")) and isinstance(State(db), State)
+
+
+def test_deploy_enabled_without_a_command_is_switched_off_not_fatal(tmp_path):
+    orch = Orchestrator(make_project(tmp_path, phases_basic()[:1], {**BASE, "deploy": {"staging": {"enabled": True}}}),
+                        backend=FakeBackend(), sleep=lambda s: None)
+    assert orch.run() == "plan complete"
+    assert any("staging deploys are off" in e["message"] for e in orch.state.events(50) if e["kind"] == "heal")
+
+
 def test_infra_is_read_from_the_cli_messages_only():
     assert detect_infra("Invalid API key · Please run /login") == "auth"
     assert detect_infra("API Error: Connection error.") == "network"

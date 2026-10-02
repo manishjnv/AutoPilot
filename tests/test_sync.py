@@ -169,7 +169,8 @@ def test_no_checks_configured_counts_as_green(tmp_path):
     assert outcome == "plan complete" and orch._gh.calls[-1] == "pr merge"
 
 
-def test_pr_mode_without_push_is_refused(tmp_path):
+def test_pr_mode_without_push_heals_to_direct_mode(tmp_path):
     root = make_project(tmp_path, phases_basic()[:1], {**BASE, "git": {"mode": "pr"}})
-    outcome = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None).run()
-    assert outcome.startswith("fatal: config:") and "git.mode: pr needs git.push: true" in outcome
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    assert orch.run() == "plan complete"
+    assert any("using direct mode" in e["message"] for e in orch.state.events(50) if e["kind"] == "heal")

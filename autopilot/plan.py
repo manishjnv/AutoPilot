@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+
 from .config import RISKS, load_yaml
 
 
@@ -127,7 +129,13 @@ class Plan:
 
     @classmethod
     def load(cls, path: Path | str) -> "Plan":
-        return cls.from_dict(load_yaml(Path(path)))
+        try:
+            data = load_yaml(Path(path))
+        except yaml.YAMLError as exc:  # a YAML typo is an invalid plan, not a crash
+            raise PlanError(f"plan.yaml is not valid YAML: {str(exc)[:300]}") from exc
+        if not isinstance(data, dict):
+            raise PlanError("plan.yaml must be a mapping with `phases:`")
+        return cls.from_dict(data)
 
     def _validate_refs(self) -> list[str]:
         errs = []

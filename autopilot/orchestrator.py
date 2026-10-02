@@ -79,7 +79,10 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ plan
     def reload_plan(self):
-        self.plan = Plan.load(self.ad / "plan.yaml")
+        try:
+            self.plan = Plan.load(self.ad / "plan.yaml")
+        except (PlanError, FileNotFoundError) as exc:
+            self.plan = self._restore_plan(exc)
         sync = self.state.sync_plan(self.plan)
         if any(not self.plan.phase_of(i).priority for i in sync["added"]):
             self.state.set_meta("completion_rounds", 0)
@@ -89,6 +92,57 @@ class Orchestrator:
             self._commit_main("[autopilot] reopen " + ", ".join(sync["reopened"]))
         self.ctx = ContextBuilder(self.cfg, self.plan, self.state)
         return sync
+
+    def _restore_plan(self, exc) -> Plan:
+        """Self-healing for a plan.yaml that is missing or invalid (a bad hand edit, a broken pull): go back to the
+        newest committed version that loads. The broken file is kept as .agent/logs/plan.yaml.broken (not committed).
+        Raises the original error when no committed version loads either."""
+        path = self.ad / "plan.yaml"
+        broken = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        shas = self.git.run("log", "--format=%H", "-n", "30", "--", f"{AGENT_DIR}/plan.yaml", check=False).split()
+        for sha in shas:
+            text = self.git.run("show", f"{sha}:{AGENT_DIR}/plan.yaml", check=False)
+            if not text or text.strip() == broken.strip():
+                continue
+            path.write_text(text + "\n", encoding="utf-8")
+            try:
+                plan = Plan.load(path)
+            except PlanError:
+                continue
+            if broken:
+                (self.ad / "logs").mkdir(exist_ok=True)
+                (self.ad / "logs" / "plan.yaml.broken").write_text(broken, encoding="utf-8")
+            self.notify.send("heal", f"plan.yaml could not be loaded ({str(exc)[:200]}); restored the version from "
+                                     f"commit {sha[:8]}. Your broken copy is in .agent/logs/plan.yaml.broken.")
+            return plan
+        if broken:
+            path.write_text(broken, encoding="utf-8")
+        raise exc
+
+    def _recover_from_git(self) -> list[str]:
+        """Self-healing after the state database was restored or rebuilt: a task whose commit is on main is done."""
+        subjects = self.git.run("log", "--format=%s", self.main, check=False).splitlines()
+        merged = {m.group(1) for s in subjects if (m := re.match(r"\[autopilot\] (?:merge )?(\S+?):", s))}
+        fixed = [tid for tid, st in self.state.status_map().items() if tid in merged and st != "done"]
+        for tid in fixed:
+            self.state.set_task(tid, status="done", note="recovered from git after a state restore")
+        return fixed
+
+    def heal_config(self) -> list[str]:
+        """Self-healing for config errors that have a safe fallback: switch off only the broken part for this run
+        (project.yaml is not changed). Errors without a safe fallback (no checks at all, a sandbox that can't run)
+        still stop the run: guessing there would weaken a safety check."""
+        done, d = [], self.cfg.data
+        for env in ("staging", "prod"):
+            if self.cfg.get(f"deploy.{env}.enabled") and not self.cfg.get(f"deploy.{env}.cmd"):
+                d["deploy"][env]["enabled"] = False
+                done.append(f"deploy.{env} is enabled with no cmd: {env} deploys are off for this run")
+        if self.cfg.get("git.mode") == "pr" and not self.cfg.get("git.push"):
+            d["git"]["mode"] = "direct"
+            done.append("git.mode: pr needs git.push: true; using direct mode for this run")
+        for msg in done:
+            self.notify.send("heal", f"config: {msg}. Fix .agent/project.yaml to make it permanent.")
+        return done
 
     def _commit_main(self, message: str):
         if self.git.branch() != self.main:
@@ -178,6 +232,7 @@ class Orchestrator:
         return token_footer(self.state, self.first_session)
 
     def _run(self) -> str:
+        self.heal_config()
         blocking = self.cfg.blocking_errors()
         if blocking:
             msg = "; ".join(blocking)
@@ -193,9 +248,17 @@ class Orchestrator:
         try:
             self.reload_plan()
         except (PlanError, FileNotFoundError) as e:
-            self.notify.send("fatal", f"plan.yaml invalid: {e}")
+            self.notify.send("fatal", f"plan.yaml invalid and no committed version loads either: {e}")
             self._journal(status="finished", outcome="fatal: invalid plan", current="")
             return "fatal: invalid plan"
+        if self.state.healed:
+            recovered = self._recover_from_git()
+            self.notify.send("heal", self.state.healed + (f"; marked {len(recovered)} task(s) done from their commits "
+                                                          "on main" if recovered else ""))
+        try:
+            self.state.backup()
+        except Exception as exc:  # noqa: BLE001 — a missing backup must never stop a run
+            log.warning("state backup failed: %s", exc)
         outcome = "interrupted"
         try:  # everything below may push, and a failed push or diverged history ends the run here (Stop)
             self.sync()

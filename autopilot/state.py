@@ -46,14 +46,51 @@ class State:
     def __init__(self, path: Path | str):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.healed = ""  # self-healing: what was restored when the database would not open
+        try:
+            self._open()
+        except sqlite3.DatabaseError as exc:  # corrupt (crash mid-write, disk trouble): restore the last backup
+            self.healed = self._restore(exc)
+            self._open()
+
+    def _open(self):
         self.db = sqlite3.connect(str(self.path), isolation_level=None, timeout=30)
         self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.executescript(SCHEMA)
-        have = {r["name"] for r in self.db.execute("PRAGMA table_info(sessions)")}
-        for col in SESSION_COLS:  # older databases predate the token ledger
-            if col not in have:
-                self.db.execute(f"ALTER TABLE sessions ADD COLUMN {col} INTEGER DEFAULT 0")
+        try:
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.executescript(SCHEMA)
+            have = {r["name"] for r in self.db.execute("PRAGMA table_info(sessions)")}
+            for col in SESSION_COLS:  # older databases predate the token ledger
+                if col not in have:
+                    self.db.execute(f"ALTER TABLE sessions ADD COLUMN {col} INTEGER DEFAULT 0")
+        except sqlite3.DatabaseError:
+            self.db.close()
+            raise
+
+    @property
+    def backup_path(self) -> Path:
+        return self.path.with_name(self.path.name + "-backup")  # matches the `.agent/state.db-*` ignore rule
+
+    def backup(self):
+        """A consistent copy (SQLite's backup API, safe while open), taken at every run start."""
+        dst = sqlite3.connect(str(self.backup_path))
+        try:
+            self.db.backup(dst)
+        finally:
+            dst.close()
+
+    def _restore(self, exc) -> str:
+        """Move the broken file aside and start from the backup, or empty. The plan and git still hold the work: the
+        run re-syncs tasks from plan.yaml and marks a task done when its commit is on main (Orchestrator)."""
+        aside = self.path.with_name(f"{self.path.name}-corrupt-{dt.datetime.now():%Y%m%d%H%M%S}")
+        self.path.replace(aside)
+        for extra in ("-wal", "-shm"):
+            Path(str(self.path) + extra).unlink(missing_ok=True)
+        if self.backup_path.exists():
+            import shutil
+            shutil.copyfile(self.backup_path, self.path)
+            return f"state database was unreadable ({exc}); restored the backup from the last run start ({aside.name})"
+        return f"state database was unreadable ({exc}) and had no backup; started a fresh one ({aside.name})"
 
     def close(self):
         self.db.close()
