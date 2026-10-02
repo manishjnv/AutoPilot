@@ -82,6 +82,7 @@ autopilot run                      # after that: the full run
 | You want to… | Do this |
 |---|---|
 | See progress | `autopilot watch`, the browser page, or `autopilot status` |
+| See it at a glance | The status line: bottom row of `run` and `watch`, the window title, the top of the page. `AUTOPILOT_PLAIN=1` turns the pinned row off |
 | Answer a question | Read `docs/NEEDS-YOU.md`, then `autopilot answer D-001 "your answer"` |
 | Pause | `autopilot stop`. Continue later with `autopilot run` |
 | Get phone alerts | Set `AUTOPILOT_TG_TOKEN` + `AUTOPILOT_TG_CHAT` (Telegram) or `AUTOPILOT_NTFY_TOPIC` |
@@ -90,6 +91,7 @@ autopilot run                      # after that: the full run
 
 ## 5. When it is done
 
+- The end-of-run message says what was built, what is stuck, what needs you and about how much is left.
 - `autopilot stats` shows the result: tasks done, cost, time, what you had to do.
 - The code is on `main`, with `CHANGELOG.md` and `docs/RCA.md`.
 - **Want more features?** Add lines like `- dark mode` to `docs/BACKLOG.md`, then `autopilot run` again.
@@ -225,7 +227,8 @@ A run stops only for something that truly needs you. Every fix shows up as a `he
 ## Usage and cost
 
 - **Tokens and cost** per model are in `autopilot status` and `.agent/REPORT.md`.
-- **5-hour window:** pauses when only 15% is left (`usage.reserve_pct`), so you can still use Claude yourself.
+- **5-hour window:** reads your real usage from Claude Code, your own use included, and pauses when only 15% is left
+  (`usage.reserve_pct`), so you can still use Claude yourself. One notice when the weekly limit passes 90%.
 - **Usage limit hit:** sleeps until reset and tells you. Not counted as a failure.
 - **Budget caps:** per session, task, phase, day and total. On an API key, set `usage.billing: api`.
 - **Bug fixes** add a test and a root cause to `docs/RCA.md`.

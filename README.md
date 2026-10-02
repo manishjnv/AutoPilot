@@ -95,7 +95,7 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 ## Good to know
 
 - For a solo developer. Version 0.1.0, early.
-- Sessions run without permission prompts. On a server, use the sandbox in the [guide](GUIDE.md#running-unattended-on-a-vps).
+- Sessions run without permission prompts. On a server, use the sandbox in the [guide](GUIDE.md#run-it-on-a-server-vps).
 - Codex, Gemini and OpenCode work through presets, less tested.
 
 **More:** [Architecture](ARCHITECTURE.md) · [Guide](GUIDE.md) · [MIT license](LICENSE)
