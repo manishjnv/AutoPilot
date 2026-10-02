@@ -154,3 +154,114 @@ def test_root_install_script_rejects_a_bad_ref(tmp_path):
     env = {"HOME": str(tmp_path), "PATH": str(tmp_path), "AUTOPILOT_REF": "x; rm -rf ~"}
     p = subprocess.run([shutil.which("bash"), str(ROOT_INSTALL), "--dry-run"], capture_output=True, text=True, env=env)
     assert p.returncode == 2
+
+
+# ---- H5: the guided start (plain `autopilot` in a terminal, no project here) ----
+PLAN_STUB = ("if sys.argv[1:2] == ['--version']: print('2.1.286 (Claude Code)')\n"
+             "elif sys.argv[1:2] == ['auth']: sys.exit(AUTH)\n"
+             "else:\n"
+             "    import pathlib\n"
+             "    if not pathlib.Path('PLAN.md').exists():\n"
+             "        pathlib.Path('PLAN.md').write_text('# Plan: todo CLI\\n' + 'Part 1 and Part 2 ' * 60)\n"
+             "    p = pathlib.Path('.agent/project.yaml')  # the onboarding session: a new folder has no verify command\n"
+             "    p.write_text(p.read_text().replace('  test: []', \"  test: ['true']\"))\n"
+             "    print(json.dumps({'type': 'result', 'result': 'ok', 'session_id': 's1'}))\n")
+
+
+def guided(tmp_path, monkeypatch, answers, auth=0, tty=True):
+    """A work folder with no project, a home folder elsewhere, a stub claude and scripted answers."""
+    work, home = tmp_path / "work", tmp_path / "home"
+    work.mkdir()
+    home.mkdir()
+    for var in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(var, str(home))
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, PLAN_STUB.replace("AUTH", str(auth))))
+    monkeypatch.chdir(work)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: tty)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: tty)
+    it = iter(answers)
+
+    def fake(*a):
+        try:
+            a = next(it)
+        except StopIteration:
+            raise AssertionError("more questions than answers") from None
+        if isinstance(a, BaseException):
+            raise a
+        return a
+    monkeypatch.setattr("builtins.input", fake)
+    return work, home
+
+
+def test_no_terminal_prints_the_banner_and_asks_nothing(tmp_path, monkeypatch, capsys):
+    work, _ = guided(tmp_path, monkeypatch, [], tty=False)
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("a question was asked with no terminal"))
+    assert cli_main([]) == 0
+    out = capsys.readouterr().out
+    assert "builds your project with Claude Code" in out and "What you can do next" in out
+    assert list(work.iterdir()) == []
+
+
+def test_a_terminal_in_a_project_folder_asks_nothing(tmp_path, monkeypatch, capsys):
+    work, _ = guided(tmp_path, monkeypatch, [])
+    (work / ".agent").mkdir()
+    (work / ".agent" / "project.yaml").write_text("name: x\n")
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("a question was asked in a project folder"))
+    assert cli_main([]) == 0
+    assert "What you can do next" in capsys.readouterr().out
+
+
+def test_an_empty_idea_prints_the_banner(tmp_path, monkeypatch, capsys):
+    work, _ = guided(tmp_path, monkeypatch, [""])
+    assert cli_main([]) == 0
+    assert "What you can do next" in capsys.readouterr().out and list(work.iterdir()) == []
+
+
+def test_guided_start_not_now(tmp_path, monkeypatch, capsys):
+    work, _ = guided(tmp_path, monkeypatch, ["a todo list CLI with due dates", "", "", "2"])
+    monkeypatch.setattr("autopilot.cli.cmd_run", lambda a: pytest.fail("the run started"))
+    assert cli_main([]) == 0
+    out = capsys.readouterr().out
+    proj = work / "a-todo-list-cli-with-due-dates"
+    assert (proj / ".agent" / "project.yaml").exists() and (proj / "PLAN.md").exists()
+    assert "The plan:" in out and "tasks" in out
+    assert "The build runs for hours. It uses your Claude plan." in out and "It works without asking you." in out
+    assert f"autopilot run -C {proj.resolve()}" in out
+
+
+def test_guided_start_now_runs_that_folder(tmp_path, monkeypatch, capsys):
+    work, _ = guided(tmp_path, monkeypatch, ["a todo list CLI", "", "", "1"])
+    calls = []
+    monkeypatch.setattr("autopilot.cli.cmd_run", lambda a: calls.append(a.path) or 0)
+    assert cli_main([]) == 0
+    assert calls == [str((work / "a-todo-list-cli").resolve())]
+
+
+def test_folder_safety(tmp_path, monkeypatch, capsys):
+    work, home = guided(tmp_path, monkeypatch, [])
+    full = work / "full"
+    full.mkdir()
+    for n in range(12):
+        (full / f"f{n}.txt").write_text("x")
+    answers = ["an app", "", str(home), str(Path(work.anchor)), str(full), "2", "", "2"]
+    monkeypatch.setattr("builtins.input", lambda *a: answers.pop(0))
+    monkeypatch.setattr("autopilot.cli.cmd_run", lambda a: pytest.fail("the run started"))
+    assert cli_main([]) == 0
+    out = capsys.readouterr().out
+    assert out.count("not this one") == 2 and "(12 entries)" in out and "f0.txt" in out and "f9.txt" not in out
+    assert (work / "an-app" / ".agent" / "project.yaml").exists() and answers == []
+
+
+def test_ctrl_c_at_the_folder_question_leaves_nothing(tmp_path, monkeypatch, capsys):
+    work, _ = guided(tmp_path, monkeypatch, ["an app", "", KeyboardInterrupt()])
+    assert cli_main([]) == 130
+    assert "Traceback" not in capsys.readouterr().err and list(work.iterdir()) == []
+
+
+def test_a_missing_login_stops_before_anything_is_created(tmp_path, monkeypatch, capsys):
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
+                 "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"):
+        monkeypatch.delenv(name, raising=False)
+    work, _ = guided(tmp_path, monkeypatch, ["an app", "", "", "2"], auth=1)
+    assert cli_main([]) == 1
+    assert not (work / "an-app").exists()

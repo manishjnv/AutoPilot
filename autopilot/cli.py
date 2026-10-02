@@ -145,12 +145,12 @@ def cmd_quickstart(args):
     return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
 
 
-def ask_idea() -> str:
+def ask_idea(intro: str = "No PLAN.md found. Describe what you want to build: the product, who it is for, the main "
+             "features, any\ntech you want. Claude turns it into a full plan. Finish with an empty line.") -> str:
     """Ask the owner in the terminal what to build (several lines, an empty line ends). '' when not interactive."""
     if not sys.stdin.isatty():
         return ""
-    print("No PLAN.md found. Describe what you want to build: the product, who it is for, the main features, any\n"
-          "tech you want. Claude turns it into a full plan. Finish with an empty line.")
+    print(intro)
     lines = []
     while True:
         try:
@@ -187,10 +187,11 @@ def preflight(cfg) -> bool:
     """Before quickstart or a run: fix the machine where possible (PATH, the claude CLI), then make sure the agent CLI
     can start. False = it can't, and the reason is printed."""
     from .doctor import FAIL, autofix, check_claude, check_path
-    rows = [check_path()] + (check_claude(cfg) if cfg.get("agent.backend", "claude_cli") == "claude_cli" else [])
+    cli = cfg is None or cfg.get("agent.backend", "claude_cli") == "claude_cli"  # no project yet (H5): the default
+    rows = [check_path()] + (check_claude(cfg) if cli else [])
     for line in autofix(rows):
         print(f"fix   {line}")
-    if cfg.get("agent.backend", "claude_cli") == "claude_cli":
+    if cli:
         bad = [r for r in check_claude(cfg) if r[0] == FAIL]
         if bad and bad[0][1] == "claude login" and login_now():  # H2: only here, at the start; never during a run
             bad = [r for r in check_claude(cfg) if r[0] == FAIL]
@@ -216,6 +217,70 @@ def login_now() -> bool:
     except (EOFError, KeyboardInterrupt, OSError):
         return False
     return True
+
+
+def safe_folder(p: Path) -> str:
+    """H5: why a folder must not hold a new project ('' = fine). Sessions run with no prompts, so they get the folder."""
+    home = Path.home().resolve()
+    if p == home:
+        return "this is your home folder"
+    if p.parent == p or home.is_relative_to(p):
+        return "this folder contains your home folder, or is a drive or filesystem root"
+    return ""
+
+
+def ask_folder(offer: Path) -> Path:
+    """H5: ask where the project goes until the answer is safe. Enter takes `offer`."""
+    while True:
+        raw = input(f"Folder for the project (Enter = {offer}): ").strip().strip('"')
+        p = (Path.cwd() / Path(raw).expanduser()).resolve() if raw else offer.resolve()
+        if why := safe_folder(p):
+            print(f"not this one: {why}. Choose another.")
+        elif p.is_file():
+            print("not this one: it is a file. Choose another.")
+        elif (p / AGENT_DIR / "project.yaml").exists():
+            print(f"{p} already has an Autopilot project: the start continues it.")
+            return p
+        elif p.is_dir() and (items := sorted(x.name for x in p.iterdir())):
+            print(f"{p} is not empty ({len(items)} entries): {', '.join(items[:10])}{' …' if len(items) > 10 else ''}")
+            print("  1  use this folder\n  2  choose a different folder")
+            if input("> ").strip() == "1":
+                return p
+        else:
+            return p
+
+
+def guided_start() -> int:
+    """H5: plain `autopilot` in a terminal, no project here: ask the idea and the folder, then quickstart and run."""
+    from .docs import slug
+    try:
+        idea = ask_idea("What do you want to build? The product, who it is for, the main features, any tech you "
+                        "want.\nFinish with an empty line.").strip()
+        if not idea:
+            return -1
+        root = ask_folder(Path.cwd() / slug((idea.splitlines()[0]), 30, "myapp"))
+        if not preflight(None):  # the login is checked before anything is created
+            return 1
+        rc = cmd_quickstart(argparse.Namespace(path=str(root), plan_doc=None, budget="15", run=False, idea=idea))
+        if rc:
+            return rc
+        plan = Plan.load(root / AGENT_DIR / "plan.yaml")
+        print("\nThe plan:")
+        for ph in plan.phases:
+            print(f"  {ph.id}  {ph.title}  ({len(ph.tasks)} tasks)")
+        print(f"  {len(plan.phases)} phases, {len(plan.all_tasks())} tasks")
+        print("The build runs for hours. It uses your Claude plan.\nIt works without asking you.")
+        print("  1  start now\n  2  not now")
+        if input("> ").strip() == "1":
+            return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
+        print(f"Start later with: autopilot run -C {root}")
+        return 0
+    except KeyboardInterrupt:
+        print()
+        return 130
+    except EOFError:
+        print()
+        return 0
 
 
 def cmd_validate(args):
@@ -816,6 +881,9 @@ def main(argv=None):
             print("a run is active here; following it (Ctrl+C stops watching, not the run)\n")
             return cmd_watch(argparse.Namespace(path=".", lines=20))
         from .report import next_steps_text
+        if sys.stdin.isatty() and sys.stdout.isatty() and not (Path.cwd() / AGENT_DIR / "project.yaml").exists():
+            if (rc := guided_start()) >= 0:  # -1: no idea given, so the normal banner
+                return rc
         print(f"autopilot {__version__}: builds your project with Claude Code, checks every step, never waits.")
         print(next_steps_text(Path.cwd()))
         return 0
