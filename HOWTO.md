@@ -11,7 +11,7 @@ setting, use the [reference](REFERENCE.md).
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) |
 | Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
 | Accounts and agents | [Use an API key](#use-an-api-key-instead-of-a-subscription) · [Use a different agent CLI](#use-a-different-agent-cli) · [Share Autopilot](#share-autopilot-with-a-different-person) |
-| Autopilot itself | [Run the smoke test](#run-the-smoke-test) · [Run the tests of Autopilot](#run-the-tests-of-autopilot) |
+| Autopilot itself | [Run the smoke test](#run-the-smoke-test) · [Test a change to a prompt](#test-a-change-to-a-prompt) · [Run the tests of Autopilot](#run-the-tests-of-autopilot) |
 
 ## Answer a question from Autopilot
 
@@ -265,6 +265,34 @@ Autopilot never shares your login. To continue a project, the other person clone
 
 The smoke test is a 3-task plan that checks Autopilot from start to end with real Claude Code sessions. See
 [examples/smoke](examples/smoke/README.md).
+
+## Test a change to a prompt
+
+The tests of Autopilot use a fake agent that does not read the files in `autopilot/prompts/`. Only a real run
+shows the effect of a prompt change.
+
+> [!WARNING]
+> Start each run by hand. Each run uses your Claude usage window. Do not add these runs to CI or to a schedule.
+
+1. Do steps 1 and 2 of the [smoke test](examples/smoke/README.md).
+2. Make sure that each phase in `.agent/plan.yaml` has a `features:` entry. Without it, no feature check runs.
+3. Copy the project folder. The two runs then use the same plan.
+4. In the first folder, start a run with the prompts before the change:
+
+   ```bash
+   autopilot run --max-sessions 10
+   ```
+
+5. Change the prompt. Then start the same run in the copy.
+6. Compare the two runs:
+
+   | Measure | Where |
+   |---|---|
+   | Tasks done, and tasks that passed on the first try | `autopilot stats` |
+   | Faults that the feature checks found | `FAIL` in `.agent/history/<phase>/PROOF.md` |
+   | Faults that the audit found | `.agent/audits/` |
+
+7. Write the two results in the change note of the prompt change.
 
 ## Run the tests of Autopilot
 
