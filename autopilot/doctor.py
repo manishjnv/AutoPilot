@@ -28,7 +28,36 @@ def _env(name: str) -> str:
     return os.environ.get(name) or (os.environ.get("AUTODEV_" + name[10:], "") if name.startswith("AUTOPILOT_") else "")
 
 
-def check_claude() -> list[tuple[str, str, str]]:
+LOGIN_FIX = "run `claude auth login`, then start again. A paid Claude plan or an API key is necessary"
+OTHER_AUTH = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
+              "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
+
+
+def other_auth(cfg) -> str:
+    """H2: what pays for sessions when there is no Claude login: an API key, a gateway, or usage.billing: api.
+    Only the name is returned, never a value."""
+    name = next((n for n in OTHER_AUTH if os.environ.get(n)), "")
+    return name or ("usage.billing: api" if cfg is not None and cfg.get("usage.billing") == "api" else "")
+
+
+def check_login(binary: str, version: tuple, cfg) -> tuple[str, str, str]:
+    """H2: FAIL only when a login is surely missing: a CLI that has `auth status`, and no other way to pay."""
+    rc, out = _run([binary, "auth", "status"])  # documented from 2.1.268: exit 0 = logged in
+    other = other_auth(cfg)
+    if rc == 0:
+        # only the sure case: a claude.ai login (not a key, not a gateway) on the free plan, and no other way to pay
+        if all(re.search(rf'"{k}"\s*:\s*"{v}"', out, re.I) for k, v in (("subscriptionType", "free"),
+                                                                        ("authMethod", r"claude\.ai"))) and not other:
+            return FAIL, "claude login", "the free Claude plan cannot use Claude Code: get a paid plan, or set an API key"
+        return OK, "claude login", "logged in"
+    if version < (2, 1, 268):
+        return WARN, "claude login", "cannot check: this CLI is older than 2.1.268. If sessions fail, run `claude` and /login"
+    if other:
+        return WARN, "claude login", f"not logged in; sessions use {other}"
+    return FAIL, "claude login", f"not logged in: {LOGIN_FIX}"
+
+
+def check_claude(cfg=None) -> list[tuple[str, str, str]]:
     from .backends.claude_cli import ClaudeCLIBackend
     binary = ClaudeCLIBackend.resolve_binary()
     rc, out = _run([binary, "--version"])
@@ -37,10 +66,8 @@ def check_claude() -> list[tuple[str, str, str]]:
     if not (rc == 0 and "claude code" in out.lower() and re.search(r"\d+\.\d+\.\d+", out)):
         return [(FAIL, "claude CLI", f"`{binary} --version` gave rc {rc}: {first[:120] or 'no output'}. Reinstall "
                  f"with `{INSTALL[claude_route(binary)][1]}`, or set AUTOPILOT_CLAUDE_BIN to the real binary")]
-    rc, _ = _run([binary, "auth", "status"])  # documented from 2.1.268: exit 0 = logged in
-    return [(OK, "claude CLI", f"{first} ({binary})"),
-            (OK, "claude login", "logged in") if rc == 0 else
-            (WARN, "claude login", "not logged in, or a CLI older than 2.1.268: run `claude` and /login once")]
+    version = tuple(int(x) for x in re.search(r"(\d+)\.(\d+)\.(\d+)", out).groups())
+    return [(OK, "claude CLI", f"{first} ({binary})"), check_login(binary, version, cfg)]
 
 
 def scripts_dir() -> Path | None:
@@ -174,7 +201,7 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
     """(level, name, detail) per check. FAIL = the run would break; WARN = it runs, but something is missing."""
     out = [check_path()]
     if cfg.get("agent.backend", "claude_cli") == "claude_cli":
-        out += check_claude()
+        out += check_claude(cfg)
     elif cfg.get("agent.backend") == "command":
         from .backends.command import command_template
         exe = command_template(cfg).split()

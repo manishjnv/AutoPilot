@@ -187,14 +187,34 @@ def preflight(cfg) -> bool:
     """Before quickstart or a run: fix the machine where possible (PATH, the claude CLI), then make sure the agent CLI
     can start. False = it can't, and the reason is printed."""
     from .doctor import FAIL, autofix, check_claude, check_path
-    rows = [check_path()] + (check_claude() if cfg.get("agent.backend", "claude_cli") == "claude_cli" else [])
+    rows = [check_path()] + (check_claude(cfg) if cfg.get("agent.backend", "claude_cli") == "claude_cli" else [])
     for line in autofix(rows):
         print(f"fix   {line}")
     if cfg.get("agent.backend", "claude_cli") == "claude_cli":
-        bad = [r for r in check_claude() if r[0] == FAIL]
+        bad = [r for r in check_claude(cfg) if r[0] == FAIL]
+        if bad and bad[0][1] == "claude login" and login_now():  # H2: only here, at the start; never during a run
+            bad = [r for r in check_claude(cfg) if r[0] == FAIL]
         if bad:
             print(f"FAIL  {bad[0][1]}: {bad[0][2]}")
             return False
+    return True
+
+
+def login_now() -> bool:
+    """H2: with a terminal, offer the Claude login and run it. False = no terminal (never ask), or the owner stops."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    print("Claude Code is not logged in. A paid Claude plan or an API key is necessary.\n"
+          "  1  log in now (this opens the browser)\n  2  stop")
+    try:
+        if input("> ").strip() != "1":
+            return False
+        import subprocess
+
+        from .backends.claude_cli import ClaudeCLIBackend
+        subprocess.run([ClaudeCLIBackend.resolve_binary(), "auth", "login"], check=False)
+    except (EOFError, KeyboardInterrupt, OSError):
+        return False
     return True
 
 

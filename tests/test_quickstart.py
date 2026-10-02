@@ -23,6 +23,50 @@ def test_broken_claude_stops_before_onboarding(tmp_path, monkeypatch, capsys):
     assert "claude CLI" in out and "onboarding session" not in out and (proj / ".agent" / "project.yaml").exists()
 
 
+def test_a_missing_login_stops_quickstart_and_run_before_the_first_session(tmp_path, monkeypatch, capsys):
+    """H2: with no terminal the fix is printed, the exit code is not zero, and nothing is asked or started."""
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
+                 "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"):
+        monkeypatch.delenv(name, raising=False)
+    body = ("if sys.argv[1:2] == ['--version']: print('2.1.286 (Claude Code)')\n"
+            "elif sys.argv[1:2] == ['auth']: sys.exit(1)\n"
+            "else: open('SESSION_RAN', 'w').close()\n")
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, body))
+    proj = tmp_path / "app"
+    proj.mkdir()
+    (proj / "PLAN.md").write_text("# Plan\nA todo app.\n")
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("a question was asked with no terminal"))
+    for cmd in ("quickstart", "run"):
+        assert cli_main([cmd, "-C", str(proj)]) == 1
+        out = capsys.readouterr().out
+        assert "FAIL  claude login" in out and "claude auth login" in out and "onboarding session" not in out
+    assert not (proj / "SESSION_RAN").exists() and not (proj / ".agent" / "state.db").exists()
+
+
+def test_with_a_terminal_the_login_is_offered_and_the_start_continues(tmp_path, monkeypatch, capsys):
+    """H2: "1 log in now" runs `claude auth login`, the check runs again, and quickstart goes on."""
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
+                 "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"):
+        monkeypatch.delenv(name, raising=False)
+    flag = tmp_path / "logged-in"
+    body = ("if sys.argv[1:2] == ['--version']: print('2.1.286 (Claude Code)')\n"
+            f"elif sys.argv[1:3] == ['auth', 'login']: open({str(flag)!r}, 'w').close()\n"
+            f"elif sys.argv[1:2] == ['auth']: sys.exit(0 if os.path.exists({str(flag)!r}) else 1)\n"
+            "else: print(json.dumps({'type': 'result', 'result': 'onboarded', 'session_id': 's1'}))\n")
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, body))
+    proj = tmp_path / "app"
+    proj.mkdir()
+    (proj / "pyproject.toml").write_text("[project]\nname = 'app'\n")
+    (proj / "PLAN.md").write_text("# Plan\nA todo app.\n")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a: "2")
+    assert cli_main(["quickstart", "-C", str(proj)]) == 1 and not flag.exists()  # "2 stop": nothing runs
+    monkeypatch.setattr("builtins.input", lambda *a: "1")
+    assert cli_main(["quickstart", "-C", str(proj)]) == 0 and flag.exists()
+    assert "onboarding session" in capsys.readouterr().out
+
+
 def test_missing_plan_doc(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, CLAUDE_OK))
     proj = tmp_path / "app"

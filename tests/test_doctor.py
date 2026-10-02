@@ -33,7 +33,42 @@ def test_a_working_claude_passes_and_login_is_checked(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, body))
     rows = by_name(checks(project(tmp_path)))
     assert rows["claude CLI"][0] == OK and "2.1.286" in rows["claude CLI"][1]
-    assert rows["claude login"][0] == WARN and rows["git"][0] == OK
+    assert rows["claude login"][0] == FAIL and "claude auth login" in rows["claude login"][1] and rows["git"][0] == OK
+
+
+NO_LOGIN = "import sys\nif sys.argv[1:] == ['--version']: print('%s (Claude Code)')\nelse: sys.exit(1)\n"
+
+
+def test_a_missing_login_does_not_fail_an_old_cli_or_an_api_key_user(tmp_path, monkeypatch):
+    """H2: only a login that is surely missing is a FAIL. An old CLI has no `auth status`; an API key needs no login."""
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
+                 "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"):
+        monkeypatch.delenv(name, raising=False)
+    cfg = project(tmp_path)
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, NO_LOGIN % "2.1.200"))
+    level, detail = by_name(checks(cfg))["claude login"]
+    assert level == WARN and "older than 2.1.268" in detail
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, NO_LOGIN % "2.1.286"))
+    assert by_name(checks(cfg))["claude login"][0] == FAIL
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "placeholder")
+    level, detail = by_name(checks(cfg))["claude login"]
+    assert level == WARN and "ANTHROPIC_API_KEY" in detail and "placeholder" not in detail  # the name, never the value
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    cfg = project(tmp_path / "api", {"usage": {"billing": "api"}})
+    assert by_name(checks(cfg))["claude login"][0] == WARN
+
+
+def test_a_free_plan_gets_its_own_message(tmp_path, monkeypatch):
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    body = ("if sys.argv[1:] == ['--version']: print('2.1.286 (Claude Code)')\n"
+            "else: print(json.dumps({'loggedIn': True, 'authMethod': %r, 'subscriptionType': 'free'}))\n")
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, body % "claude.ai"))
+    cfg = project(tmp_path)
+    level, detail = by_name(checks(cfg))["claude login"]
+    assert level == FAIL and "free Claude plan" in detail
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, body % "apiKey"))  # not a plan login: no stop
+    assert by_name(checks(cfg))["claude login"][0] == OK
 
 
 def test_notifications_chat_and_config(tmp_path, monkeypatch):
