@@ -6,7 +6,8 @@ setting, use the [reference](REFERENCE.md).
 | Job | Guide |
 |---|---|
 | Daily use | [Answer a question](#answer-a-question-from-autopilot) · [Give advice to a task](#give-advice-to-a-task) · [Stop and continue a run](#stop-and-continue-a-run) · [Repair a blocked task](#repair-a-blocked-task) · [Add features after a run](#add-features-after-a-run) |
-| Projects | [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
+| Projects | [Change the plan in plain words](#change-the-plan-in-plain-words) · [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
+| Install | [Update or remove Autopilot](#update-or-remove-autopilot) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) |
 | Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
@@ -18,16 +19,22 @@ setting, use the [reference](REFERENCE.md).
 Autopilot writes a question in `docs/NEEDS-YOU.md` only when a person must decide. Examples are a login, a paid
 account, or a business decision. The run builds the other tasks while it waits.
 
-1. Open `docs/NEEDS-YOU.md`.
-2. Find the ID of the question, for example `D-001`.
-3. Send your answer:
+1. In a terminal, list the open questions with their suggestions, and answer each one:
+
+   ```powershell
+   autopilot answer
+   ```
+
+   Autopilot asks for each answer. An empty line skips a question.
+2. To answer one question directly, find its ID in `docs/NEEDS-YOU.md`, for example `D-001`. Then send the answer:
 
    ```powershell
    autopilot answer D-001 "use Stripe"
    ```
 
-You can answer while the run continues. When no run is active, you can also write your answer after "Your answer:"
-in the file, and then commit the file.
+You can answer while the run continues. With no terminal, `autopilot answer` prints its usage and exits with a
+non-zero code. When no run is active, you can also write your answer after "Your answer:" in the file, and then
+commit the file.
 
 ## Give advice to a task
 
@@ -94,6 +101,23 @@ To remove the task from the plan, use `autopilot skip P04-T02`.
 
 One replan session adds the new ideas to the plan. It ignores ideas that the plan already has.
 
+## Change the plan in plain words
+
+1. Send the change:
+
+   ```powershell
+   autopilot change "add a dark mode"
+   ```
+
+2. Autopilot says that the change costs one replan session. Type `1` to start, or `2` to stop.
+3. Read the tasks that Autopilot added, changed, and removed.
+4. Type `1` to keep the result, or `2` to undo it.
+
+Autopilot never changes a done task. With no terminal, add `--yes`. It then starts and keeps the result with no
+questions.
+
+When a run is active, Autopilot writes the idea to `docs/BACKLOG.md`. The run takes it at its next replan.
+
 ## Use a project that already exists
 
 1. Go to the folder of the project.
@@ -105,7 +129,13 @@ One replan session adds the new ideas to the plan. It ignores ideas that the pla
 
    If you have no plan document, use `autopilot onboard` and then `autopilot doctor`. The onboard session reads the
    repository and the README, and then writes a plan.
-3. Continue from [step 4 of the tutorial](GUIDE.md#step-4-check-the-tasks).
+3. Show the tasks in order, and read `.agent/plan.yaml` and `.agent/BRAIN.md`:
+
+   ```powershell
+   autopilot next
+   ```
+
+4. Start the run with `autopilot run`.
 
 ## Write a plan that runs well
 
@@ -255,8 +285,8 @@ To send the requests through a gateway such as LiteLLM or OpenRouter, set `agent
 
 1. Send the link to the repository: <https://github.com/manishjnv/AutoPilot>. The MIT license lets them use, change
    and share it.
-2. The other person does [step 1 of the tutorial](GUIDE.md#step-1-install-autopilot) on their computer, with their
-   own Claude subscription.
+2. The other person does [steps 1 to 3 of the tutorial](GUIDE.md#step-1-install-three-programs) on their computer,
+   with their own Claude login.
 
 Autopilot never shares your login. To continue a project, the other person clones it and runs `autopilot run`. The
 `.agent/` folder has the plan and the history. The state database starts empty.
@@ -294,10 +324,43 @@ shows the effect of a prompt change.
 
 7. Write the two results in the change note of the prompt change.
 
+## Update or remove Autopilot
+
+To install a newer version, run:
+
+```powershell
+uv tool install --reinstall git+https://github.com/manishjnv/AutoPilot
+```
+
+To remove Autopilot, run:
+
+```powershell
+uv tool uninstall dev-autopilot
+```
+
+## Install from a clone to change the code
+
+Use this route only if you change Autopilot itself. For normal use, see the [tutorial](GUIDE.md).
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/manishjnv/AutoPilot
+   ```
+
+2. Install it in editable mode, with the test tools:
+
+   ```bash
+   cd AutoPilot
+   pip install -e '.[dev]'
+   ```
+
 ## Run the tests of Autopilot
 
+Do the steps in [Install from a clone to change the code](#install-from-a-clone-to-change-the-code). Then run:
+
 ```bash
-pip install -e '.[dev]' && pytest -q
+pytest -q
 ```
 
 The tests use a fake agent and make no API calls. CI runs them on Ubuntu and Windows.

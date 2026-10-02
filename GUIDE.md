@@ -1,7 +1,7 @@
 # Tutorial: build your first project
 
-This tutorial takes you from an empty folder to a working app. Your part takes a few minutes. The run can take some
-hours, and you do not have to watch it.
+This tutorial takes you from an idea to a working app. Your part takes a few minutes. The run can take some hours,
+and you do not have to watch it.
 
 | Other pages | Use them to |
 |---|---|
@@ -11,92 +11,87 @@ hours, and you do not have to watch it.
 
 ```mermaid
 flowchart LR
-    accTitle: The tutorial in six steps
-    accDescr: Install, make a folder, make the plan and the tasks, check the tasks, run, then examine the result.
-    A["1. Install"] --> B["2. Make a folder"] --> C["3. Make the plan<br/>and the tasks"] --> D["4. Check<br/>the tasks"] --> E["5. Run"] --> F["6. Examine<br/>the result"]
+    accTitle: The tutorial in five steps
+    accDescr: Install three programs, install Autopilot, log in, start the build, then examine the result.
+    A["1. Install<br/>three programs"] --> B["2. Install<br/>Autopilot"] --> C["3. Log in"] --> D["4. Start<br/>the build"] --> E["5. Examine<br/>the result"]
 ```
 
 ## Before you start
 
-| You need | Why |
-|---|---|
-| Python 3.10 or later | Autopilot is a Python program |
-| git | Autopilot makes a commit for each task |
-| Node.js | You install Claude Code with it |
-| A Claude Pro or Max subscription, or an API key | Claude Code writes the code |
+You need a paid Claude plan (Pro or Max) or an API key. The free Claude plan cannot use Claude Code.
 
-## Step 1: Install Autopilot
+The first install takes approximately 4 minutes.
 
-1. Install Claude Code:
+## Step 1: Install three programs
 
-   ```powershell
-   npm i -g @anthropic-ai/claude-code
-   ```
+You install git, uv, and Claude Code. Python is not necessary: uv gets it for you.
 
-2. Start Claude Code with `claude`. Type `/login`, log in, and then type `/exit`.
-3. Download and install Autopilot:
+- **Windows (PowerShell):**
 
-   ```powershell
-   git clone https://github.com/manishjnv/AutoPilot
-   python -m pip install -e ./AutoPilot
-   ```
+  ```powershell
+  winget install --id Git.Git -e
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+  irm https://claude.ai/install.ps1 | iex
+  ```
+
+- **macOS, Linux, WSL:**
+
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  curl -fsSL https://claude.ai/install.sh | bash
+  ```
+
+> [!NOTE]
+> If git is missing on macOS, run `xcode-select --install`. On Linux, run `sudo apt install git`. If `winget` is
+> absent or asks for administrator rights, get git from <https://git-scm.com/download/win>.
+
+Open a new terminal. The programs install into `~/.local/bin` (`%USERPROFILE%\.local\bin` on Windows), and the old
+terminal does not find them.
+
+## Step 2: Install Autopilot
+
+```powershell
+uv tool install git+https://github.com/manishjnv/AutoPilot
+```
+
+If the terminal does not find `autopilot`, run `uv tool update-shell`, and then open a new terminal.
+
+## Step 3: Log in to Claude
+
+```powershell
+claude auth login
+```
+
+If you skip this step, `autopilot quickstart` and `autopilot run` stop before the first session. An API key
+(`ANTHROPIC_API_KEY`) does not need a login.
+
+## Step 4: Start the build
+
+Give your idea to Autopilot:
+
+```powershell
+autopilot quickstart -C myapp --idea "a todo list CLI with due dates" --run
+```
+
+This one command:
+
+1. Makes the folder `myapp`.
+2. Writes `PLAN.md` from your idea, and makes the tasks.
+3. Checks your computer.
+4. Starts the build.
 
 > [!TIP]
-> If the terminal does not find `autopilot`, use `python -m autopilot`. The first `autopilot quickstart` adds
-> Autopilot to your PATH for new terminals.
+> To answer the same questions step by step, run `autopilot` with no arguments. If you have your own plan, see
+> [Use a project that already exists](HOWTO.md#use-a-project-that-already-exists).
 
-## Step 2: Make a project folder
-
-Make an empty folder with a git repository:
-
-```powershell
-mkdir myapp; cd myapp; git init -b main
-```
-
-## Step 3: Make the plan and the tasks
-
-Do one of these two procedures.
-
-**If you have only an idea:** give the idea to Autopilot. Claude writes `PLAN.md` for you, and then makes the tasks.
-
-```powershell
-autopilot quickstart --idea "a CLI that finds leaked secrets in a repo"
-```
-
-**If you have your own plan:** save it as `PLAN.md` in the folder, and then make the tasks. Clear acceptance
-criteria give better results.
-
-```powershell
-autopilot quickstart
-```
-
-In both procedures, `quickstart` makes the `.agent/` folder, writes the task list, and checks your computer.
-
-## Step 4: Check the tasks
-
-1. Show the tasks in order, with the AI model for each task:
-
-   ```powershell
-   autopilot next
-   ```
-
-2. Read `.agent/plan.yaml` and `.agent/BRAIN.md`.
-3. Correct the errors that you find. A change costs the least at this step.
-
-## Step 5: Start a short run
-
-Start a run that stops after 10 sessions:
-
-```powershell
-autopilot run --max-sessions 10
-```
+While the build runs:
 
 - Your browser opens the live status page at `http://127.0.0.1:8765/`. To prevent this, add `--no-browser`.
 - Each task shows a line, for example `▸ P01-T01 Project skeleton [haiku] · 1m12s`.
 - The bottom row of the terminal shows the status line.
 - Do not stop the run. Autopilot repairs failures and does not wait for you.
 
-To follow the run from a different terminal:
+To follow the run from a different terminal, run `cd myapp`, and then use one of these commands:
 
 | To see | Do this |
 |---|---|
@@ -105,9 +100,9 @@ To follow the run from a different terminal:
 | All log lines | Open `.agent/logs/autopilot.log` |
 
 If Autopilot has a question for you, it writes the question in `docs/NEEDS-YOU.md` and builds the other tasks. To
-answer, see [Answer a question from Autopilot](HOWTO.md#answer-a-question-from-autopilot).
+answer, run `autopilot answer`. See [Answer a question from Autopilot](HOWTO.md#answer-a-question-from-autopilot).
 
-## Step 6: Examine the result
+## Step 5: Examine the result
 
 - At the end of the run, a message shows what Autopilot built, the blocked tasks, and the questions for you. It also
   shows an estimate of the work that remains.
@@ -116,14 +111,9 @@ answer, see [Answer a question from Autopilot](HOWTO.md#answer-a-question-from-a
 - The code is on the `main` branch. `CHANGELOG.md` lists the changes, and `docs/RCA.md` lists the bugs and their
   causes.
 
-When the short run looks correct, start the full run:
-
-```powershell
-autopilot run
-```
-
 ## Next steps
 
 - To add features later, see [Add features after a run](HOWTO.md#add-features-after-a-run).
 - To run Autopilot all night on a server, see [Run Autopilot on a server](HOWTO.md#run-autopilot-on-a-server).
 - To learn what each command does, see [Commands](REFERENCE.md#commands).
+- To get a newer version, run `uv tool install --reinstall git+https://github.com/manishjnv/AutoPilot`.

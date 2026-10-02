@@ -29,3 +29,6 @@ Dockerfiles?
 crypto
 replan
 replanner
+uv
+npm
+winget

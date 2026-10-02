@@ -55,19 +55,22 @@ The first real project was **SecretScan**, a CLI that finds leaked secrets in a 
 
 ## Quick start
 
-You need Python 3.10 or later, git, Node.js, and a Claude subscription or an API key.
+You need a paid Claude plan or an API key. The free Claude plan cannot use Claude Code. The first install takes
+approximately 4 minutes.
 
 ```powershell
-npm i -g @anthropic-ai/claude-code      # then run `claude` once and type /login
-git clone https://github.com/manishjnv/AutoPilot
-python -m pip install -e ./AutoPilot
-
-mkdir myapp; cd myapp; git init -b main
-autopilot quickstart --idea "a CLI that finds leaked secrets in a repo"
-autopilot run
+winget install --id Git.Git -e
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+irm https://claude.ai/install.ps1 | iex
+# Open a new terminal. Then:
+uv tool install git+https://github.com/manishjnv/AutoPilot
+claude auth login
+autopilot quickstart -C myapp --idea "a todo list CLI with due dates" --run
 ```
 
-If you already have a plan, use `autopilot quickstart --plan-doc PLAN.md`.
+These commands are for Windows PowerShell. For macOS and Linux, and for each step in detail, see the
+[tutorial](GUIDE.md). If you already have a plan, see
+[Use a project that already exists](HOWTO.md#use-a-project-that-already-exists).
 
 **After the run:** the code is on `main`. Also read `CHANGELOG.md`, `docs/RCA.md` and `docs/NEEDS-YOU.md`.
 

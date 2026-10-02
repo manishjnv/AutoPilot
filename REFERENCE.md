@@ -13,22 +13,24 @@ Each command accepts `-C <folder>` to work on a project in a different folder.
 
 | Command | Result |
 |---|---|
-| `autopilot` | Follows the active run in this folder. With no run, shows what you can do next |
-| `autopilot quickstart` | Sets up `.agent/`, makes the tasks from `PLAN.md`, then checks your computer |
+| `autopilot` | In a terminal, in a folder with no project: the guided start. It asks what to build and which folder, checks the login, makes the plan, and asks `1 start now, 2 not now`. Otherwise it follows the active run, or shows what you can do next |
+| `autopilot quickstart` | Sets up `.agent/`, makes the tasks from `PLAN.md`, then checks your computer. It stops before the first session when the Claude login is missing |
 | `autopilot quickstart --idea "text"` | Claude writes `PLAN.md` from your idea first. The text can also be a file |
 | `autopilot quickstart --plan-doc FILE` | Makes the tasks from a different plan file |
-| `autopilot quickstart --run` | Also starts the run when the checks find no problem |
+| `autopilot quickstart -C myapp --idea "text" --run` | Makes the folder `myapp`, writes the plan, makes the tasks, checks your computer, and starts the run |
 | `autopilot init [--stack X]` | Makes `.agent/` only. `quickstart` does this for you |
 | `autopilot onboard [--plan-doc FILE]` | One session writes `BRAIN.md`, the commands and `plan.yaml`. With no file, it reads the repository |
 | `autopilot validate` | Checks `project.yaml` and `plan.yaml` for errors |
-| `autopilot doctor [--fix]` | Checks the Claude CLI, git, `gh`, the sandbox tools, the alerts, and the settings. `--fix` repairs what needs no person |
+| `autopilot doctor [--fix]` | Checks the Claude CLI and its login, git, `gh`, the sandbox tools, the alerts, and the settings. A missing login is a `FAIL`. `--fix` repairs what needs no person |
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
 | `autopilot run` | Builds until the completion audit passes |
 | `autopilot watch` | Follows a run live. Ctrl+C stops the watch, not the run |
 | `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
 | `autopilot serve [--port 8765]` | Starts the status page without a run |
-| `autopilot answer D-003 "text"` | Answers a question from `docs/NEEDS-YOU.md` |
+| `autopilot answer` | Lists the open questions with their suggestions. In a terminal, it asks for each answer (an empty line skips one). With no terminal, it prints the usage and exits with a non-zero code |
+| `autopilot answer D-003 "text"` | Answers a question from `docs/NEEDS-YOU.md`. Works while a run is active |
+| `autopilot change "text"` | Changes the plan in plain words. It costs one replan session. It asks `1 start, 2 stop`, then `1 keep, 2 undo`. `--yes` asks nothing. During a run, the idea goes to `docs/BACKLOG.md`. Done tasks never change |
 | `autopilot hint T1 "text"` | Gives advice to the next session of a task. Works while a run is active |
 | `autopilot unblock T1 T2` | Puts blocked tasks back in the queue |
 | `autopilot skip T3` | Removes tasks from the queue |
@@ -58,8 +60,8 @@ Each command accepts `-C <folder>` to work on a project in a different folder.
 | `AUTOPILOT_STATUS_TOKEN` | Lets the status page serve on an address that is not local |
 | `AUTOPILOT_PLAIN=1` | Removes the pinned status row at the bottom of the terminal. `status` and the page still show the status line |
 | `AUTOPILOT_NO_BROWSER=1` | Does not open the browser |
-| `AUTOPILOT_NO_AUTOFIX=1` | Stops the automatic repairs of `doctor` |
-| `AUTOPILOT_CLAUDE_BIN` | The path to the `claude` program |
+| `AUTOPILOT_NO_AUTOFIX=1` | Stops every automatic install and repair |
+| `AUTOPILOT_CLAUDE_BIN` | The path to the `claude` program. Autopilot also finds `claude` in `~/.local/bin` when the PATH is old |
 | `ANTHROPIC_API_KEY` | Use an API key instead of a subscription. Also set `usage.billing: api` |
 
 Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`. The rollback command gets
@@ -175,7 +177,7 @@ A run stops only for a problem that needs a person. Each repair sends a `heal` a
 |---|---|
 | The code of a task fails its checks | Tries a stronger model, then a diagnosis, then asks you. It builds the other tasks |
 | A tool is missing | Runs the setup again. If the tool is still missing, one repair session repairs the setup |
-| The Claude CLI is broken, logged out, or offline | Installs the CLI again or waits, then tries again. This is not a failed attempt |
+| The Claude CLI is broken, logged out during a run, or offline | Installs the CLI again the way you installed it, or waits, and then tries again. This is not a failed attempt. An npm install gets `npm`. Other installs get the installer from claude.ai. For a winget install, Autopilot shows `winget upgrade Anthropic.ClaudeCode`. It shows the command before it runs it |
 | The usage limit is reached | Sleeps until the window resets |
 | The `autopilot` command is not on the PATH | Adds a launcher and corrects the PATH |
 | The push to GitHub fails | Continues to build on your computer, and tries the push again at each commit |
@@ -187,7 +189,8 @@ A run stops only for a problem that needs a person. Each repair sends a `heal` a
 
 **These problems still need you:**
 
-- Your Claude login. Run `claude`, and then type `/login`.
+- Your Claude login. Run `claude auth login`. Before the first session, `quickstart` and `run` stop when the login
+  is missing. An API key or a gateway needs no login.
 - A budget limit or a session limit that you set.
 - A question in `docs/NEEDS-YOU.md`.
 - A crash that occurs again and again. Send the report from `.agent/logs/crashes/`.
