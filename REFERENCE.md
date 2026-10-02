@@ -150,7 +150,7 @@ A retry on the same model continues the failed session. A retry on a different m
 | Unstick | sonnet | Finds the cause of a blocked task. It can search the web |
 | Decide | opus | Compares 2 or 3 designs before a risky task |
 | Research | sonnet | Writes web research notes for a task |
-| Verifier | sonnet | Tries each feature at the end of a phase |
+| Verifier | sonnet | Tries each feature at the end of a phase, then tries one variation to break it |
 | Auditor, replanner, onboard | opus | Audits the app, updates the plan, writes the first plan |
 | Triage | haiku | Makes a task from a GitHub issue, with no tools |
 

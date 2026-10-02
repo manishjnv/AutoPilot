@@ -52,6 +52,7 @@ def test_passing_check_closes_the_phase_and_records_features(tmp_path):
     assert outcome == "plan complete" and [c[0] for c in orch.backend.calls] == ["P01-T01", "verify"]
     req = orch.backend.reqs[-1]
     assert req.read_only and not req.web_only and req.model == "sonnet" and "P01-F02` GET /items lists items" in req.prompt
+    assert "Try to disprove it" in req.prompt and "try to break that feature once" in req.prompt  # G12
     f = features_json(root)
     assert f["P01-F01"]["passes"] is True and f["P01-F02"]["passes"] is True and f["P01-F01"]["phase"] == "P01"
     assert orch.state.phase("P01")["status"] == "done"
