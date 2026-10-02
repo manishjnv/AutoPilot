@@ -7,7 +7,7 @@ setting, use the [reference](REFERENCE.md).
 |---|---|
 | Daily use | [Answer a question](#answer-a-question-from-autopilot) · [Give advice to a task](#give-advice-to-a-task) · [Stop and continue a run](#stop-and-continue-a-run) · [Repair a blocked task](#repair-a-blocked-task) · [Add features after a run](#add-features-after-a-run) |
 | Projects | [Change the plan in plain words](#change-the-plan-in-plain-words) · [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
-| Install | [Update or remove Autopilot](#update-or-remove-autopilot) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
+| Install | [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) |
 | Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
@@ -323,6 +323,55 @@ shows the effect of a prompt change.
    | Faults that the audit found | `.agent/audits/` |
 
 7. Write the two results in the change note of the prompt change.
+
+## Install with one script
+
+The script installs git, uv, Claude Code and Autopilot, and then it checks the login. It shows each step before
+the step starts. A second run is safe: the script skips a program that is already there.
+
+> [!WARNING]
+> Compare the checksum before you run the script. The script downloads and runs the installers of uv and Claude Code.
+
+1. Download the script. The address has a fixed commit, thus the file cannot change.
+
+   - **Windows (PowerShell):**
+
+     ```powershell
+     irm https://raw.githubusercontent.com/manishjnv/AutoPilot/d49382e72e814a8589137e29cee475f8fa1bb37b/install.ps1 -OutFile install.ps1
+     (Get-FileHash install.ps1 -Algorithm SHA256).Hash
+     ```
+
+   - **macOS, Linux, WSL:**
+
+     ```bash
+     curl -fsSLO https://raw.githubusercontent.com/manishjnv/AutoPilot/d49382e72e814a8589137e29cee475f8fa1bb37b/install.sh
+     sha256sum install.sh
+     ```
+
+2. Compare the result with this table. Upper case and lower case letters are equal. On macOS, use
+   `shasum -a 256 install.sh`.
+
+   | File | SHA-256 |
+   |---|---|
+   | `install.ps1` | `6e2a2cec709da55050764c705bb895ab0916c0a076d4d21a937100bc9d12e89b` |
+   | `install.sh` | `9a6af03b8cb93debc364f438c3c9f4559e005b25cdda721534e526728516b858` |
+
+3. To see the steps with no change to your computer, do a dry run:
+
+   | System | Command |
+   |---|---|
+   | Windows | `powershell -ExecutionPolicy Bypass -File install.ps1 -DryRun` |
+   | macOS, Linux, WSL | `bash install.sh --dry-run` |
+
+4. Run the same command without the dry-run option.
+5. Open a new terminal. Then run `autopilot`.
+
+| Fact | Detail |
+|---|---|
+| Administrator rights | Only on Windows, and only if `winget` installs git |
+| git on macOS and Linux | The script does not use `sudo`. If git is missing, it shows the command and stops |
+| Login | The script does not log in for you. It shows `claude auth login` if the login is missing |
+| Remove Autopilot | `uv tool uninstall dev-autopilot` |
 
 ## Update or remove Autopilot
 
