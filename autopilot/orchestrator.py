@@ -499,7 +499,10 @@ class Orchestrator:
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
         log.info("session #%s %s %s model=%s attempt=%s", sid, kind, task_id or "", model, attempt)
+        task = self.plan.task_by_id.get(task_id) if task_id and self.plan else None
+        who = " ".join(x for x in (task_id or kind, task.title[:50] if task else label) if x)
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
+                             label=f"{who} [{model}{f', try {attempt}' if attempt > 1 else ''}]",
                              timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
                              budget_usd=budget, system_append=self.ctx.system_append(),
                              read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort,
@@ -972,7 +975,8 @@ class Orchestrator:
                                  cwd=str(path), timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
                                  budget_usd=self.session_budget(t.id), system_append=self.ctx.system_append(),
                                  log_path=str(log_path), schema=REPORTS["task"],
-                                 effort=self.cfg.get(f"models.effort.{risk}", ""))
+                                 effort=self.cfg.get(f"models.effort.{risk}", ""),
+                                 label=f"{t.id} {t.title[:50]} [{model}, parallel]")
             jobs.append((t, phase, path, branch, model, sid, req, log_path))
 
         def one(req):

@@ -15,6 +15,16 @@ def assistant(mid, model="claude-sonnet-5-5", tool=None, **usage):
                                                         "usage": usage}})
 
 
+def test_activity_lines_show_what_the_session_is_doing():
+    from autopilot.backends.claude_cli import activity
+    edit = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "Now   the\nplan."},
+        {"type": "tool_use", "name": "Edit", "input": {"file_path": "src/app/cli.py", "old_string": "x"}}]}})
+    assert activity(edit) == '"Now the plan."; Edit src/app/cli.py'
+    assert activity(assistant("m1", tool="pytest -q", input_tokens=1)) == "Bash pytest -q"
+    assert activity(json.dumps({"type": "result", "result": "done"})) == "" and activity("not json") == ""
+
+
 def test_partial_usage_sums_messages_and_prices_them():
     raw = "\n".join([
         json.dumps({"type": "system", "subtype": "init", "session_id": "s1"}),

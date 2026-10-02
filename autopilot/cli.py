@@ -83,6 +83,7 @@ def cmd_onboard(args):
     root = Path(args.path).resolve()
     if not (root / AGENT_DIR / "project.yaml").exists():
         cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False))
+    setup_logging(root, False)  # the session's live activity lines
     cfg = Config.load(root)
     plan_doc = Path(args.plan_doc).read_text(encoding="utf-8") if args.plan_doc else \
         "(no plan document — derive a sensible plan from the repository and README)"
@@ -96,7 +97,7 @@ def cmd_onboard(args):
     res = backend.run(SessionRequest(prompt=prompt, model=cfg.get("models.onboard", "opus"), cwd=str(root),
                                      timeout_sec=int(cfg.get("agent.session_timeout_sec", 3600)),
                                      budget_usd=float(args.budget), system_append=system,
-                                     effort=cfg.get("models.effort.onboard", ""),
+                                     effort=cfg.get("models.effort.onboard", ""), label="onboarding",
                                      log_path=str(root / AGENT_DIR / "logs" / "onboard.log")))
     print(res.report.get("summary") or res.text[-1500:] or res.error)
     return cmd_validate(args)

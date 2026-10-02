@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
+import time
 from pathlib import Path
 
 from ..proc import agent_env, stream_proc
 from . import SessionRequest, SessionResult, detect_limit, parse_report, since
 
+progress = logging.getLogger("autopilot")
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
 # Deny-list, not --tools: --tools might also drop the synthetic tool that --json-schema relies on.
 WEB_ONLY_DENY = ["Bash", "Agent", "Task"]
@@ -98,6 +101,26 @@ def result_event(raw: str) -> dict:
 
 def first_session_id(raw: str) -> str:
     return next((str(ev["session_id"]) for ev in _events(raw) if ev.get("session_id")), "")
+
+
+def activity(line: str) -> str:
+    """What a stream-json line shows the session doing: Claude's short text, or one entry per tool call such as
+    `Edit src/app/cli.py`. The live sign that a session is working ('' for anything else)."""
+    if '"assistant"' not in line:
+        return ""
+    ev = next(_events(line), {})
+    content = (ev.get("message") or {}).get("content") if ev.get("type") == "assistant" else None
+    out = []
+    for c in content if isinstance(content, list) else []:
+        if isinstance(c, dict) and c.get("type") == "text" and str(c.get("text") or "").strip():
+            text = " ".join(str(c["text"]).split())  # Claude's own short status line, as Claude Code shows it
+            out.append(f'"{text[:110]}{"…" if len(text) > 110 else ""}"')
+        elif isinstance(c, dict) and c.get("type") == "tool_use":
+            inp = c.get("input") if isinstance(c.get("input"), dict) else {}
+            what = next((inp[k] for k in ("file_path", "command", "pattern", "url", "query", "description")
+                         if inp.get(k)), "")
+            out.append(f"{c.get('name')} {' '.join(str(what).split())[:100]}".rstrip())
+    return "; ".join(out)
 
 
 def stuck_watch(limit: int):
@@ -203,6 +226,7 @@ class ClaudeCLIBackend:
         cmd = self.build_cmd(req)
         prompt = f"{req.system_append}\n\n---\n\n{req.prompt}" if req.system_append and self.shim else req.prompt
         watch = stuck_watch(int(self.cfg.get("agent.stuck_repeats", 4) or 0))
+        started = time.monotonic()
         log = None
         if req.log_path:  # written live: `tail -f` shows what a running session does
             Path(req.log_path).parent.mkdir(parents=True, exist_ok=True)
@@ -213,6 +237,10 @@ class ClaudeCLIBackend:
             if log:
                 log.write(line)
                 log.flush()
+            act = activity(line)
+            if act:
+                secs = int(time.monotonic() - started)
+                progress.info("  ▸ %s · %s · %dm%02ds", req.label or "session", act, secs // 60, secs % 60)
             return watch(line)
 
         p = None

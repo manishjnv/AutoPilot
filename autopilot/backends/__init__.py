@@ -77,6 +77,7 @@ class SessionRequest:
     web_only: bool = False                                  # research: only web search/fetch and reading files
     mcp_config: str = ""                                    # MCP servers for this session only (e.g. Playwright)
     no_tools: bool = False                                  # triage of untrusted text: no file, shell, web or MCP tools
+    label: str = ""                                         # live progress lines: "P01-T01 Project skeleton [haiku]"
 
 
 @dataclass
