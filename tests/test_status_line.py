@@ -177,6 +177,7 @@ def test_status_bar_refits_when_the_window_is_resized(monkeypatch):
     bar.draw()
     tail = out.getvalue().split("\x1b[1;23r")[-1]
     assert "\x1b[1;9r" in tail and "\x1b[10;1H\x1b[2K" + "x" * 39 + "\x1b8" in tail  # new region, line cut to fit
+    assert "\x1b7\x1b[24;1H\x1b[2K\x1b[1;9r" in tail  # the old row is cleared: no text stays behind
     bar.stop()
 
 

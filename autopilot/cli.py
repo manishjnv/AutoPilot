@@ -402,7 +402,9 @@ class StatusBar:
             return
         refit = ""
         if size.lines != self.rows:  # the window was resized: move the reserved rows
-            self.rows, refit = size.lines, f"\x1b7\x1b[1;{size.lines - h}r\x1b8"
+            # the old rows are now inside the part that scrolls: clear them, or their text stays behind new lines
+            old = "".join(f"\x1b[{self.rows - i};1H\x1b[2K" for i in range(h))
+            self.rows, refit = size.lines, f"\x1b7{old}\x1b[1;{size.lines - h}r\x1b8"
         # save the cursor, draw the bottom rows, put the cursor back; then the window title
         from .plain import tint
         # J3: each fact in a row has its color; the title stays plain
