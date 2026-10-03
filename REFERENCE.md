@@ -25,7 +25,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
 | `autopilot run` | Builds until the completion audit passes |
 | `autopilot start` | Starts or continues the build in the background. It is the same as `run --clear-stop --detach` |
-| `autopilot watch` | Follows a run live, in plain words. Ctrl+C stops the watch, not the run |
+| `autopilot watch` | Follows a run live, in plain words. Each work cycle is one line. A status panel at the bottom shows the build, the progress, the usage, and the health. Ctrl+C stops the watch, not the run |
 | `autopilot watch --detail` | Shows each technical log line as it is |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
 | `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |

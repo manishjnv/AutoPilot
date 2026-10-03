@@ -2,6 +2,7 @@
 J3 color, J4 the status says "planning" while quickstart works."""
 import io
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -9,8 +10,8 @@ import pytest
 from autopilot import cli
 from autopilot.cli import main as cli_main
 from autopilot.orchestrator import Orchestrator
-from autopilot.plain import SimpleView, colors_on, paint, sentence, tint
-from autopilot.report import status_words
+from autopilot.plain import SimpleView, colors_on, ending, paint, sentence, tint
+from autopilot.report import status_panel, status_words
 from test_autopilot import FakeBackend, make_project, phases_basic
 from test_backend import stub_claude
 
@@ -43,16 +44,43 @@ def test_a_tool_call_becomes_one_short_sentence(act, text):
     assert sentence(act) == text
 
 
-def test_simple_view_has_one_heading_for_a_task_and_no_repeats():
-    view = SimpleView({"P01-T01": (1, 13, "Project tooling and skeleton")})
+def test_simple_view_has_one_heading_and_a_goal_for_a_task():
+    view = SimpleView({"P01-T01": (1, 13, "Project tooling and skeleton", "Make the package skeleton: (a) one, (b) two.  More text.")})
     label = "P01-T01 Project tooling and skeleton [haiku]"
     assert view.feed(step(label, "Write E:\\x\\pyproject.toml")) == [
-        "", "Task 1 of 13: Project tooling and skeleton", "18:07  Writes pyproject.toml."]
-    assert view.feed(step(label, "Write E:\\x\\src\\cli.py")) == ["18:07  Writes cli.py."]
-    assert view.feed(step(label, "Write E:\\x\\src\\cli.py")) == []  # the same sentence again says nothing new
-    assert view.feed(step("writing PLAN.md", "Bash ls -la")) == ["", "The plan", "18:07  Reads the project files."]
-    assert view.feed(step("onboarding", "Write E:\\x\\.agent\\plan.yaml"))[:2] == ["", "The task list"]
-    assert view.feed(step("verify functional check P01 [sonnet]", "Bash ls"))[1] == "Test of the features"
+        "", "Task 1 of 13: Project tooling and skeleton", "Goal: Make the package skeleton."]
+    assert view.open_line() == "18:07  Writes pyproject.toml."  # the group in work, not final yet
+    assert view.feed(step("writing PLAN.md", "Bash ls -la")) == ["18:07  Writes pyproject.toml.", "", "The plan"]
+    assert view.feed(step("onboarding", "Write E:\\x\\.agent\\plan.yaml"))[:3] == [
+        "18:07  Reads the project files.", "", "The task list"]
+    assert view.feed(step("verify functional check P01 [sonnet]", "Bash ls"))[2] == "Test of the features"
+
+
+def test_one_work_cycle_is_one_line():
+    view = SimpleView({})
+    label = "P01-T02 b [haiku]"
+    out = view.feed(step(label, "Read /x/cli.py"))
+    out += view.feed(step(label, "Read /x/files.py; Grep def main; Read /x/cli.py"))
+    assert out == ["", "Task P01-T02: b"] and view.open_line() == "18:07  Reads 2 files: cli.py, files.py."
+    assert view.feed(step(label, "Write /x/a.py")) == [] and view.open_line() == "18:07  Writes a.py."
+    assert view.feed(step(label, "Edit /x/b.py; Edit /x/a.py")) == []
+    assert view.open_line() == "18:07  Changes 2 files: a.py, b.py."
+    assert view.feed(step(label, "Bash ruff check .; Bash mypy src; Bash pytest -q; Bash ruff check .")) == []
+    cycle = "18:07  Changes 2 files: a.py, b.py. Checks the work: code style, types, tests."
+    assert view.open_line() == cycle
+    assert view.feed(step(label, "Bash pytest -q; echo done; grep x")) == []  # "; " inside a command is no new step
+    assert view.feed(step(label, "Bash frobnicate")) == []  # says nothing new inside a cycle
+    assert view.feed(step(label, "Edit /x/c.py", at="18:09:00")) == [cycle]  # a change after a check: the next cycle
+    assert view.feed(step(label, "WebSearch x", at="18:09:30")) == ["18:09  Changes c.py."]
+    assert view.close() == ["18:09  Searches the web."] and view.close() == [] and view.open_line() is None
+
+
+def test_a_line_too_wide_for_the_window_loses_its_file_names():
+    view = SimpleView({}, width=30)
+    view.feed(step("P01-T02 b", "Read /x/a_long_file_name.py; Read /x/another_long_name.py"))
+    assert view.open_line() == "18:07  Reads 2 files."
+    view.width = 200
+    assert view.open_line() == "18:07  Reads 2 files: a_long_file_name.py, another_long_name.py."
 
 
 def test_simple_view_says_pass_fail_and_phase_end_in_plain_words():
@@ -60,10 +88,30 @@ def test_simple_view_says_pass_fail_and_phase_end_in_plain_words():
     assert view.feed("2026-10-03 18:09:00 INFO task P01-T01 attempt 1 failed: PROBLEM: skip marker") == [
         "18:09  The checks failed. Autopilot tries again."]
     assert view.feed("2026-10-03 18:10:00 INFO task P01-T01 done (haiku, $0.45)") == [
-        "18:10  The task is complete. All checks passed."]
+        "18:10  The task is complete. All checks passed. Attempts: 2."]
     assert view.feed("2026-10-03 18:11:00 INFO closing phase P01 (done)") == ["18:11  Phase P01 is complete."]
     assert view.feed("2026-10-03 18:11:00 INFO quality: P01-T01 · haiku · low · attempts 1") == []
     assert view.feed("not a log line at all") == []
+    assert view.feed("2026-10-03 18:22:00 INFO [Autopilot · x] run_done: stopped by .agent/STOP file") == [
+        "18:22  The build stopped. You asked for the stop."]
+
+
+def test_the_result_line_of_a_task_has_files_time_and_attempts():
+    view = SimpleView({})
+    label = "P01-T03 c [haiku]"
+    view.feed(step(label, "Write /x/a.py; Edit /x/b.py", at="23:58:00"))
+    assert view.feed("2026-10-03 23:59:00 INFO task P01-T03 attempt 1 failed: tests") == [
+        "23:58  Changes 2 files: a.py, b.py.", "23:59  The checks failed. Autopilot tries again."]
+    view.feed(step(label, "Edit /x/a.py", at="23:59:30"))
+    assert view.feed("2026-10-04 00:02:00 INFO task P01-T03 done (sonnet, $0.45)") == [
+        "23:59  Changes a.py.",
+        "00:02  The task is complete. All checks passed. Files changed: 2. Time: 4m. Attempts: 2."]
+
+
+def test_the_last_line_says_how_the_build_ended():
+    assert ending("plan complete") == "The build is complete."
+    assert ending("stopped by .agent/STOP file") == "The build stopped. You asked for the stop."
+    assert ending("budget reached") == "The build stopped. Reason: budget reached."
 
 
 def test_status_in_words(tmp_path):
@@ -126,9 +174,11 @@ def test_paint_and_colored_view():
     assert view.feed("2026-10-03 18:10:00 INFO task P01-T01 done (haiku, $0.45)")[0].count("\x1b[32m") == 1
     assert "\x1b[31m" in view.feed("2026-10-03 18:09:00 INFO task P01-T01 attempt 1 failed: x")[0]
     assert "\x1b[1" in view.feed(step("onboarding", "Read /x/PLAN.md"))[1]  # the heading stands out
-    line = SimpleView({"P01-T01": (1, 3, "a")}, color=True).feed(step("P01-T01 a [haiku]", "Write /x/cli.py; Bash ls"))
+    view = SimpleView({"P01-T01": (1, 3, "a", "Make a.")}, color=True)
+    line = view.feed(step("P01-T01 a [haiku]", "Write /x/cli.py; Write /x/b.py; Bash ls"))
     assert line[1] == "\x1b[1;36mTask 1 of 3: \x1b[0m\x1b[1ma\x1b[0m"  # the count and the title differ
-    assert line[2] == "\x1b[2m18:07\x1b[0m  Writes \x1b[36mcli.py\x1b[0m. Reads the project files."  # time dim, file cyan
+    assert line[2] == "\x1b[2mGoal: Make a.\x1b[0m"
+    assert view.open_line() == "\x1b[2m18:07\x1b[0m  Changes 2 files: \x1b[36mcli.py\x1b[0m, \x1b[36mb.py\x1b[0m."  # time dim, files cyan
 
 
 def test_each_fact_in_the_status_line_has_its_color():
@@ -138,6 +188,40 @@ def test_each_fact_in_the_status_line_has_its_color():
                                 "\x1b[1;36m2 of 13\x1b[0m tasks complete. \x1b[31m1 task is blocked.\x1b[0m "
                                 "\x1b[2mTime: 12m.\x1b[0m")
     assert tint("Build complete. 3 of 3 tasks complete. No problems.", True).count("\x1b[32m") == 2
+    assert tint("Progress: 1/3 done · 0 blocked · 2 questions", True) == (
+        "\x1b[1mProgress\x1b[0m: \x1b[1;36m1/3\x1b[0m done · 0 blocked · \x1b[33m2 questions\x1b[0m")
+    assert tint("Build: Ph 1/2 · Try 2 │ Health: Git OK · Checks OK", True).count("\x1b[32mOK") == 2
+
+
+def test_status_panel_has_short_words_and_uses_the_window_width(tmp_path):
+    orch = Orchestrator(make_project(tmp_path, phases_basic(), BASE), backend=FakeBackend(), sleep=lambda s: None)
+    orch.run()
+    rows = status_panel(orch.cfg, orch.plan, orch.state, {})
+    assert rows[0] == "Build: No build active" and rows[1] == "Progress: 3/3 done · 0 blocked · 0 questions"
+    assert rows[2].startswith("Usage: ") and rows[2].endswith(f"${orch.state.cost():.2f}")
+    assert len(rows) == 3  # no build: no health row
+    live = {"status": "running", "state": "Code", "task": "P02-T01", "attempt": 2, "git": "OK", "build": "OK"}
+    rows = status_panel(orch.cfg, orch.plan, orch.state, live)
+    assert rows[0] == "Build: Ph 2/2 · Task 3/3 · Writes the code · Try 2"
+    assert rows[3].startswith("Health: Git OK · Checks OK")
+    assert status_panel(orch.cfg, orch.plan, orch.state, {"status": "finished"})[0] == "Build: Complete"
+    wide = status_panel(orch.cfg, orch.plan, orch.state, live, width=200)  # a wide window: categories side by side
+    assert len(wide) < 4 and wide[0].startswith(rows[0] + " │ Progress: 3/3 done")
+    assert len(status_panel(orch.cfg, orch.plan, orch.state, live, width=40)) == 4
+
+
+def test_status_bar_with_four_rows(monkeypatch):
+    monkeypatch.delenv("AUTOPILOT_PLAIN", raising=False)
+    monkeypatch.setattr(cli, "enable_vt", lambda: True)
+    monkeypatch.setattr(cli.shutil, "get_terminal_size", lambda *a: os.terminal_size((80, 24)))
+    out = Tty()
+    bar = cli.StatusBar(lambda width: "a\nb\nc\nd", out=out, every=0, height=4, title=lambda: "the title")
+    assert bar.start() is True and "\x1b[1;20r" in out.getvalue()  # rows 1..20 scroll; rows 21..24 are the panel
+    bar.draw()
+    assert "\x1b7\x1b[21;1H\x1b[2Ka\x1b[22;1H\x1b[2Kb\x1b[23;1H\x1b[2Kc\x1b[24;1H\x1b[2Kd\x1b8" in out.getvalue()
+    assert "\x1b]0;the title\x07" in out.getvalue()
+    bar.stop()
+    assert out.getvalue().endswith("\x1b[r\x1b[24;1H\x1b[2K\x1b[23;1H\x1b[2K\x1b[22;1H\x1b[2K\x1b[21;1H\x1b[2K")
 
 
 # ---------------------------------------------------------------- J2: `ap`, and a project without -C

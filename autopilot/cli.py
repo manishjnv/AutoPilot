@@ -358,8 +358,9 @@ class StatusBar:
     line goes into the window title. Only on a real terminal: a pipe, a log file or AUTOPILOT_PLAIN=1 gets nothing,
     so no escape code ever lands in a file. `line(width)` gives the text; a failing `line` is skipped."""
 
-    def __init__(self, line, out=None, every: float = 1.0, bold: bool = False):
+    def __init__(self, line, out=None, every: float = 1.0, bold: bool = False, height: int = 1, title=None):
         self.line, self.out, self.every, self.bold = line, out or sys.stdout, every, bold
+        self.height, self.title = height, title  # J5: `line` may give `height` rows (one for each "\n")
         self.on, self.rows, self.lock, self.done = False, 0, threading.Lock(), threading.Event()
 
     def _write(self, text: str):
@@ -374,8 +375,11 @@ class StatusBar:
         if os.environ.get("AUTOPILOT_PLAIN") or not self.out.isatty() or not enable_vt():
             return False
         self.on, self.rows = True, shutil.get_terminal_size().lines
-        # two fresh lines, then rows 1..n-1 scroll and the cursor waits on the last of them; row n is the line's
-        self._write(f"\n\n\x1b[1;{self.rows - 1}r\x1b[{self.rows - 1};1H")
+        if self.rows < self.height + 6:  # a very small window: one row only
+            self.height = 1
+        h = self.height
+        # fresh lines, then rows 1..n-h scroll and the cursor waits on the last of them; the rows below are the line's
+        self._write("\n" * (h + 1) + f"\x1b[1;{self.rows - h}r\x1b[{self.rows - h};1H")
         if self.every:
             threading.Thread(target=self._loop, daemon=True).start()
         return True
@@ -390,29 +394,34 @@ class StatusBar:
         try:
             size = shutil.get_terminal_size()
             # only printable characters reach the terminal: a control code in the text must not act on it
-            text = "".join(c for c in str(self.line(size.columns - 1)) if c.isprintable())[:size.columns - 1]
+            clean = lambda s: "".join(c for c in str(s) if c.isprintable())[:size.columns - 1]  # noqa: E731
+            raw, h = str(self.line(size.columns - 1)), self.height
+            texts = [clean(s) for s in (raw.split("\n") + [""] * h)[:h]] if h > 1 else [clean(raw)]
+            title = clean(self.title()) if self.title else texts[0]
         except Exception:  # noqa: BLE001 — e.g. the plan is being rewritten right now: keep the last line
             return
         refit = ""
-        if size.lines != self.rows:  # the window was resized: move the reserved row
-            self.rows, refit = size.lines, f"\x1b7\x1b[1;{size.lines - 1}r\x1b8"
-        # save the cursor, draw the bottom row, put the cursor back; then the window title
+        if size.lines != self.rows:  # the window was resized: move the reserved rows
+            self.rows, refit = size.lines, f"\x1b7\x1b[1;{size.lines - h}r\x1b8"
+        # save the cursor, draw the bottom rows, put the cursor back; then the window title
         from .plain import tint
-        row = tint(text, self.bold)  # J3: each fact in the row has its color; the title stays plain
-        self._write(f"{refit}\x1b7\x1b[{self.rows};1H\x1b[2K{row}\x1b8\x1b]0;{text}\x07")
+        # J3: each fact in a row has its color; the title stays plain
+        rows = "".join(f"\x1b[{self.rows - h + 1 + i};1H\x1b[2K{tint(t, self.bold)}" for i, t in enumerate(texts))
+        self._write(f"{refit}\x1b7{rows}\x1b8\x1b]0;{title}\x07")
 
     def stop(self):
         if not self.on:
             return
         self.done.set()
         self.on = False
-        self._write(f"\x1b[r\x1b[{self.rows};1H\x1b[2K")  # whole-screen scrolling again, the row cleared
+        # whole-screen scrolling again, the rows cleared from the bottom up
+        self._write("\x1b[r" + "".join(f"\x1b[{self.rows - i};1H\x1b[2K" for i in range(self.height)))
 
 
 def status_reader(root: Path, words: bool = False):
     """line(width) for the project at `root`: the status line, read fresh from run.json and state.db on each call.
     It only reads, and keeps its own database connection, so use one reader per thread. `words`: in plain words."""
-    from .report import run_journal, status_line, status_words
+    from .report import run_journal, status_line, status_panel, status_words
     from .state import State
     box: dict = {}
 
@@ -424,6 +433,8 @@ def status_reader(root: Path, words: bool = False):
                 box["state"].db.close()
             box.update(cfg=Config.load(root), plan=Plan.load(plan_file), state=State(root / AGENT_DIR / "state.db"),
                        stamp=stamp)
+        if words == "panel":
+            return "\n".join(status_panel(box["cfg"], box["plan"], box["state"], run_journal(root), width))
         if words:
             return status_words(box["cfg"], box["plan"], box["state"], run_journal(root))
         return status_line(box["cfg"], box["plan"], box["state"], run_journal(root), width)
@@ -508,7 +519,7 @@ def cmd_watch(args):
     """Follow a run from any terminal: progress, current step, then every live line until the run finishes."""
     import time
 
-    from .plain import SimpleView, colors_on, paint
+    from .plain import SimpleView, colors_on, ending, paint
     from .report import next_steps_text, run_journal
     root = Path(args.path).resolve()
     log = root / AGENT_DIR / "logs" / "autopilot.log"
@@ -520,19 +531,33 @@ def cmd_watch(args):
         cfg, plan, state = _open_state(root)
         from .context import progress_line
         ids = plan.all_tasks()
-        names = {t.id: (i + 1, len(ids), t.title) for i, t in enumerate(ids)}
+        names = {t.id: (i + 1, len(ids), t.title, t.description) for i, t in enumerate(ids)}
         print(f"{cfg.get('name', root.name)}: {progress_line(plan, state.status_map())}")
     except Exception:  # noqa: BLE001 — a project without a plan yet still has a log to show
         pass
     view = SimpleView(names, color)
 
-    def show(text: str):
+    live, drawn = [False], [None]  # live: the pinned panel is on, so the terminal takes escape codes
+
+    def show(text: str, final: bool = False):
+        """J6: the lines that are final, then the group in work. A terminal draws that group again in place."""
         if not simple:
             print(text, end="" if text.endswith("\n") else "\n", flush=True)
             return
-        for row in text.splitlines():
-            for out in view.feed(row):
-                print(out, flush=True)
+        if live[0]:
+            view.width = shutil.get_terminal_size().columns - 1
+        rows = [out for row in text.splitlines() for out in view.feed(row)]
+        if final or not live[0]:
+            rows += view.close() if final else []
+            now = None
+        else:
+            now = view.open_line()
+            if not rows and now == drawn[0]:
+                return
+        erase = "\x1b[1A\x1b[2K" if drawn[0] else ""  # the cursor is below the group line: go up, clear, write again
+        drawn[0] = now
+        if rows or now or erase:
+            print(erase + "\n".join(rows + ([now] if now else [])), flush=True)
     run = run_journal(root)
     if simple:
         print(paint("Ctrl+C closes this view. The build continues.", "dim", color))
@@ -544,12 +569,21 @@ def cmd_watch(args):
     pos = 0
     if log.exists():
         lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
-        show("\n".join(lines[-(args.lines * 4 if simple else args.lines):]))
+        show("\n".join(lines[-(args.lines * 4 if simple else args.lines):]), final=True)
         pos = log.stat().st_size
     quiet = 0.0
     line = status_reader(root, words=simple)
-    bar = StatusBar(line, bold=color)  # G8: a terminal gets the status line pinned to its bottom row
+    # G8: a terminal gets the status pinned to its bottom; J5: the simple view has four rows, one for each category
+    panel = status_reader(root, words="panel")
+    # a wide window needs fewer rows. A reader of its own: the bar reads on its thread, and a database connection
+    # stays on one thread. ponytail: the height is set once; a window made narrow later cuts rows
+    try:
+        height = len(status_reader(root, words="panel")(shutil.get_terminal_size().columns - 1).split("\n"))
+    except Exception:  # noqa: BLE001 — no plan yet
+        height = 4
+    bar = StatusBar(panel, bold=color, height=height, title=line) if simple else StatusBar(line)
     pinned, shown = bar.start(), [None]
+    live[0] = pinned and simple
 
     def moved():  # not a terminal: print the line when the run moves on, and never an escape code
         now = run_journal(root)
@@ -577,7 +611,8 @@ def cmd_watch(args):
             run = run_journal(root)
             if run.get("status") == "finished" and quiet >= 3:
                 if simple:
-                    print("\n" + paint(f"The build stopped. Reason: {run.get('outcome', '?')}.", "bold", color))
+                    show("", final=True)
+                    print("\n" + paint(ending(run.get("outcome")), "bold", color))
                     print(hints(root, False, color))
                 else:
                     print(f"\nrun finished: {run.get('outcome', '?')}")

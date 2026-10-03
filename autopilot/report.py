@@ -114,6 +114,58 @@ STATE_WORDS = {"Plan": "Makes the plan.", "Code": "Writes the code.",
                "Wait": "Waits.", "Block": "Waits for your answer."}
 
 
+MODEL_NAMES = {"haiku": "Haiku", "sonnet": "Sonnet", "opus": "Opus"}
+
+
+def status_panel(cfg, plan, state, run: dict, width: int | None = None) -> list[str]:
+    """J5: the status by category for the watch window: build, progress, usage, health. Short words. Categories
+    share a row while they fit in `width`, so a wide window needs two rows and a narrow one four."""
+    status, tasks = state.status_map(), plan.all_tasks()
+    done = sum(1 for t in tasks if status.get(t.id) == "done")
+    blocked = sum(1 for t in tasks if status.get(t.id) == "blocked")
+    live, ids = run.get("status") == "running", [t.id for t in tasks]
+    if not live:
+        build = ["No build active" if run.get("status") != "finished" else "Complete" if done == len(tasks) else "Stopped"]
+    else:
+        build = []
+        if run.get("task") in ids:
+            phases = [p.id for p in plan.phases]
+            phase = tasks[ids.index(run["task"])].phase_id
+            build = [f"Ph {phases.index(phase) + 1}/{len(phases)}"] if phase in phases else []
+            build.append(f"Task {ids.index(run['task']) + 1}/{len(ids)}")
+        build.append(STATE_WORDS.get(str(run.get("state") or ""), "Works.").rstrip("."))
+        if int(run.get("attempt") or 1) > 1:
+            build.append(f"Try {int(run['attempt'])}")
+    asked = len(state.decisions("OPEN"))
+    progress = [f"{done}/{len(tasks)} done", f"{blocked} blocked", f"{asked} question{'' if asked == 1 else 's'}"]
+    here = [r for r in state.tasks("done") if (r["finished_at"] or "") >= (run.get("started_at") or "")]
+    left = sum(1 for t in tasks if status.get(t.id, "pending") in ("pending", "running"))
+    if live and left and len(here) >= 3:  # the same pace rule as the digest (G3)
+        ms = state.db.execute("SELECT COALESCE(SUM(duration_ms),0) FROM sessions WHERE id >= ?",
+                              (int(run.get("first_session") or 0),)).fetchone()[0]
+        mins = left * ms / len(here) / 60000
+        progress.append(f"~{round(mins)}m left" if mins < 90 else f"~{mins / 60:.1f}h left")
+    total, models, _, _ = _shares(state, 0)
+    five, week = open_window(state), (state.get_meta("window_seen", {}) or {}).get("seven_day") or {}
+    name = lambda m: next((s for k, s in MODEL_NAMES.items() if k in str(m).lower()), str(m))  # noqa: E731
+    top = sorted(((m, v["total"]) for m, v in models if v["total"]), key=lambda x: -x[1])[:3]
+    usage = [f"5h {round(100 * five['pct'])}%" if five else "",
+             f"Week {round(100 * week['pct'])}%" if five and "pct" in week else "",
+             f"Tok {_n(total)} (" + ", ".join(f"{name(m)} {round(100 * n / total)}%" for m, n in top) + ")" if total else "Tok 0",
+             f"${state.cost():.2f}"]
+    health = [f"Git {run['git']}", f"Checks {run['build']}"] if live and run.get("git") and run.get("build") else []
+    health.append(_runtime(run.get("started_at")) if live else "")
+    cells = [f"{label}: " + " · ".join(x for x in parts if x) for label, parts in
+             (("Build", build), ("Progress", progress), ("Usage", usage), ("Health", health)) if any(parts)]
+    rows = [cells[0]]
+    for cell in cells[1:]:  # side by side while the window is wide enough
+        if width and len(rows[-1]) + len(SEP) + len(cell) <= width:
+            rows[-1] += SEP + cell
+        else:
+            rows.append(cell)
+    return rows
+
+
 def status_words(cfg, plan, state, run: dict) -> str:
     """J1: the status line as ASD-STE100 sentences, for the simple view: the work now, the task, the progress."""
     status, tasks = state.status_map(), plan.all_tasks()
