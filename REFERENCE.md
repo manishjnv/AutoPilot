@@ -44,6 +44,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder.
 | Option | Result |
 |---|---|
 | `--max-sessions N` | Stops after N sessions |
+| `--detach` | Starts the run as a separate process and returns. The run continues after the terminal or the Claude Code chat closes. Its output goes to `.agent/logs/detached.log`. `quickstart` also has this option |
 | `--clear-stop` | Removes the stop flag before the run starts |
 | `--no-browser` | Starts the status page, but does not open the browser |
 | `--no-page` | Does not start the status page |

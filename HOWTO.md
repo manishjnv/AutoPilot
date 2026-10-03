@@ -7,7 +7,7 @@ setting, use the [reference](REFERENCE.md).
 |---|---|
 | Daily use | [Answer a question](#answer-a-question-from-autopilot) · [Give advice to a task](#give-advice-to-a-task) · [Stop and continue a run](#stop-and-continue-a-run) · [Repair a blocked task](#repair-a-blocked-task) · [Add features after a run](#add-features-after-a-run) |
 | Projects | [Change the plan in plain words](#change-the-plan-in-plain-words) · [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
-| Install | [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
+| Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) |
 | Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
@@ -324,6 +324,39 @@ shows the effect of a prompt change.
    | Faults that the audit found | `.agent/audits/` |
 
 7. Write the two results in the change note of the prompt change.
+
+## Start from inside Claude Code
+
+You can start a build from a Claude Code chat in the terminal, in VS Code, or in the desktop app. The build uses
+the same Claude plan as the chat. This does not work in cloud sessions.
+
+**Option 1: paste a prompt.** Copy this prompt into Claude Code:
+
+```text
+Install Autopilot and start a build for me. Show me each command before you run it.
+1. Check that git, uv and claude are installed, and that `claude auth status` shows a login.
+   If one is missing, show me the tutorial https://github.com/manishjnv/AutoPilot/blob/main/GUIDE.md and stop.
+2. If `autopilot --version` fails, install it: uv tool install git+https://github.com/manishjnv/AutoPilot
+   If the shell then does not find autopilot, use the folder that `uv tool dir --bin` shows.
+3. Ask me what to build and in which folder. Refuse my home folder and the root of a drive.
+4. Tell me that the build runs for hours on my Claude plan, then wait for my "go".
+5. Run: autopilot quickstart -C "<folder>" --idea "<my idea>" --run --detach
+6. After one minute, show me the last 20 lines of <folder>/.agent/logs/detached.log.
+7. Tell me to follow the build with: autopilot watch -C "<folder>"
+```
+
+**Option 2: install the plugin.** It adds the `/autopilot` command. In Claude Code, type:
+
+```text
+/plugin marketplace add manishjnv/AutoPilot
+/plugin install autopilot@autopilot
+```
+
+Then type `/autopilot` and your idea. `/autopilot status`, `/autopilot answer` and `/autopilot stop` control the
+run. If a different command has the same name, use the full name `/autopilot:autopilot`. The plugin has no hooks. It only runs `autopilot` commands, and it asks before it installs Autopilot.
+
+Both options start the build with `--detach`. The build is a separate process, so it continues after you close the
+chat. Stop it with `autopilot stop -C "<folder>"`.
 
 ## Install with one script
 

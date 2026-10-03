@@ -1,0 +1,9 @@
+{
+  "name": "autopilot",
+  "version": "0.1.0",
+  "description": "Start, follow, answer and stop an Autopilot build from inside Claude Code. One command, no hooks: it only calls the autopilot CLI.",
+  "author": {"name": "Manish Kumar"},
+  "homepage": "https://github.com/manishjnv/AutoPilot",
+  "repository": "https://github.com/manishjnv/AutoPilot",
+  "license": "MIT"
+}

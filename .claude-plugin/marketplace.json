@@ -1,0 +1,12 @@
+{
+  "name": "autopilot",
+  "owner": {"name": "Manish Kumar"},
+  "metadata": {"description": "Autopilot builds a full plan with Claude Code and checks every step."},
+  "plugins": [
+    {
+      "name": "autopilot",
+      "source": "./plugin",
+      "description": "Start, follow, answer and stop an Autopilot build from inside Claude Code."
+    }
+  ]
+}

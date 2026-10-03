@@ -544,6 +544,32 @@ def open_watch_window(root: Path) -> str:
     return ""
 
 
+def start_detached(root: Path, argv: list[str]) -> int:
+    """I4/H6: start this command again as its own process, then return. The run outlives the terminal or the Claude
+    Code chat that started it (a background command in a chat stops after 2 hours at most)."""
+    import subprocess
+    if run_active(root):
+        print(f"a run is already active for {root}; follow it with `autopilot watch -C \"{root}\"`")
+        return 0
+    log = root / AGENT_DIR / "logs" / "detached.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "-m", "autopilot", *argv]
+    out = open(log, "a", encoding="utf-8")  # noqa: SIM115 — the child keeps it open
+    kw = dict(stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, cwd=str(Path.cwd()))
+    if os.name == "nt":  # a hidden console of its own (git and claude get no window each), out of the caller's job
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        try:
+            p = subprocess.Popen(cmd, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **kw)  # noqa: S603
+        except OSError:  # the caller's job forbids breakaway
+            p = subprocess.Popen(cmd, creationflags=flags, **kw)  # noqa: S603
+    else:  # a new session: no hangup signal when the terminal or the chat closes
+        p = subprocess.Popen(cmd, start_new_session=True, **kw)  # noqa: S603
+    out.close()
+    print(f"started in the background (process {p.pid}); it continues when this terminal or chat closes.\n"
+          f"  follow: autopilot watch -C \"{root}\"\n  stop:   autopilot stop -C \"{root}\"\n  output: {log}")
+    return 0
+
+
 def run_active(root: Path) -> bool:
     """Is an `autopilot run` going on for this project right now? (It holds .agent/run.lock.)"""
     lock = root / AGENT_DIR / "run.lock"
@@ -841,6 +867,7 @@ def main(argv=None):
     p.add_argument("--plan-doc"); p.add_argument("--budget", default="15")
     p.add_argument("--run", action="store_true", help="start the run when the doctor finds no problems")
     p.add_argument("--idea", help="no PLAN.md yet: what to build (text or a file); Claude writes PLAN.md from it")
+    p.add_argument("--detach", action="store_true", help="start as a separate process that outlives this terminal")
     add("validate", cmd_validate, "validate project.yaml and plan.yaml")
     p = add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
     p.add_argument("--fix", action="store_true", help="also fix what needs no person: PATH, reinstall the claude CLI")
@@ -850,6 +877,7 @@ def main(argv=None):
     p.add_argument("--no-browser", action="store_true", help="start the live page but don't open the browser")
     p.add_argument("--no-watch", action="store_true",
                    help="when run without a terminal, don't open a window with `autopilot watch`")
+    p.add_argument("--detach", action="store_true", help="start as a separate process that outlives this terminal")
     p.add_argument("-v", "--verbose", action="store_true")
     add("status", cmd_status, "progress, cost, blocked tasks, approvals")
     add("stats", cmd_stats, "the numbers of a run worth publishing (markdown table)")
@@ -887,6 +915,8 @@ def main(argv=None):
         print(f"autopilot {__version__}: builds your project with Claude Code, checks every step, never waits.")
         print(next_steps_text(Path.cwd()))
         return 0
+    if getattr(args, "detach", False):
+        return start_detached(Path(args.path).resolve(), [a for a in (argv or sys.argv[1:]) if a != "--detach"])
     return args.fn(args) or 0
 
 

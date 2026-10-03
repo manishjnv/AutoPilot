@@ -67,6 +67,25 @@ def test_with_a_terminal_the_login_is_offered_and_the_start_continues(tmp_path, 
     assert "onboarding session" in capsys.readouterr().out
 
 
+def test_detach_starts_the_same_command_as_its_own_process(tmp_path, monkeypatch, capsys):
+    """I4/H6: `--detach` returns at once; the child is the same command without the flag, in a new session or
+    process group, so it outlives the terminal or chat that started it."""
+    seen = {}
+
+    class Child:
+        pid = 4242
+
+        def __init__(self, cmd, **kw):
+            seen.update(cmd=cmd, **kw)
+    monkeypatch.setattr(subprocess, "Popen", Child)
+    proj = tmp_path / "app"
+    assert cli_main(["quickstart", "-C", str(proj), "--idea", "a todo app", "--run", "--detach"]) == 0
+    assert seen["cmd"][1:] == ["-m", "autopilot", "quickstart", "-C", str(proj), "--idea", "a todo app", "--run"]
+    assert seen.get("start_new_session") or seen.get("creationflags", 0) & subprocess.CREATE_NEW_PROCESS_GROUP
+    assert seen["stdin"] == subprocess.DEVNULL and (proj / ".agent" / "logs" / "detached.log").exists()
+    assert "4242" in capsys.readouterr().out
+
+
 def test_missing_plan_doc(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, CLAUDE_OK))
     proj = tmp_path / "app"

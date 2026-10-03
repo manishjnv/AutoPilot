@@ -70,7 +70,8 @@ autopilot quickstart -C myapp --idea "a todo list CLI with due dates" --run
 
 These commands are for Windows PowerShell. For macOS and Linux, and for each step in detail, see the
 [tutorial](GUIDE.md). If you already have a plan, see
-[Use a project that already exists](HOWTO.md#use-a-project-that-already-exists).
+[Use a project that already exists](HOWTO.md#use-a-project-that-already-exists). To start from a Claude Code chat,
+paste one prompt or install the plugin: see [Start from inside Claude Code](HOWTO.md#start-from-inside-claude-code).
 
 **After the run:** the code is on `main`. Also read `CHANGELOG.md`, `docs/RCA.md` and `docs/NEEDS-YOU.md`.
 
