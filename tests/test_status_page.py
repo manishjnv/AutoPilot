@@ -145,4 +145,6 @@ def test_a_headless_run_opens_a_watch_window(tmp_path, monkeypatch):
 
 
 def test_report_text_is_escaped():
-    assert "<script>" not in html_page("<script>alert(1)</script>") and "&lt;script&gt;" in html_page("<script>")
+    assert "<script>alert" not in html_page("<script>alert(1)</script>") and "&lt;script&gt;" in html_page("<script>")
+    page = html_page("x", refresh=7)  # J8: the page keeps the last status when the server is gone
+    assert "<p id=off hidden>" in page and "},7000)" in page and "textContent" in page and "innerHTML" not in page

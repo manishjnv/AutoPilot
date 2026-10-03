@@ -521,7 +521,7 @@ def cmd_watch(args):
     """Follow a run from any terminal: progress, current step, then every live line until the run finishes."""
     import time
 
-    from .plain import SimpleView, colors_on, ending, paint
+    from .plain import SimpleView, colors_on, ending, paint, tint
     from .report import next_steps_text, run_journal
     root = Path(args.path).resolve()
     log = root / AGENT_DIR / "logs" / "autopilot.log"
@@ -539,6 +539,7 @@ def cmd_watch(args):
         pass
     view = SimpleView(names, color)
 
+    asked = [False]
     live, drawn = [False], [None]  # live: the pinned panel is on, so the terminal takes escape codes
 
     def show(text: str, final: bool = False):
@@ -611,11 +612,26 @@ def cmd_watch(args):
                 continue
             quiet += 1
             run = run_journal(root)
+            if simple and not asked[0] and run.get("status") == "running" and (root / AGENT_DIR / "STOP").exists():
+                asked[0], drawn[0] = True, None  # the line in work stays as it is; the notice goes below it
+                print(paint("You asked for a stop. The build stops after the current session.", "yellow", color),
+                      flush=True)
             if run.get("status") == "finished" and quiet >= 3:
                 if simple:
                     show("", final=True)
+                    bar.stop()  # J8: the panel goes; its facts stay on the screen as normal lines
                     print("\n" + paint(ending(run.get("outcome")), "bold", color))
+                    try:
+                        for row in status_reader(root, words="panel")().split("\n"):
+                            print(tint(row, color))
+                    except Exception:  # noqa: BLE001 — no plan: the end line is enough
+                        pass
                     print(hints(root, False, color))
+                    if getattr(args, "hold", False) and sys.stdin and sys.stdin.isatty():
+                        try:  # J8: a window that the build opened stays until the person closes it
+                            input(paint("\nPress Enter to close this window.", "dim", color))
+                        except (EOFError, KeyboardInterrupt):
+                            pass
                 else:
                     print(f"\nrun finished: {run.get('outcome', '?')}")
                     print(next_steps_text(root, running=False))
@@ -631,7 +647,7 @@ def open_watch_window(root: Path) -> str:
     terminal window running `autopilot watch`, so the live view is always on screen. Returns how, or '' when there is
     no desktop to open one on (a server, CI)."""
     import subprocess
-    cmd = [sys.executable, "-m", "autopilot", "watch", "-C", str(root)]
+    cmd = [sys.executable, "-m", "autopilot", "watch", "-C", str(root), "--hold"]
     # Claude Code sets NO_COLOR for its tools; that is not the user's wish for a new window of their own
     env = {k: v for k, v in os.environ.items() if not (k == "NO_COLOR" and os.environ.get("CLAUDECODE"))}
     try:
@@ -1051,6 +1067,7 @@ def main(argv=None):
     p.add_argument("-n", "--lines", type=int, default=20, help="recent lines to show first")
     p.add_argument("--detail", action="store_true", help="the technical view: every log line as it is")
     p.add_argument("--simple", action="store_true", help="plain words, also when the output is not a terminal")
+    p.add_argument("--hold", action="store_true", help="at the end of the build, wait for Enter (a window of its own)")
     p = add("serve", cmd_serve, "live read-only status page in the browser")
     p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8765)
     p.add_argument("--refresh", type=int, default=30, help="seconds between page reloads")

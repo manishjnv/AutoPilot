@@ -143,6 +143,8 @@ def watch(tmp_path, capsys, *flags):
 def test_watch_simple_view_shows_sentences_and_detail_shows_the_log(tmp_path, capsys):
     out = watch(tmp_path, capsys, "--simple")
     assert "Task 1 of 3: a" in out and "Writes x.py." in out and "INFO" not in out and "[haiku]" not in out
+    end = out[out.index("The build is complete."):]  # J8: the end message, then the status in short
+    assert "Build: " in end and "Progress: Tasks 0/3 (0%)" in end and "Usage: " in end
     assert "\x1b" not in out  # not a terminal: no color codes
 
 
