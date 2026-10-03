@@ -22,6 +22,8 @@ decides when a task is complete.
 
 ## How it works
 
+![The loop: plan, task, Claude Code session, the gate, then main. Work that fails goes back to a stronger model.](assets/loop.gif)
+
 ```mermaid
 flowchart LR
     accTitle: How Autopilot builds a plan
