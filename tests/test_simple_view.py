@@ -2,7 +2,6 @@
 J3 color, J4 the status says "planning" while quickstart works."""
 import io
 import json
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -143,8 +142,8 @@ def test_each_fact_in_the_status_line_has_its_color():
 
 # ---------------------------------------------------------------- J2: `ap`, and a project without -C
 def test_ap_is_a_second_name_for_the_same_program():
-    scripts = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
-    assert scripts["ap"] == scripts["autopilot"] == "autopilot.cli:main"
+    text = Path("pyproject.toml").read_text(encoding="utf-8")  # no tomllib: Python 3.10 does not have it
+    assert 'ap = "autopilot.cli:main"' in text and 'autopilot = "autopilot.cli:main"' in text
 
 
 def test_a_command_with_no_folder_uses_the_last_project(tmp_path, monkeypatch, capsys):
