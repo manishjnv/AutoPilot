@@ -58,6 +58,7 @@ agent:
   cache_ttl: ""           # 5m | 1h (CLAUDE_CODE_PROMPT_CACHE_TTL). 1h writes cost more but survive the gaps
                           # when sessions alternate models (decide on opus, task on sonnet); empty = CLI default
   exclude_dynamic_prompt: false   # G5, opt-in: --exclude-dynamic-system-prompt-sections (better cache reuse); measure first
+  user_config: false              # I2: true = sessions also load your ~/.claude settings, plugins, hooks and MCP servers
   stuck_repeats: 4        # abort a session that makes the same tool call this many times in a row (0 = off)
   effort: ""              # low | medium | high | xhigh | max  (empty = CLI default)
   allowed_tools: []

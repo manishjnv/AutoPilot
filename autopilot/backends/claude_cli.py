@@ -240,6 +240,8 @@ class ClaudeCLIBackend:
                           ("agent.cache_ttl", "CLAUDE_CODE_PROMPT_CACHE_TTL")):
             if self.cfg.get(key):
                 env[name] = str(self.cfg.get(key))
+        if not self.cfg.get("agent.user_config"):  # I2: no claude.ai connectors; --setting-sources can't drop them
+            env.setdefault("ENABLE_CLAUDEAI_MCP_SERVERS", "false")
         return env
 
     def build_cmd(self, req: SessionRequest) -> list[str]:
@@ -282,7 +284,13 @@ class ClaudeCLIBackend:
             denied += FILE_READ_TOOLS if req.web_only else WEB_TOOLS
         if denied:
             cmd += ["--disallowedTools", *denied]
-        cmd += list(c.get("agent.extra_args", []))
+        extra = list(c.get("agent.extra_args", []))
+        if not c.get("agent.user_config") and not any(str(a).split("=")[0] == "--setting-sources" for a in extra):
+            # I2: no user settings, plugins, hooks or MCP servers, so a run acts the same on every PC (smoke plan:
+            # ~27k fewer context tokens and ~40 s less per session). The project's own settings and .mcp.json, the
+            # --settings flag (sandbox) and the user's CLAUDE.md (not a setting) still load.
+            cmd += ["--setting-sources", "project,local"]
+        cmd += extra
         return cmd
 
     def run(self, req: SessionRequest) -> SessionResult:

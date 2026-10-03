@@ -1,4 +1,6 @@
 """`autopilot doctor`: environment checks before a run (read-only, no agent session)."""
+import json
+
 import yaml
 
 from autopilot.cli import main as cli_main
@@ -88,6 +90,21 @@ def test_cli_exit_code(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, "print('Bun 1.4.3')\n"))
     project(tmp_path)
     assert cli_main(["doctor", "-C", str(tmp_path)]) == 1 and "problem(s) to fix" in capsys.readouterr().out
+
+
+def test_user_deny_rules_and_hooks_get_a_warning_with_counts_only(tmp_path, monkeypatch):
+    from autopilot.doctor import check_user_guards
+    home = tmp_path / "claudecfg"
+    home.mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+    cfg = project(tmp_path / "p")
+    assert check_user_guards(cfg) is None  # no settings file
+    (home / "settings.json").write_text(json.dumps({"permissions": {"deny": ["Bash(rm -rf:*)", "Read(.env)"]},
+                                                    "hooks": {"PreToolUse": [{"matcher": "Bash"}]}}))
+    level, _, detail = check_user_guards(cfg)
+    assert level == "WARN" and "2 deny rule(s) and 1 tool hook(s)" in detail and "rm -rf" not in detail
+    cfg.data["agent"]["user_config"] = True
+    assert check_user_guards(cfg) is None
 
 
 def test_no_state_db_means_no_claude_config_row(tmp_path):

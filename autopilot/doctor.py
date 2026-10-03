@@ -216,11 +216,31 @@ def _config_load_line(cfg: Config) -> str:
         return ""
 
 
+def check_user_guards(cfg: Config) -> tuple[str, str, str] | None:
+    """I2: sessions skip ~/.claude/settings.json (`agent.user_config: false`), so its deny rules and tool hooks do
+    not apply to them. Counts only, never a rule or a command."""
+    import json
+    if cfg.get("agent.user_config"):
+        return None
+    home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    try:
+        s = json.loads((home / "settings.json").read_text(encoding="utf-8"))
+        deny = len((s.get("permissions") or {}).get("deny") or [])
+        hooks = sum(len((s.get("hooks") or {}).get(k) or []) for k in ("PreToolUse", "PermissionRequest"))
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None
+    if not (deny or hooks):
+        return None
+    return (WARN, "user guards", f"your ~/.claude/settings.json has {deny} deny rule(s) and {hooks} tool hook(s); "
+            "Autopilot sessions do not load them. To keep them, set agent.user_config: true")
+
+
 def checks(cfg: Config) -> list[tuple[str, str, str]]:
     """(level, name, detail) per check. FAIL = the run would break; WARN = it runs, but something is missing."""
     out = [check_path()]
     if cfg.get("agent.backend", "claude_cli") == "claude_cli":
         out += check_claude(cfg)
+        out += [g for g in [check_user_guards(cfg)] if g]
     elif cfg.get("agent.backend") == "command":
         from .backends.command import command_template
         exe = command_template(cfg).split()

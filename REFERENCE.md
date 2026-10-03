@@ -110,7 +110,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 |---|---|---|
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
 | `gate` | The checks | `test_globs`, `ci_files`, `protected` |
-| `agent` | The agent CLI | `backend` (`claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `exclude_dynamic_prompt` (false) |
+| `agent` | The agent CLI | `backend` (`claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `exclude_dynamic_prompt` (false), `user_config` (false) |
 | `sandbox` | The network allowlist | `enabled` (false), `allowed_domains` |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
@@ -130,6 +130,10 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `needs_you` | The questions file | `path` (docs/NEEDS-YOU.md), `wait` (true) |
 | `quality` | Model suggestions | `every` (20) |
 | `replan` | Plan updates | `enabled` (true), `every_n_phases` (5) |
+
+Sessions do not load your own Claude Code settings, plugins, hooks, or MCP servers. Your `CLAUDE.md` still loads,
+and the project's own `.claude/settings.json` and `.mcp.json` also load. Thus a run acts the same on each computer.
+To load your own settings too, for example a proxy or an `apiKeyHelper`, set `agent.user_config: true`.
 
 Autopilot supports these stacks: python, node, go, rust, java, docker, static, and generic. Each project type works
 when you put its build and test commands in `commands`.

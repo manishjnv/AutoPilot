@@ -144,6 +144,21 @@ def test_exclude_dynamic_prompt_is_opt_in_on_every_session(tmp_path):
     assert "--system-prompt" not in ClaudeCLIBackend(cfg).build_cmd(fresh)  # the flag is ignored with it
 
 
+def test_sessions_skip_the_user_config_unless_asked(tmp_path, monkeypatch):
+    monkeypatch.delenv("ENABLE_CLAUDEAI_MCP_SERVERS", raising=False)
+    cfg = Config.load(tmp_path)
+    req = SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path))
+    cmd = ClaudeCLIBackend(cfg).build_cmd(req)
+    assert cmd[cmd.index("--setting-sources") + 1] == "project,local"
+    assert "--strict-mcp-config" not in cmd  # the project's own .mcp.json still loads
+    assert ClaudeCLIBackend(cfg).env()["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false"
+    cfg.data["agent"]["extra_args"] = ["--setting-sources", "user,project,local"]  # the user's own choice wins
+    assert ClaudeCLIBackend(cfg).build_cmd(req).count("--setting-sources") == 1
+    cfg.data["agent"].update(extra_args=[], user_config=True)
+    assert "--setting-sources" not in ClaudeCLIBackend(cfg).build_cmd(req)
+    assert "ENABLE_CLAUDEAI_MCP_SERVERS" not in ClaudeCLIBackend(cfg).env()
+
+
 def test_exclude_dynamic_prompt_never_reaches_the_command_backend(tmp_path):
     from autopilot.backends.command import CommandBackend
     cfg = Config.load(tmp_path)
