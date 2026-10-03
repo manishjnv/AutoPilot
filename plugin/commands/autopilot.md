@@ -26,6 +26,7 @@ Do one of these:
    5. Run `autopilot quickstart -C "<folder>" --idea "<the idea>" --run --detach`. The `--detach` flag starts a
       separate process, so the build continues after this chat closes.
    6. Wait one minute. Show the last 20 lines of `<folder>/.agent/logs/detached.log`.
-   7. Tell the user to follow the build with `autopilot watch -C "<folder>"` in a terminal.
+   7. Tell the user the short commands for a terminal: `ap watch` (follow the build), `ap status`, `ap stop`,
+      `ap start` (continue the build). They need no folder. Do not show the long `autopilot ... -C` form.
 
 Do not start a second build in a folder that has an active run: `autopilot status` shows it.

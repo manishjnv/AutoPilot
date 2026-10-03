@@ -405,15 +405,15 @@ def next_steps(root, running: bool | None = None) -> list[str]:
         tips.append(f"{len(blocked)} task(s) blocked: fix the spec in .agent/plan.yaml, then autopilot unblock "
                     f"{blocked[0]['id']}")
     if running:
-        tips += ["autopilot watch                 follow the run live (Ctrl+C stops watching only)",
-                 "autopilot stop                  stop before the next session; autopilot run continues later"]
+        tips += ["ap watch                        follow the build live (Ctrl+C closes the view only)",
+                 "ap stop                         stop before the next session; ap start continues later"]
     elif pending:
-        tips += [f"autopilot run                   build the {pending} remaining task(s)  (autopilot next: the order)"]
+        tips += [f"ap start                        build the {pending} remaining task(s)  (ap next: the order)"]
     else:
-        tips += ["autopilot stats                 the results of the build",
+        tips += ["ap stats                        the results of the build",
                  f"add ideas to {cfg.get('docs.backlog', 'docs/BACKLOG.md')} (one '- idea' per line), then "
                  "autopilot run"]
-    return tips + ["autopilot status                progress, cost and blocked tasks · autopilot -h: all commands"]
+    return tips + ["ap status                       progress, cost and blocked tasks · ap -h: all commands"]
 
 
 def next_steps_text(root, running: bool | None = None) -> str:

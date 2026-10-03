@@ -437,7 +437,7 @@ def hints(root: Path, running: bool | None, color: bool) -> str:
     out = []
     for row in next_steps_text(root, running).split("\n"):
         cmd, gap, rest = row.strip().partition("  ")
-        out.append(f"  {paint(cmd, 'cyan', color)}{gap}{rest}" if row.startswith("  autopilot ") else row)
+        out.append(f"  {paint(cmd, 'cyan', color)}{gap}{rest}" if row.startswith("  ap ") else row)
     return "\n".join(out)
 
 
@@ -464,8 +464,8 @@ def cmd_run(args):
     if not sys.stdout.isatty() and not getattr(args, "no_watch", False) and not os.environ.get("AUTOPILOT_NO_BROWSER"):
         how = open_watch_window(root)  # no terminal of our own: put `autopilot watch` on screen
         if how:
-            print(f"opened a {how} with `autopilot watch`", flush=True)
-    print(f"\nFollow this run: {url + ' in a browser, or ' if url else ''}`autopilot watch` in another terminal "
+            print(f"opened a {how} with `ap watch`", flush=True)
+    print(f"\nFollow this run: {url + ' in a browser, or ' if url else ''}`ap watch` in another terminal "
           f"(log: {root / AGENT_DIR / 'logs' / 'autopilot.log'})\n", flush=True)
     bar = StatusBar(status_reader(root))  # G8: the status line stays on the bottom row while the run prints above it
     bar.start()
@@ -619,7 +619,7 @@ def start_detached(root: Path, argv: list[str]) -> int:
     Code chat that started it (a background command in a chat stops after 2 hours at most)."""
     import subprocess
     if run_active(root):
-        print(f"a run is already active for {root}; follow it with `autopilot watch -C \"{root}\"`")
+        print(f"a run is already active for {root}; follow it with `ap watch`")
         return 0
     log = root / AGENT_DIR / "logs" / "detached.log"
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -636,7 +636,7 @@ def start_detached(root: Path, argv: list[str]) -> int:
         p = subprocess.Popen(cmd, start_new_session=True, **kw)  # noqa: S603
     out.close()
     print(f"started in the background (process {p.pid}); it continues when this terminal or chat closes.\n"
-          f"  follow: autopilot watch -C \"{root}\"\n  stop:   autopilot stop -C \"{root}\"\n  output: {log}")
+          f"  follow: ap watch\n  stop:   ap stop\n  start again: ap start\n  output: {log}")
     return 0
 
 
