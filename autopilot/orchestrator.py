@@ -1602,7 +1602,7 @@ class Orchestrator:
                 ok, why = gate.ok, gate.report()
         if ok and self.git.staged_files():
             rca = res.report.get("rca") if isinstance(res.report.get("rca"), dict) else {}
-            self.docs.rca("repair", "repair project environment", rca)
+            self.docs.rca("repair", "project environment", rca)
             self.git.commit_all(f"[autopilot] repair: project environment\n\n{res.report.get('summary', '')}")
             self.git.merge(branch, self.main, "[autopilot] repair: project environment (merge)")
             self.git.delete_branch(branch)

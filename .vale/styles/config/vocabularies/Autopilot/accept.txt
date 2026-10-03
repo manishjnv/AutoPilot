@@ -4,6 +4,7 @@
 [Ss]onnet
 [Oo]pus
 SecretScan
+envguard
 Mermaid
 ntfy
 systemd

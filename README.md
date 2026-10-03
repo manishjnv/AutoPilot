@@ -44,16 +44,21 @@ flowchart LR
 
 ## Real results
 
-The first real project was **SecretScan**, a CLI that finds leaked secrets in a repository.
+Two real projects, each a CLI built from a plan:
 
-| Measure | Result |
-|---|---|
-| Tasks merged | **27 of 27**: 13 from the plan and 14 from the audits |
-| Blocked tasks | **0** |
-| Passed on the first attempt | 25 of 27 |
-| Decisions that needed a person | **0** |
-| Agent time | 2.2 hours, 38 sessions |
-| Cost | $17.13 at API prices. The run used a subscription |
+- **SecretScan** finds leaked secrets in a repository.
+- **envguard** checks `.env` files against a schema and finds secrets in the git history.
+
+| Measure | SecretScan | envguard |
+|---|---|---|
+| Tasks merged | **27 of 27**: 13 from the plan, 14 from the audits | **21 of 21**: 11 from the plan, 10 from the audits |
+| Blocked tasks | **0** | **0** |
+| Passed on the first attempt | 25 of 27 | 17 of 21 |
+| Decisions that needed a person | **0** | **0** |
+| Agent time | 2.2 hours, 38 sessions | 1.4 hours, 42 sessions |
+| Cost at API prices | $17.13 | $19.01 |
+
+Both runs used a subscription. The envguard audits found 8 real bugs, and Autopilot fixed all of them.
 
 ## Quick start
 

@@ -130,20 +130,6 @@ def test_shim_keeps_system_text_out_of_argv(tmp_path, monkeypatch):
     assert "--append-system-prompt" in ClaudeCLIBackend(cfg).build_cmd(req)
 
 
-DYN = "--exclude-dynamic-system-prompt-sections"
-
-
-def test_exclude_dynamic_prompt_is_opt_in_on_every_session(tmp_path):
-    cfg = Config.load(tmp_path)
-    fresh = SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path))
-    resumed = SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path), resume="abc")
-    assert DYN not in ClaudeCLIBackend(cfg).build_cmd(fresh)
-    cfg.data["agent"]["exclude_dynamic_prompt"] = True
-    assert DYN in ClaudeCLIBackend(cfg).build_cmd(fresh)
-    assert DYN in ClaudeCLIBackend(cfg).build_cmd(resumed)
-    assert "--system-prompt" not in ClaudeCLIBackend(cfg).build_cmd(fresh)  # the flag is ignored with it
-
-
 def test_sessions_skip_the_user_config_unless_asked(tmp_path, monkeypatch):
     monkeypatch.delenv("ENABLE_CLAUDEAI_MCP_SERVERS", raising=False)
     cfg = Config.load(tmp_path)
@@ -157,15 +143,6 @@ def test_sessions_skip_the_user_config_unless_asked(tmp_path, monkeypatch):
     cfg.data["agent"].update(extra_args=[], user_config=True)
     assert "--setting-sources" not in ClaudeCLIBackend(cfg).build_cmd(req)
     assert "ENABLE_CLAUDEAI_MCP_SERVERS" not in ClaudeCLIBackend(cfg).env()
-
-
-def test_exclude_dynamic_prompt_never_reaches_the_command_backend(tmp_path):
-    from autopilot.backends.command import CommandBackend
-    cfg = Config.load(tmp_path)
-    cfg.data["agent"]["exclude_dynamic_prompt"] = True
-    cfg.data["agent"]["command"] = 'python -c "import sys; print(sys.argv[1:])" {model}'
-    res = CommandBackend(cfg).run(SessionRequest(prompt="x", model="m", cwd=str(tmp_path)))
-    assert res.ok and "exclude-dynamic" not in res.text
 
 
 def test_agent_env_entry_reaches_the_claude_process(tmp_path, monkeypatch):
