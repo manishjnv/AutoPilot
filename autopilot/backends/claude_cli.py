@@ -137,6 +137,26 @@ def window_info(raw: str) -> dict:
     return out
 
 
+def config_load(raw: str) -> dict:
+    """I1: what the session loaded from the user's own Claude config, from the first `init` event and the SessionStart
+    hook events: {plugins: [names], mcp: {connected, other}, mcp_names: [names], hooks: n}. Names and counts only (never
+    paths, versions or settings). {} when the CLI says nothing about it (an older CLI)."""
+    evs = list(_events(raw))
+    init = next((e for e in evs if e.get("type") == "system" and e.get("subtype") == "init"), None)
+    if not init or not any(k in init for k in ("plugins", "mcp_servers")):
+        return {}
+
+    def named(key):
+        items = init.get(key)
+        return [x for x in items if isinstance(x, dict)] if isinstance(items, list) else []
+    mcp = named("mcp_servers")
+    connected = sum(1 for m in mcp if m.get("status") == "connected")
+    return {"plugins": [str(p.get("name")) for p in named("plugins") if p.get("name")],
+            "mcp": {"connected": connected, "other": len(mcp) - connected},
+            "mcp_names": [str(m.get("name")) for m in mcp if m.get("name")],
+            "hooks": sum(1 for e in evs if e.get("subtype") == "hook_started" and e.get("hook_event") == "SessionStart")}
+
+
 def first_session_id(raw: str) -> str:
     return next((str(ev["session_id"]) for ev in _events(raw) if ev.get("session_id")), "")
 
@@ -305,7 +325,8 @@ class ClaudeCLIBackend:
         if p.timed_out or p.stopped:  # killed: no result event, so tokens come from the messages seen so far
             usage = partial_usage(p.stdout, req.model)
             killed = dict(ok=False, session_id=first_session_id(p.stdout), usage=usage,
-                          cost=round(sum(u["cost"] for u in usage.values()), 6), window=window_info(p.stdout))
+                          cost=round(sum(u["cost"] for u in usage.values()), 6), window=window_info(p.stdout),
+                          config=config_load(p.stdout))
             if p.timed_out:
                 return SessionResult(error=f"session timed out after {req.timeout_sec}s", timed_out=True, **killed)
             return SessionResult(error=p.stopped, stuck=True, **killed)
@@ -330,4 +351,5 @@ class ClaudeCLIBackend:
             report=report or {}, error=err or (f"{infra} failure" if infra else ""), rate_limited=limited, reset_at=reset_at, infra=infra,
             usage=own["usage"],
             num_turns=own["num_turns"], duration_ms=own["duration_ms"], totals=totals, window=window_info(raw),
+            config=config_load(raw),
         )

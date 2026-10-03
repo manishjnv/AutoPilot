@@ -86,3 +86,58 @@ def test_digest_and_report_say_what_is_not_verified(tmp_path):
     line = "Not verified: 1 task merged with gate warnings, 1 feature not checked."
     assert line in digest(orch.cfg, orch.plan, orch.state)
     assert f"- {line}" in build_report(orch.cfg, orch.plan, orch.state)
+
+
+# ---- I1: what sessions load from the owner's Claude config ----
+import json  # noqa: E402
+
+from autopilot.backends.claude_cli import config_load  # noqa: E402
+from autopilot.report import build_report  # noqa: E402
+
+SECRET = "C:/Users/me/.claude/plugins/secret-path"
+INIT = {"type": "system", "subtype": "init",
+        "plugins": [{"name": "alpha", "path": SECRET, "source": "x", "version": "9.9.9"}, {"name": "beta", "path": SECRET}],
+        "mcp_servers": [{"name": "m1", "status": "connected", "source": SECRET}, {"name": "m2", "status": "failed"}]}
+HOOK = {"type": "system", "subtype": "hook_started", "hook_name": "SessionStart:startup", "hook_event": "SessionStart"}
+STREAM = "\n".join(json.dumps(e) for e in (INIT, HOOK, {**HOOK, "hook_event": "Stop"}))
+
+
+def test_config_load_reads_names_and_counts_only():
+    got = config_load(STREAM)
+    assert got == {"plugins": ["alpha", "beta"], "mcp": {"connected": 1, "other": 1}, "mcp_names": ["m1", "m2"], "hooks": 1}
+    assert SECRET not in json.dumps(got) and "9.9.9" not in json.dumps(got)
+
+
+def test_config_load_says_nothing_when_the_cli_does_not():
+    assert config_load("") == {} and config_load("not json") == {}
+    assert config_load(json.dumps({"type": "system", "subtype": "init", "session_id": "s"})) == {}
+    junk = {"type": "system", "subtype": "init", "plugins": "x", "mcp_servers": [1, None, {"name": "m", "status": 3}]}
+    assert config_load(json.dumps(junk)) == {"plugins": [], "mcp": {"connected": 0, "other": 1}, "mcp_names": ["m"],
+                                             "hooks": 0}
+
+
+class Configured(FakeBackend):
+    def run(self, req):
+        res = super().run(req)
+        res.config = config_load(STREAM)
+        return res
+
+
+LINE = "Sessions load from your Claude config: 2 plugins, 2 MCP servers (1 connected), 1 startup hooks"
+
+
+def test_report_and_doctor_show_the_config_a_session_loaded(tmp_path):
+    from autopilot.config import Config
+    from autopilot.doctor import checks
+    root = make_project(tmp_path, phases_basic()[:1], BASE)
+    orch = Orchestrator(root, backend=Configured(), sleep=lambda s: None)
+    orch.run()
+    report = build_report(orch.cfg, orch.plan, orch.state)
+    assert f"- {LINE}" in report and SECRET not in report
+    rows = {n: d for _, n, d in checks(Config.load(root))}
+    assert rows["claude config"] == LINE + " (from the last session)"
+    (tmp_path / "b").mkdir()
+    plain = Orchestrator(make_project(tmp_path / "b", phases_basic()[:1], BASE), backend=FakeBackend(), sleep=lambda s: None)
+    plain.run()
+    assert "Sessions load from" not in build_report(plain.cfg, plain.plan, plain.state)
+    assert "claude config" not in {n for _, n, _ in checks(Config.load(tmp_path / "b"))}

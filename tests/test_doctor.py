@@ -88,3 +88,7 @@ def test_cli_exit_code(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, "print('Bun 1.4.3')\n"))
     project(tmp_path)
     assert cli_main(["doctor", "-C", str(tmp_path)]) == 1 and "problem(s) to fix" in capsys.readouterr().out
+
+
+def test_no_state_db_means_no_claude_config_row(tmp_path):
+    assert "claude config" not in by_name(checks(project(tmp_path)))

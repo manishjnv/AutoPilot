@@ -197,6 +197,25 @@ def autofix(rows: list[tuple[str, str, str]]) -> list[str]:
     return [f"{name}: {FIXES[name]()}" for level, name, _ in rows if level != OK and name in FIXES]
 
 
+def _config_load_line(cfg: Config) -> str:
+    """I1: what the last session loaded from the Claude config; read-only, '' when there is no state.db or no figure."""
+    import json
+    import sqlite3
+    from .report import config_line
+    db = cfg.agent_dir / "state.db"
+    if not db.is_file():
+        return ""
+    try:
+        con = sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            row = con.execute("SELECT value FROM meta WHERE key='config_load'").fetchone()
+        finally:
+            con.close()
+        return config_line(json.loads(row[0])) if row else ""
+    except (sqlite3.Error, ValueError, TypeError):
+        return ""
+
+
 def checks(cfg: Config) -> list[tuple[str, str, str]]:
     """(level, name, detail) per check. FAIL = the run would break; WARN = it runs, but something is missing."""
     out = [check_path()]
@@ -236,6 +255,9 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
         out.append((FAIL if miss else OK, "telegram chat", f"chat.enabled but {', '.join(miss)} not set" if miss
                     else "bot token and chat id set"))
 
+    line = _config_load_line(cfg)
+    if line:
+        out.append((OK, "claude config", line + " (from the last session)"))
     for e in cfg.blocking_errors():
         out.append((FAIL, "config", e))
     for e in sorted(set(cfg.validate()) - set(cfg.blocking_errors())):

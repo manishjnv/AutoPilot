@@ -234,6 +234,16 @@ def _quality_section(cfg, plan, state) -> list[str]:
     return out + (["", "Suggestions:"] + [f"- {t}" for t in tips] if tips else [])
 
 
+def config_line(cfg_meta) -> str:
+    """I1: one line on what sessions load from the user's Claude config; '' when no session reported it."""
+    if not isinstance(cfg_meta, dict) or not cfg_meta:
+        return ""
+    mcp = cfg_meta.get("mcp") or {}
+    n_mcp = int(mcp.get("connected", 0)) + int(mcp.get("other", 0))
+    return (f"Sessions load from your Claude config: {len(cfg_meta.get('plugins') or [])} plugins, {n_mcp} MCP servers "
+            f"({int(mcp.get('connected', 0))} connected), {int(cfg_meta.get('hooks', 0))} startup hooks")
+
+
 def _this_run(cfg, plan, state) -> list[str]:
     try:
         run = json.loads((cfg.agent_dir / "run.json").read_text(encoding="utf-8"))
@@ -256,7 +266,7 @@ def _this_run(cfg, plan, state) -> list[str]:
     return ["", "## This run", "", f"- Started: {run.get('started_at', '?')} ({run.get('status', '?')})",
             f"- Outcome: {run.get('outcome') or 'still running'}", f"- Tasks done this run: {len(done)}",
             f"- Sessions this run: {sessions}", f"- Open decisions: {len(open_d)}", f"- Next action: {action}",
-            f"- {token_footer(state, first)}"] + [f"- {w}" for w in (window_line(state),) if w]
+            f"- {token_footer(state, first)}"] + [f"- {w}" for w in (window_line(state), config_line(state.get_meta("config_load"))) if w]
 
 
 def build_report(cfg, plan, state) -> str:

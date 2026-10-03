@@ -639,6 +639,8 @@ class Orchestrator:
 
     def note_window(self, res: SessionResult):
         """G1: keep the CLI's own usage figure for `window_gate`, and say once when the weekly limit is nearly used."""
+        if res.config:  # I1: shown in the report and doctor
+            self.state.set_meta("config_load", res.config)
         if not res.window:
             return
         self.state.set_meta("window_seen", res.window)
