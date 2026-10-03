@@ -239,6 +239,15 @@ def test_skip_finding_says_what_to_do_instead(repo):
     assert not any("not allowed" in f for f in tamper(repo, allow=True))  # a task that may change tests: no such hint
 
 
+def test_platform_skipif_still_fails_and_the_hint_says_so(repo):
+    # envguard run 2026-10-03: the old hint said "guard it on a real platform condition"; the agent wrote a
+    # platform skipif twice and failed twice. A text match cannot tell a real guard from os.name == os.name.
+    put(repo, "tests/test_n.py", "import shutil\nimport pytest\n\n\n"
+        '@pytest.mark.skipif(shutil.which("git") is None, reason="no git")\ndef test_a():\n    assert 1\n')
+    found = [f for f in tamper(repo) if "skip/focus" in f]
+    assert len(found) == 1 and "`skipif` on a platform condition too" in found[0]
+
+
 def test_each_hint_appears_once_however_many_findings(repo):
     put(repo, "tests/test_n.py", "import pytest\n\n\ndef test_n():\n    pytest.skip('x')\n\n\n"
                                  "def test_m():\n    pytest.skip('y')\n\n\ndef test_o():\n    pytest.skip('z')\n")

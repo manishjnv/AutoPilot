@@ -36,7 +36,8 @@ ASSERT_RX = re.compile(r"\bassert\w*\b|\bexpect\s*\(|\bt\.(?:Error|Fatal)\w*\(|\
 COLLECT_RX = re.compile(r"pytest_collection_modifyitems|pytest_ignore_collect|collect_ignore|deselect")
 PLACEHOLDER_RX = re.compile(r"(?i)example|placeholder|change_?me|dummy|fake|sample|your[_-]|xxx|\*\*\*|<[^>]*>|\$\{|\{\{|%\(")
 # G2: each finding says how to fix it. The retry reads these; no rule is weaker for it.
-SKIP_HINT = " (skips are not allowed: make the test run, or guard it on a real platform condition)"
+SKIP_HINT = (" (skips are not allowed, `skipif` on a platform condition too: make the test run on this machine, "
+             "or test the behavior another way and list the gap under followups)")
 FAKE_HINT = " (test data? use a value containing example, dummy or fake)"
 SETTINGS_FILES = {"pyproject.toml", "setup.cfg", "package.json", "tox.ini", "pytest.ini"}
 SETTINGS_REMOVED_RX = re.compile(r'addopts|testpaths|python_files|"test"\s*:|testMatch|testPathIgnorePatterns')
