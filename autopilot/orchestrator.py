@@ -688,13 +688,14 @@ class Orchestrator:
         self._journal(current=label or " ".join(
             x for x in (kind, task_id, f"attempt {attempt}" if kind == "task" else "") if x),
             state=STATE.get(kind, "Code"), task=task_id or "", attempt=attempt, model=model, live_tokens=0,
-            max_attempts=max(attempt, int(self.cfg.get("retries.max_attempts_per_task", 3))))
+            context_tokens=0, max_attempts=max(attempt, int(self.cfg.get("retries.max_attempts_per_task", 3))))
         sid = self.state.start_session(kind, task_id, phase, attempt, model)
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
         log.info("session #%s %s %s model=%s attempt=%s", sid, kind, task_id or "", model, attempt)
         task = self.plan.task_by_id.get(task_id) if task_id and self.plan else None
         who = " ".join(x for x in (task_id or kind, task.title[:50] if task else label) if x)
+        seen = [0]  # J5: the context size, written to the journal with the token count
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
                              label=f"{who} [{model}{f', try {attempt}' if attempt > 1 else ''}]",
                              timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
@@ -702,10 +703,11 @@ class Orchestrator:
                              read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort,
                              web_only=web_only, mcp_config=mcp_config, no_tools=no_tools,
                              resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {},
-                             on_tokens=lambda n: self._journal(live_tokens=n))
+                             on_context=lambda n: seen.__setitem__(0, n),
+                             on_tokens=lambda n: self._journal(live_tokens=n, context_tokens=seen[0]))
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
         res = self._run_backend(req)
-        self._journal(live_tokens=0)  # from here its tokens are in the ledger
+        self._journal(live_tokens=0, context_tokens=0)  # from here its tokens are in the ledger
         undone = self.git.guard_config(config_before)  # e.g. husky's core.hooksPath: harmless, but never kept
         if undone:
             log.warning("session %s changed git config: %s", sid, "; ".join(undone))

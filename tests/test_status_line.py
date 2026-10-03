@@ -129,6 +129,10 @@ def test_usage_meter_counts_tokens_as_the_stream_arrives():
     assert feed(msg("m1", 10)) == 115  # one message split over several events: counted once
     assert feed(msg("m2", 20)) == 240
     assert feed("not json") == 240 and feed(json.dumps({"type": "result"})) == 240
+    assert feed.context == 125  # J5: the newest message of the main agent is the context size
+    helper = json.loads(msg("m3", 900))
+    helper["parent_tool_use_id"] = "t1"
+    assert feed(json.dumps(helper)) == 1245 and feed.context == 125  # a helper agent has a context of its own
 
 
 def test_backend_reports_tokens_while_the_session_runs(tmp_path, monkeypatch):

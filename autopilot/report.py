@@ -117,6 +117,13 @@ STATE_WORDS = {"Plan": "Makes the plan.", "Code": "Writes the code.",
 MODEL_NAMES = {"haiku": "Haiku", "sonnet": "Sonnet", "opus": "Opus"}
 
 
+def _bar(share: float, cells: int = 8) -> str:
+    """A bar and the percentage: '███░░░░░ 34%'."""
+    share = min(max(float(share), 0.0), 1.0)
+    full = round(share * cells)
+    return "█" * full + "░" * (cells - full) + f" {round(100 * share)}%"
+
+
 def status_panel(cfg, plan, state, run: dict, width: int | None = None) -> list[str]:
     """J5: the status by category for the watch window: build, progress, usage, health. Short words. Categories
     share a row while they fit in `width`, so a wide window needs two rows and a narrow one four."""
@@ -136,8 +143,13 @@ def status_panel(cfg, plan, state, run: dict, width: int | None = None) -> list[
         build.append(STATE_WORDS.get(str(run.get("state") or ""), "Works.").rstrip("."))
         if int(run.get("attempt") or 1) > 1:
             build.append(f"Try {int(run['attempt'])}")
+        used = int(run.get("context_tokens") or 0)
+        if used:  # ponytail: the limit is a guess from the size (200k, or 1M for a larger session), not a CLI figure
+            build.append(f"Context {_bar(used / (200_000 if used <= 200_000 else 1_000_000))}")
+    phases_done = sum(1 for p in plan.phases if p.tasks and all(status.get(t.id) == "done" for t in p.tasks))
     asked = len(state.decisions("OPEN"))
-    progress = [f"{done}/{len(tasks)} done", f"{blocked} blocked", f"{asked} question{'' if asked == 1 else 's'}"]
+    progress = [f"Tasks {done}/{len(tasks)} ({100 * done // len(tasks) if tasks else 0}%)",
+                f"Phases {phases_done}/{len(plan.phases)}", f"{blocked} blocked", f"{asked} question{'' if asked == 1 else 's'}"]
     here = [r for r in state.tasks("done") if (r["finished_at"] or "") >= (run.get("started_at") or "")]
     left = sum(1 for t in tasks if status.get(t.id, "pending") in ("pending", "running"))
     if live and left and len(here) >= 3:  # the same pace rule as the digest (G3)
@@ -149,9 +161,9 @@ def status_panel(cfg, plan, state, run: dict, width: int | None = None) -> list[
     five, week = open_window(state), (state.get_meta("window_seen", {}) or {}).get("seven_day") or {}
     name = lambda m: next((s for k, s in MODEL_NAMES.items() if k in str(m).lower()), str(m))  # noqa: E731
     top = sorted(((m, v["total"]) for m, v in models if v["total"]), key=lambda x: -x[1])[:3]
-    usage = [f"5h {round(100 * five['pct'])}%" if five else "",
-             f"Week {round(100 * week['pct'])}%" if five and "pct" in week else "",
-             f"Tok {_n(total)} (" + ", ".join(f"{name(m)} {round(100 * n / total)}%" for m, n in top) + ")" if total else "Tok 0",
+    usage = [f"5h {_bar(five['pct'])}" if five else "",
+             f"Week {_bar(week['pct'])}" if five and "pct" in week else "",
+             f"Tok {_n(total)} (" + ", ".join(f"{name(m)} {_n(n)} {round(100 * n / total)}%" for m, n in top) + ")" if total else "Tok 0",
              f"${state.cost():.2f}"]
     health = [f"Git {run['git']}", f"Checks {run['build']}"] if live and run.get("git") and run.get("build") else []
     health.append(_runtime(run.get("started_at")) if live else "")
@@ -483,19 +495,26 @@ def run_journal(root) -> dict:
         return {}
 
 
-def live_section(root, lines: int = 15) -> str:
-    """What the run is doing right now: status, current step, and the last few live lines from the project log."""
+def live_section(root, lines: int = 25, plan=None) -> str:
+    """J7: what the run does now, in the same plain words as the watch window: the last lines of the simple view."""
     from pathlib import Path
 
     from . import AGENT_DIR
+    from .plain import SimpleView, ending
     run = run_journal(root)
     log = Path(root) / AGENT_DIR / "logs" / "autopilot.log"
-    tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:] if log.exists() else []
+    ids = plan.all_tasks() if plan is not None else []
+    view = SimpleView({t.id: (i + 1, len(ids), t.title, t.description) for i, t in enumerate(ids)})
+    # ponytail: reads the full log on each page load (every 30 s); read only the end if a log grows to many MB
+    raw = log.read_text(encoding="utf-8", errors="replace").splitlines()[-400:] if log.exists() else []
+    tail = ([out for row in raw for out in view.feed(row)] + view.close())[-lines:]
     state = run.get("status", "no run yet")
     head = [f"## Now ({state})", "",
-            f"- Current: {run.get('current') or ('finished: ' + run.get('outcome', '?') if state == 'finished' else '-')}",
-            f"- Started: {run.get('started_at', '-')} · last update {run.get('updated_at', '-')}", "", "```"]
-    return "\n".join(head + [line[20:] if line[:2] == "20" else line for line in tail] + ["```", ""]
+            f"- Start: {str(run.get('started_at', '-')).replace('T', ' ')}. Last update: "
+            f"{str(run.get('updated_at', '-')).replace('T', ' ')}."]
+    if state == "finished":
+        head.append(f"- {ending(run.get('outcome'))}")
+    return "\n".join(head + ["", "```"] + tail + ["```", ""]
                      + ["## What you can do next", ""] + [f"- `{t}`" for t in next_steps(root, state == "running")]
                      + [""])
 
@@ -556,7 +575,9 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
                 state = State(root / AGENT_DIR / "state.db")
                 try:
                     run = run_journal(root)  # G8: the status line is the page's first line and the tab's title
-                    body = html_page(status_line(cfg, plan, state, run) + "\n\n" + live_section(root) + "\n"
+                    body = html_page(status_line(cfg, plan, state, run) + "\n\n"
+                                     + "\n".join(status_panel(cfg, plan, state, run)) + "\n\n"  # J5: by category
+                                     + live_section(root, plan=plan) + "\n"
                                      + build_report(cfg, plan, state), refresh, status_line(cfg, plan, state, run, 0))
                 finally:
                     state.db.close()

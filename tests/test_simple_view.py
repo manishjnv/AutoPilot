@@ -3,6 +3,7 @@ J3 color, J4 the status says "planning" while quickstart works."""
 import io
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -197,17 +198,34 @@ def test_status_panel_has_short_words_and_uses_the_window_width(tmp_path):
     orch = Orchestrator(make_project(tmp_path, phases_basic(), BASE), backend=FakeBackend(), sleep=lambda s: None)
     orch.run()
     rows = status_panel(orch.cfg, orch.plan, orch.state, {})
-    assert rows[0] == "Build: No build active" and rows[1] == "Progress: 3/3 done · 0 blocked · 0 questions"
+    assert rows[0] == "Build: No build active" and rows[1] == "Progress: Tasks 3/3 (100%) · Phases 2/2 · 0 blocked · 0 questions"
     assert rows[2].startswith("Usage: ") and rows[2].endswith(f"${orch.state.cost():.2f}")
     assert len(rows) == 3  # no build: no health row
     live = {"status": "running", "state": "Code", "task": "P02-T01", "attempt": 2, "git": "OK", "build": "OK"}
+    rows = status_panel(orch.cfg, orch.plan, orch.state, {**live, "context_tokens": 68000})
+    assert rows[0] == "Build: Ph 2/2 · Task 3/3 · Writes the code · Try 2 · Context ███░░░░░ 34%"
+    orch.state.set_meta("window_seen", {"five_hour": {"pct": 0.09, "reset": time.time() + 3600}, "seven_day": {"pct": 0.72}})
+    assert status_panel(orch.cfg, orch.plan, orch.state, live)[2].startswith("Usage: 5h █░░░░░░░ 9% · Week ██████░░ 72% · ")
     rows = status_panel(orch.cfg, orch.plan, orch.state, live)
     assert rows[0] == "Build: Ph 2/2 · Task 3/3 · Writes the code · Try 2"
     assert rows[3].startswith("Health: Git OK · Checks OK")
     assert status_panel(orch.cfg, orch.plan, orch.state, {"status": "finished"})[0] == "Build: Complete"
     wide = status_panel(orch.cfg, orch.plan, orch.state, live, width=200)  # a wide window: categories side by side
-    assert len(wide) < 4 and wide[0].startswith(rows[0] + " │ Progress: 3/3 done")
+    assert len(wide) < 4 and wide[0].startswith(rows[0] + " │ Progress: Tasks 3/3 (100%)")
     assert len(status_panel(orch.cfg, orch.plan, orch.state, live, width=40)) == 4
+
+
+def test_the_browser_page_shows_the_plain_view_and_the_panel(tmp_path):
+    from autopilot.report import live_section
+    orch = Orchestrator(make_project(tmp_path, phases_basic(), BASE), backend=FakeBackend(), sleep=lambda s: None)
+    orch.run()
+    log = orch.cfg.root / ".agent" / "logs" / "autopilot.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(step("P01-T01 a [haiku]", "Write E:\\x\\src\\x.py; Bash pytest -q") + "\n", encoding="utf-8")
+    (orch.cfg.root / ".agent" / "run.json").write_text(json.dumps({"status": "finished", "outcome": "plan complete"}))
+    text = live_section(orch.cfg.root, plan=orch.plan)
+    assert "Task 1 of 3: a" in text and "18:07  Writes x.py. Runs the tests." in text
+    assert "The build is complete." in text and "INFO" not in text and "[haiku]" not in text
 
 
 def test_status_bar_with_four_rows(monkeypatch):

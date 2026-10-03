@@ -72,7 +72,7 @@ def test_page_starts_with_what_the_run_is_doing_now(serve, tmp_path):
         "2026-10-02 09:44:55 INFO   ▸ P01-T01 Skeleton [haiku] · Write src/app/cli.py · 2m02s\n", encoding="utf-8")
     body = get(serve())[1]
     assert body.index("Now (running)") < body.index("Autopilot report")
-    assert "task P01-T01 attempt 1" in body and "Write src/app/cli.py" in body and "09:44:55" not in body
+    assert "09:44  Writes cli.py." in body and "INFO" not in body and "09:44:55" not in body  # J7: plain words
 
 
 def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, capsys):

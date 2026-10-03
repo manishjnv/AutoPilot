@@ -80,7 +80,8 @@ def partial_usage(raw: str, model: str) -> dict:
 
 def usage_meter():
     """G8: a running token total for one stream, fed line by line (the fields `partial_usage` reads). A message
-    split over several events repeats its usage, so the last one per message id counts."""
+    split over several events repeats its usage, so the last one per message id counts. `feed.context` is the size
+    of the newest message of the main agent: how full the session's context is now (J5)."""
     last: dict = {}
 
     def feed(line: str) -> int:
@@ -92,7 +93,10 @@ def usage_meter():
         if isinstance(msg, dict) and isinstance(msg.get("usage"), dict):
             last[msg.get("id") or len(last)] = sum(_num(msg["usage"].get(k)) for k in (
                 "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+            if not ev.get("parent_tool_use_id"):  # a helper agent has a context of its own
+                feed.context = last[msg.get("id") or len(last) - 1]
         return sum(last.values())
+    feed.context = 0
     return feed
 
 
@@ -312,6 +316,8 @@ class ClaudeCLIBackend:
                 tokens = meter(line)
                 if tokens and time.monotonic() - told[0] >= 5:
                     told[0] = time.monotonic()
+                    if req.on_context:
+                        req.on_context(meter.context)
                     req.on_tokens(tokens)
             act = activity(line)
             if act:
