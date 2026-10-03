@@ -108,6 +108,31 @@ def _runtime(started) -> str:
     return "" if secs < 0 else f"{int(secs // 3600)}h{int(secs % 3600 // 60):02d}m" if secs >= 3600 else f"{int(secs // 60)}m"
 
 
+STATE_WORDS = {"Plan": "Makes the plan.", "Code": "Writes the code.",
+               "Test": "Runs the checks.", "Review": "Reviews the work.",
+               "Fix": "Repairs a problem.", "Commit": "Saves the work.",
+               "Wait": "Waits.", "Block": "Waits for your answer."}
+
+
+def status_words(cfg, plan, state, run: dict) -> str:
+    """J1: the status line as ASD-STE100 sentences, for the simple view: the work now, the task, the progress."""
+    status, tasks = state.status_map(), plan.all_tasks()
+    done = sum(1 for t in tasks if status.get(t.id) == "done")
+    blocked = sum(1 for t in tasks if status.get(t.id) == "blocked")
+    tail = f"{done} of {len(tasks)} tasks complete. " + (
+        "No problems." if not blocked else "1 task is blocked." if blocked == 1 else f"{blocked} tasks are blocked.")
+    if run.get("status") != "running":
+        return ("No build is active. " if run.get("status") != "finished" else
+                "Build complete. " if done == len(tasks) else "The build stopped. ") + tail
+    head = STATE_WORDS.get(str(run.get("state") or ""), "Works.")
+    ids = [t.id for t in tasks]
+    if run.get("task") in ids:
+        attempt = int(run.get("attempt") or 1)
+        head += f" Task {ids.index(run['task']) + 1} of {len(ids)}" + (f", attempt {attempt}." if attempt > 1 else ".")
+    time = _runtime(run.get("started_at"))
+    return " ".join(x for x in (head, tail, f"Time: {time}." if time else "") if x)
+
+
 def status_line(cfg, plan, state, run: dict, width: int | None = None) -> str:
     """G8: the state of a run in one line, the same in every view (bottom row of `run` and `watch`, window title,
     live page, `status`). Too wide for `width`: parts go in the order of LINE_DROP; the state word, tasks, phases and

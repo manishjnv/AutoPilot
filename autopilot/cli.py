@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import shutil
@@ -74,8 +75,10 @@ def cmd_init(args):
     if not cm.exists() or "## Autopilot (autonomous sessions)" not in (t := cm.read_text(encoding="utf-8")) and "## AutoDev (autonomous sessions)" not in t:
         with open(cm, "a", encoding="utf-8") as fh:
             fh.write(cm_snip)
-    print(f"\nstack: {stack}\nnext:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
-          f"       autopilot validate && autopilot run")
+    print(f"\nstack: {stack}")
+    if not getattr(args, "quiet", False):  # quickstart does these steps itself
+        print("next:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
+              "       autopilot validate && autopilot run")
 
 
 def cmd_onboard(args):
@@ -84,7 +87,7 @@ def cmd_onboard(args):
 
     root = Path(args.path).resolve()
     if not (root / AGENT_DIR / "project.yaml").exists():
-        cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False))
+        cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False, quiet=True))
     setup_logging(root, False)  # the session's live activity lines
     cfg = Config.load(root)
     plan_doc = Path(args.plan_doc).read_text(encoding="utf-8") if args.plan_doc else \
@@ -95,6 +98,7 @@ def cmd_onboard(args):
     system = (Path(__file__).parent / "prompts" / "system.md").read_text(encoding="utf-8")
     system += "\nFor THIS onboarding session you ARE allowed to edit the .agent files listed in the assignment."
     backend = get_backend(cfg)
+    plan_journal(root, current="makes the task list")
     print(f"running onboarding session ({cfg.get('models.onboard', 'opus')}) …")
     res = backend.run(SessionRequest(prompt=prompt, model=cfg.get("models.onboard", "opus"), cwd=str(root),
                                      timeout_sec=int(cfg.get("agent.session_timeout_sec", 3600)),
@@ -105,13 +109,37 @@ def cmd_onboard(args):
     return cmd_validate(args)
 
 
+def plan_journal(root: Path, **kw):
+    """J4: while quickstart writes the plan and the tasks, .agent/run.json says so, and every view shows
+    "ON · Plan" instead of "Idle". Only while the journal is in the Plan state: a run owns it afterwards."""
+    from .state import now
+    path = root / AGENT_DIR / "run.json"
+    try:
+        old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        if kw.get("status") != "running" and old.get("state") != "Plan":
+            return
+        path.write_text(json.dumps({**old, **kw, "updated_at": now()}, indent=1), encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+
+
 def cmd_quickstart(args):
     """M5: init → environment fixes → (claude CLI check) → onboard → doctor → optionally run, in one command."""
+    from .state import now
     root = Path(args.path).resolve()
     if not (root / AGENT_DIR / "project.yaml").exists():
-        cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False))
+        cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False, quiet=True))
     if not preflight(Config.load(root)):  # don't start onboarding on a CLI that can't run a session
         return 1
+    plan_journal(root, status="running", state="Plan", current="makes the plan", started_at=now(), outcome="",
+                 task="", pid=os.getpid())
+    try:
+        return _quickstart(args, root)
+    finally:  # no run started (or it failed before one): the status must not say ON for ever
+        plan_journal(root, status="finished", state="Done", current="", outcome="plan ready")
+
+
+def _quickstart(args, root: Path):
     if args.plan_doc and not Path(args.plan_doc).is_file():
         print(f"plan document not found: {args.plan_doc}")
         return 1
@@ -330,8 +358,8 @@ class StatusBar:
     line goes into the window title. Only on a real terminal: a pipe, a log file or AUTOPILOT_PLAIN=1 gets nothing,
     so no escape code ever lands in a file. `line(width)` gives the text; a failing `line` is skipped."""
 
-    def __init__(self, line, out=None, every: float = 1.0):
-        self.line, self.out, self.every = line, out or sys.stdout, every
+    def __init__(self, line, out=None, every: float = 1.0, bold: bool = False):
+        self.line, self.out, self.every, self.bold = line, out or sys.stdout, every, bold
         self.on, self.rows, self.lock, self.done = False, 0, threading.Lock(), threading.Event()
 
     def _write(self, text: str):
@@ -369,7 +397,9 @@ class StatusBar:
         if size.lines != self.rows:  # the window was resized: move the reserved row
             self.rows, refit = size.lines, f"\x1b7\x1b[1;{size.lines - 1}r\x1b8"
         # save the cursor, draw the bottom row, put the cursor back; then the window title
-        self._write(f"{refit}\x1b7\x1b[{self.rows};1H\x1b[2K{text}\x1b8\x1b]0;{text}\x07")
+        from .plain import tint
+        row = tint(text, self.bold)  # J3: each fact in the row has its color; the title stays plain
+        self._write(f"{refit}\x1b7\x1b[{self.rows};1H\x1b[2K{row}\x1b8\x1b]0;{text}\x07")
 
     def stop(self):
         if not self.on:
@@ -379,10 +409,10 @@ class StatusBar:
         self._write(f"\x1b[r\x1b[{self.rows};1H\x1b[2K")  # whole-screen scrolling again, the row cleared
 
 
-def status_reader(root: Path):
+def status_reader(root: Path, words: bool = False):
     """line(width) for the project at `root`: the status line, read fresh from run.json and state.db on each call.
-    It only reads, and keeps its own database connection, so use one reader per thread."""
-    from .report import run_journal, status_line
+    It only reads, and keeps its own database connection, so use one reader per thread. `words`: in plain words."""
+    from .report import run_journal, status_line, status_words
     from .state import State
     box: dict = {}
 
@@ -394,8 +424,21 @@ def status_reader(root: Path):
                 box["state"].db.close()
             box.update(cfg=Config.load(root), plan=Plan.load(plan_file), state=State(root / AGENT_DIR / "state.db"),
                        stamp=stamp)
+        if words:
+            return status_words(box["cfg"], box["plan"], box["state"], run_journal(root))
         return status_line(box["cfg"], box["plan"], box["state"], run_journal(root), width)
     return line
+
+
+def hints(root: Path, running: bool | None, color: bool) -> str:
+    """The "What you can do next" text, with each command in color on a terminal (J3)."""
+    from .plain import paint
+    from .report import next_steps_text
+    out = []
+    for row in next_steps_text(root, running).split("\n"):
+        cmd, gap, rest = row.strip().partition("  ")
+        out.append(f"  {paint(cmd, 'cyan', color)}{gap}{rest}" if row.startswith("  autopilot ") else row)
+    return "\n".join(out)
 
 
 def cmd_run(args):
@@ -451,7 +494,8 @@ def cmd_status(args):
     print(status_line(cfg, plan, state, run_journal(cfg.root),
                       shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None) + "\n")
     print(build_report(cfg, plan, state))
-    print(next_steps_text(Path(args.path).resolve()))
+    from .plain import colors_on
+    print(hints(Path(args.path).resolve(), None, colors_on(sys.stdout)))
 
 
 def cmd_stats(args):
@@ -464,27 +508,47 @@ def cmd_watch(args):
     """Follow a run from any terminal: progress, current step, then every live line until the run finishes."""
     import time
 
+    from .plain import SimpleView, colors_on, paint
     from .report import next_steps_text, run_journal
     root = Path(args.path).resolve()
     log = root / AGENT_DIR / "logs" / "autopilot.log"
+    # J1: plain words on a terminal; the technical lines with --detail, and when the output is not a terminal
+    simple = bool(getattr(args, "simple", False)) or (sys.stdout.isatty() and not getattr(args, "detail", False))
+    color = colors_on(sys.stdout)
+    names = {}
     try:
         cfg, plan, state = _open_state(root)
         from .context import progress_line
+        ids = plan.all_tasks()
+        names = {t.id: (i + 1, len(ids), t.title) for i, t in enumerate(ids)}
         print(f"{cfg.get('name', root.name)}: {progress_line(plan, state.status_map())}")
     except Exception:  # noqa: BLE001 — a project without a plan yet still has a log to show
         pass
+    view = SimpleView(names, color)
+
+    def show(text: str):
+        if not simple:
+            print(text, end="" if text.endswith("\n") else "\n", flush=True)
+            return
+        for row in text.splitlines():
+            for out in view.feed(row):
+                print(out, flush=True)
     run = run_journal(root)
-    print(f"run: {run.get('status', 'no run yet')} · now: {run.get('current') or '-'}  (Ctrl+C stops watching, "
-          "not the run)")
-    print(next_steps_text(root))
+    if simple:
+        print(paint("Ctrl+C closes this view. The build continues.", "dim", color))
+        print(hints(root, None, color))
+    else:
+        print(f"run: {run.get('status', 'no run yet')} · now: {run.get('current') or '-'}  (Ctrl+C stops watching, "
+              "not the run)")
+        print(next_steps_text(root))
     pos = 0
     if log.exists():
         lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
-        print("\n".join(lines[-args.lines:]))
+        show("\n".join(lines[-(args.lines * 4 if simple else args.lines):]))
         pos = log.stat().st_size
     quiet = 0.0
-    line = status_reader(root)
-    bar = StatusBar(line)  # G8: a terminal gets the status line pinned to its bottom row
+    line = status_reader(root, words=simple)
+    bar = StatusBar(line, bold=color)  # G8: a terminal gets the status line pinned to its bottom row
     pinned, shown = bar.start(), [None]
 
     def moved():  # not a terminal: print the line when the run moves on, and never an escape code
@@ -506,14 +570,18 @@ def cmd_watch(args):
                     fh.seek(pos)
                     chunk = fh.read()
                     pos = fh.tell()
-                print(chunk, end="", flush=True)
+                show(chunk)
                 quiet = 0
                 continue
             quiet += 1
             run = run_journal(root)
             if run.get("status") == "finished" and quiet >= 3:
-                print(f"\nrun finished: {run.get('outcome', '?')}")
-                print(next_steps_text(root, running=False))
+                if simple:
+                    print("\n" + paint(f"The build stopped. Reason: {run.get('outcome', '?')}.", "bold", color))
+                    print(hints(root, False, color))
+                else:
+                    print(f"\nrun finished: {run.get('outcome', '?')}")
+                    print(next_steps_text(root, running=False))
                 return 0
     except KeyboardInterrupt:
         return 0
@@ -845,17 +913,72 @@ def cmd_review(args):
     orch.write_report()
 
 
+NEW_PROJECT = ("init", "onboard", "quickstart")  # these make a project: with no -C they use this folder
+
+
+def _recent_file() -> Path:
+    return Path(os.environ.get("AUTOPILOT_HOME") or Path.home() / ".autopilot") / "recent"
+
+
+def recent_projects() -> list[Path]:
+    """Projects used on this PC, newest first; only folders that still hold a project."""
+    try:
+        rows = _recent_file().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    return [Path(r) for r in rows if r and (Path(r) / AGENT_DIR / "project.yaml").exists()]
+
+
+def remember(root: Path):
+    """J2: note this project as the last one used, so `ap status` works from any folder."""
+    if not (root / AGENT_DIR / "project.yaml").exists():
+        return
+    try:
+        rows = [str(root)] + [str(p) for p in recent_projects() if p != root]
+        _recent_file().parent.mkdir(parents=True, exist_ok=True)
+        _recent_file().write_text("\n".join(rows[:20]) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def pick_project() -> str | None:
+    """J2: no -C and this folder is not a project. One active build: that one. Several: ask (or list them when
+    there is no terminal; never guess). None active: the last project used. Says which project it took."""
+    known = recent_projects()
+    active = [p for p in known if run_active(p)]
+    if len(active) > 1:
+        print("More than one build is active:")
+        for i, p in enumerate(active, 1):
+            print(f"  {i}. {p}")
+        pick = _ask("Which one? Type its number: ") if _tty() else None
+        if not (pick or "").isdigit() or not 1 <= int(pick) <= len(active):
+            print("Name the project with -C <folder>.")
+            return None
+        active = [active[int(pick) - 1]]
+    chosen = active[0] if active else known[0] if known else None
+    if chosen is None:
+        print("This folder is no Autopilot project, and no other project is known on this PC.\n"
+              "Go to the project folder, or name it with -C <folder>. To start a new one: autopilot quickstart")
+        return None
+    print(f"project: {chosen}")
+    return str(chosen)
+
+
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
             s.reconfigure(encoding="utf-8", errors="replace")
-    ap = argparse.ArgumentParser(prog="autopilot", description="Autonomous plan-driven development with Claude Code")
+    called = Path(sys.argv[0]).stem.lower() if argv is None else ""
+    ap = argparse.ArgumentParser(prog="ap" if called == "ap" else "autopilot",
+                                 description="Autonomous plan-driven development with Claude Code. "
+                                             "`ap` is the short name of `autopilot`.")
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd")
 
     def add(name, fn, help_):
         p = sub.add_parser(name, help=help_)
-        p.add_argument("-C", "--path", default=".", help="project root (default: current dir)")
+        p.add_argument("-C", "--path", default=None,
+                       help="project folder (default: this folder, or else the active or last project)")
         p.set_defaults(fn=fn)
         return p
 
@@ -881,8 +1004,10 @@ def main(argv=None):
     p.add_argument("-v", "--verbose", action="store_true")
     add("status", cmd_status, "progress, cost, blocked tasks, approvals")
     add("stats", cmd_stats, "the numbers of a run worth publishing (markdown table)")
-    p = add("watch", cmd_watch, "follow a run live from any terminal (progress, current step, every step)")
+    p = add("watch", cmd_watch, "follow a run live from any terminal, in plain words")
     p.add_argument("-n", "--lines", type=int, default=20, help="recent lines to show first")
+    p.add_argument("--detail", action="store_true", help="the technical view: every log line as it is")
+    p.add_argument("--simple", action="store_true", help="plain words, also when the output is not a terminal")
     p = add("serve", cmd_serve, "live read-only status page in the browser")
     p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8765)
     p.add_argument("--refresh", type=int, default=30, help="seconds between page reloads")
@@ -915,6 +1040,12 @@ def main(argv=None):
         print(f"autopilot {__version__}: builds your project with Claude Code, checks every step, never waits.")
         print(next_steps_text(Path.cwd()))
         return 0
+    if args.path is None:  # J2: no -C
+        found = "." if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists() else pick_project()
+        if found is None:
+            return 1
+        args.path = found
+    remember(Path(args.path).resolve())
     if getattr(args, "detach", False):
         return start_detached(Path(args.path).resolve(), [a for a in (argv or sys.argv[1:]) if a != "--detach"])
     return args.fn(args) or 0

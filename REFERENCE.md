@@ -9,7 +9,7 @@ Facts to look up. For a first project, read the [tutorial](GUIDE.md). For one sp
 
 ## Commands
 
-Each command accepts `-C <folder>` to work on a project in a different folder.
+Each command accepts `-C <folder>` to work on a project in a different folder. With no `-C`, a command uses the current folder. If the current folder is not a project, the command uses the project with the active run, or the last project that you used. It prints the project that it uses.
 
 | Command | Result |
 |---|---|
@@ -24,7 +24,9 @@ Each command accepts `-C <folder>` to work on a project in a different folder.
 | `autopilot doctor [--fix]` | Checks the Claude CLI and its login, git, `gh`, the sandbox tools, the alerts, and the settings. A missing login is a `FAIL`. `--fix` repairs what needs no person |
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
 | `autopilot run` | Builds until the completion audit passes |
-| `autopilot watch` | Follows a run live. Ctrl+C stops the watch, not the run |
+| `autopilot watch` | Follows a run live, in plain words. Ctrl+C stops the watch, not the run |
+| `autopilot watch --detail` | Shows each technical log line as it is |
+| `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
 | `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
 | `autopilot serve [--port 8765]` | Starts the status page without a run |
@@ -59,7 +61,8 @@ Each command accepts `-C <folder>` to work on a project in a different folder.
 | `AUTOPILOT_SLACK_WEBHOOK` | Slack alerts |
 | `AUTOPILOT_WEBHOOK` | Alerts to a different web service |
 | `AUTOPILOT_STATUS_TOKEN` | Lets the status page serve on an address that is not local |
-| `AUTOPILOT_PLAIN=1` | Removes the pinned status row at the bottom of the terminal. `status` and the page still show the status line |
+| `AUTOPILOT_PLAIN=1` | Removes the pinned status row at the bottom of the terminal, and the color. `status` and the page still show the status line |
+| `NO_COLOR=1` | Removes the color |
 | `AUTOPILOT_NO_BROWSER=1` | Does not open the browser |
 | `AUTOPILOT_NO_AUTOFIX=1` | Stops every automatic install and repair |
 | `AUTOPILOT_CLAUDE_BIN` | The path to the `claude` program. Autopilot also finds `claude` in `~/.local/bin` when the PATH is old |
