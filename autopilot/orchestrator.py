@@ -542,7 +542,7 @@ class Orchestrator:
 
     def _wait(self, secs: float):
         """Sleep `secs`, but wake as soon as an owner command from chat changes something (P5)."""
-        end, left = time.time() + secs, secs
+        end, left = time.monotonic() + secs, secs  # a PC clock jump must not stretch or cut the wait
         while left > 0:
             got = self.chat(wait=min(50, left))
             if got is None:
@@ -550,7 +550,7 @@ class Orchestrator:
                 return
             if got:
                 return
-            left = end - time.time()
+            left = end - time.monotonic()
 
     def process_approvals(self):
         d = self.ad / "approvals"

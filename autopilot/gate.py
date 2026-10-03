@@ -86,7 +86,7 @@ def run_commands(cmds: list[str], cwd: Path, timeout: int, env: dict | None = No
     results = []
     full_env = with_tool_dirs({**(base_env if base_env is not None else os.environ), **(env or {})})
     for cmd in cmds:
-        t0 = time.time()
+        t0 = time.monotonic()
         try:
             p = run_proc(cmd, shell=True, cwd=cwd, env=full_env, timeout=timeout)
             out, rc = (p.stdout + "\n" + p.stderr).strip(), p.rc
@@ -94,7 +94,7 @@ def run_commands(cmds: list[str], cwd: Path, timeout: int, env: dict | None = No
                 out, rc = f"TIMEOUT after {timeout}s\n{out}", 124
         except OSError as e:
             out, rc = str(e), 127
-        results.append(CmdResult(cmd, rc, out[-4000:], round(time.time() - t0, 1)))
+        results.append(CmdResult(cmd, rc, out[-4000:], round(time.monotonic() - t0, 1)))
         if rc != 0 and stop_on_fail:
             break
     return results

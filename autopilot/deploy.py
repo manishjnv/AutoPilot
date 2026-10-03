@@ -18,8 +18,8 @@ class DeployResult:
 def health_check(url: str, timeout: int) -> bool:
     if not url:
         return True
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         try:
             with urllib.request.urlopen(url, timeout=10) as r:
                 if 200 <= r.status < 400:
