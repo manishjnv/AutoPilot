@@ -24,6 +24,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot doctor [--fix]` | Checks the Claude CLI and its login, git, `gh`, the sandbox tools, the alerts, and the settings. A missing login is a `FAIL`. `--fix` repairs what needs no person |
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
 | `autopilot run` | Builds until the completion audit passes |
+| `autopilot start` | Starts or continues the build in the background. It is the same as `run --clear-stop --detach` |
 | `autopilot watch` | Follows a run live, in plain words. Ctrl+C stops the watch, not the run |
 | `autopilot watch --detail` | Shows each technical log line as it is |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |

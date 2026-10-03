@@ -146,6 +146,28 @@ def test_ap_is_a_second_name_for_the_same_program():
     assert 'ap = "autopilot.cli:main"' in text and 'autopilot = "autopilot.cli:main"' in text
 
 
+def test_start_is_run_in_the_background(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "start_detached", lambda root, argv: seen.append(argv) or 0)
+    root = make_project(tmp_path, phases_basic())
+    assert cli_main(["start", "-C", str(root)]) == 0
+    assert seen == [["run", "--clear-stop", "-C", str(root)]]
+
+
+def test_the_watch_window_gets_color_when_claude_code_started_the_run(tmp_path, monkeypatch):
+    import subprocess
+    started = []
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: started.append(kw))
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/xterm" if name == "xterm" else None)
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("CLAUDECODE", "1")
+    cli.open_watch_window(tmp_path)
+    monkeypatch.delenv("CLAUDECODE")
+    cli.open_watch_window(tmp_path)  # the user's own NO_COLOR stays
+    assert "NO_COLOR" not in started[0]["env"] and started[1]["env"]["NO_COLOR"] == "1"
+
+
 def test_a_command_with_no_folder_uses_the_last_project(tmp_path, monkeypatch, capsys):
     root = make_project(tmp_path, phases_basic())
     assert cli_main(["status", "-C", str(root)]) == 0  # this project is now the last one used

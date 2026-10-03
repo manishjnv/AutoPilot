@@ -595,9 +595,11 @@ def open_watch_window(root: Path) -> str:
     no desktop to open one on (a server, CI)."""
     import subprocess
     cmd = [sys.executable, "-m", "autopilot", "watch", "-C", str(root)]
+    # Claude Code sets NO_COLOR for its tools; that is not the user's wish for a new window of their own
+    env = {k: v for k, v in os.environ.items() if not (k == "NO_COLOR" and os.environ.get("CLAUDECODE"))}
     try:
         if os.name == "nt":
-            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)  # noqa: S603
+            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE, env=env)  # noqa: S603
             return "new console window"
         if sys.platform == "darwin":
             script = " ".join(f"'{c}'" for c in cmd)
@@ -605,7 +607,7 @@ def open_watch_window(root: Path) -> str:
             return "Terminal window"
         term = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal") or shutil.which("xterm")
         if term and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-            subprocess.Popen([term, "--", *cmd] if term.endswith("gnome-terminal") else [term, "-e", *cmd])
+            subprocess.Popen([term, "--", *cmd] if term.endswith("gnome-terminal") else [term, "-e", *cmd], env=env)
             return "terminal window"
     except OSError:
         pass
@@ -969,6 +971,9 @@ def main(argv=None):
         if hasattr(s, "reconfigure"):
             s.reconfigure(encoding="utf-8", errors="replace")
     called = Path(sys.argv[0]).stem.lower() if argv is None else ""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["start"]:  # J2: one plain word to start or continue the build in the background
+        argv[:1] = ["run", "--clear-stop", "--detach"]
     ap = argparse.ArgumentParser(prog="ap" if called == "ap" else "autopilot",
                                  description="Autonomous plan-driven development with Claude Code. "
                                              "`ap` is the short name of `autopilot`.")
@@ -1002,6 +1007,7 @@ def main(argv=None):
                    help="when run without a terminal, don't open a window with `autopilot watch`")
     p.add_argument("--detach", action="store_true", help="start as a separate process that outlives this terminal")
     p.add_argument("-v", "--verbose", action="store_true")
+    add("start", cmd_run, "start or continue the build in the background (= run --clear-stop --detach)")
     add("status", cmd_status, "progress, cost, blocked tasks, approvals")
     add("stats", cmd_stats, "the numbers of a run worth publishing (markdown table)")
     p = add("watch", cmd_watch, "follow a run live from any terminal, in plain words")
