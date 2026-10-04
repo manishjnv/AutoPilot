@@ -1,11 +1,15 @@
 """Phase deployments with health checks, smoke tests and automatic rollback."""
 from __future__ import annotations
 
+import os
 import time
 import urllib.request
 from dataclasses import dataclass
 
 from .gate import run_commands
+from .log_scrub import scrub_secrets
+
+_SECRET_ENV = ("CLOUDFLARE_TOKEN", "EMAIL_API_TOKEN", "DEPLOY_SSH_KEY")  # more via deploy.secret_env
 
 
 @dataclass
@@ -37,19 +41,21 @@ def deploy(cfg, env_name: str, ref: str, phase_id: str, prev_ref: str | None) ->
     env.update({"AUTODEV_" + k[10:]: v for k, v in list(env.items())})
     timeout = int(cfg.get("verify_timeout_sec", 1200))
 
-    res = run_commands([cfg.get(f"{c}.cmd")], cfg.root, timeout, env)
+    secrets = {k: os.environ[k] for k in _SECRET_ENV + tuple(cfg.get("deploy.secret_env", []) or []) if os.environ.get(k)}
+    res = run_commands([cfg.get(f"{c}.cmd")], cfg.root, timeout, env)  # output holds stdout + stderr
     failure = None
     if res[-1].rc != 0:
-        failure = f"deploy command failed:\n{res[-1].output[-1500:]}"
+        failure = f"deploy command failed:\n{scrub_secrets(res[-1].output[-1500:], secrets)}"
     elif not health_check(cfg.get(f"{c}.health_url", ""), int(cfg.get(f"{c}.health_timeout_sec", 180))):
         failure = f"health check failed: {cfg.get(f'{c}.health_url')}"
     else:
         smoke = run_commands(cfg.commands("smoke"), cfg.root, timeout, env)
         bad = [r for r in smoke if r.rc != 0]
         if bad:
-            failure = f"smoke test failed: {bad[0].cmd}\n{bad[0].output[-1500:]}"
+            failure = f"smoke test failed: {bad[0].cmd}\n{scrub_secrets(bad[0].output[-1500:], secrets)}"
     if not failure:
         return DeployResult(True, f"{env_name} deployed {ref[:10]}")
+    failure = scrub_secrets(failure, secrets)  # health URL may carry a token
 
     rolled = False
     rb = cfg.get(f"{c}.rollback_cmd")

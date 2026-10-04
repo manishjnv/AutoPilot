@@ -454,6 +454,28 @@ def hints(root: Path, running: bool | None, color: bool) -> str:
     return "\n".join(out)
 
 
+def cmd_preflight(args):
+    """Phase 0: credentials the plan needs are set and work, else exit 1 (also called by `run`)."""
+    from .commands.preflight import report_text, run_preflight, approval_setup
+    root = Path(args.path).resolve()
+    try:
+        plan = Plan.load(root / AGENT_DIR / "plan.yaml")
+    except (PlanError, FileNotFoundError) as e:
+        print(f"preflight ERROR plan.yaml: {e}")
+        return 1
+    rows = run_preflight(plan, Config.load(root))
+    print(report_text(rows))
+    if any(r["status"] != "ok" for r in rows):
+        return 1
+    # All credentials OK; set up approvals to run unattended
+    actions = approval_setup()
+    if actions:
+        print("\nApproval setup:")
+        for a in actions:
+            print(f"  ✓ {a}")
+    return 0
+
+
 def cmd_run(args):
     from .orchestrator import Orchestrator, run_supervised
 
@@ -466,6 +488,8 @@ def cmd_run(args):
         print("a run is already active for this project; following it (Ctrl+C stops watching, not the run)\n")
         return cmd_watch(argparse.Namespace(path=str(root), lines=20))
     if not preflight(Config.load(root)):  # every session would fail: stop before the first one
+        return 1
+    if cmd_preflight(args):  # missing or broken credentials: stop before any work
         return 1
     url = "" if getattr(args, "no_page", False) else start_status_page(root)
     if url and not getattr(args, "no_browser", False) and not os.environ.get("AUTOPILOT_NO_BROWSER"):
@@ -1125,6 +1149,7 @@ def main(argv=None):
     p.add_argument("--run", action="store_true", help="start the run when the doctor finds no problems")
     p.add_argument("--idea", help="no PLAN.md yet: what to build (text or a file); Claude writes PLAN.md from it")
     p.add_argument("--detach", action="store_true", help="start as a separate process that outlives this terminal")
+    add("preflight", cmd_preflight, "phase 0: check the credentials the plan needs (read-only); blocks the run on a problem")
     add("validate", cmd_validate, "validate project.yaml and plan.yaml")
     p = add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
     p.add_argument("--fix", action="store_true", help="also fix what needs no person: PATH, reinstall the claude CLI")

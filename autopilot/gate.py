@@ -24,6 +24,10 @@ SECRET_PATTERNS = [
     (re.compile(r"\b[rs]k_live_[A-Za-z0-9]{20,}"), "Stripe live key"),
     (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), "Slack token"),
     (re.compile(r"hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+"), "Slack webhook"),
+    (re.compile(r"\bcf_[A-Za-z0-9_\-]{20,}"), "Cloudflare API token"),
+    (re.compile(r"\bre_[A-Za-z0-9_]{20,}"), "Resend API key"),
+    (re.compile(r"\bpmark_live_[A-Za-z0-9]{20,}"), "Postmark token"),
+    # SSH private keys (RSA/EC/OPENSSH/plain) are already caught by the "private key" line above
     (re.compile(r"\b\d{8,10}:AA[A-Za-z0-9_\-]{33}\b"), "Telegram bot token"),
     (re.compile(r"(?i)(password|secret|api_key|apikey|token)\s*[:=]\s*['\"][^'\"\s]{12,}['\"]"), "hardcoded credential"),
 ]

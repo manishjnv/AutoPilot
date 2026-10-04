@@ -153,6 +153,11 @@ POSITIVE = [
     _fake("12345678", "9:", "AA", "l" * 33),
     _fake("-----BEGIN ", "OPENSSH PRIVATE", " KEY-----"),
     _fake("-----BEGIN PRIVATE", " KEY-----"),
+    _fake("c", "f_", "m" * 24),
+    _fake("r", "e_", "n" * 24),
+    _fake("pmark", "_live_", "p" * 24),
+    _fake("-----BEGIN ", "RSA PRIVATE", " KEY-----"),
+    _fake("-----BEGIN ", "EC PRIVATE", " KEY-----"),
     'password = "hunter2hunter2hunter2"',
 ]
 NEGATIVE = [

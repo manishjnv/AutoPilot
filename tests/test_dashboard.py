@@ -19,10 +19,13 @@ def test_data_is_plain_and_has_every_part(tmp_path):
     data = dashboard_data(orch.cfg, orch.plan, orch.state, {})
     json.dumps(data)  # only plain types: a view never needs the plan or the state
     assert set(data) == {"project", "progress", "tasks", "live", "usage", "files", "health", "next", "line",
-                         "needs_you", "blocked_why", "size"}
+                         "needs_you", "blocked_why", "size", "phases", "recent"}
+    assert data["phases"][0] == {"id": "P01", "title": data["phases"][0]["title"], "total": 2, "done": 2, "status": "done"}
+    assert len(data["recent"]) == 3 and {"n", "title", "time"} == set(data["recent"][0])
     assert data["project"]["status"] == "idle" and data["project"]["state_words"] == "No build is active."
     assert data["progress"] == {"done": 3, "total": 3, "pct": 100, "phases_done": 2, "phases_total": 2,
-                                "blocked": 0, "questions": 0, "warnings": 0, "working": 0, "waiting": 0, "active": 0}
+                                "blocked": 0, "questions": 0, "warnings": 0, "warned": [], "working": 0, "waiting": 0,
+                                "active": 0}
     assert data["project"]["now"] is None and data["project"]["tone"] == "" and data["needs_you"] == []
     assert [t["status"] for t in data["tasks"]] == ["done"] * 3 and data["tasks"][0]["n"] == 1
     assert data["files"] is None and data["usage"]["context"] is None

@@ -14,6 +14,13 @@ phases:
       - id: P01-F01
         title: Health check
         journey: "Start the app; GET /health returns 200 with {\"status\":\"ok\"}"
+    # infra:                          # optional; `ap preflight` checks these credentials read-only before any work
+    #   steps:                        # type: deploy | cloudflare | email | custom
+    #     - id: P01-I01
+    #       type: cloudflare          # needs CLOUDFLARE_TOKEN (deploy: DEPLOY_SSH_KEY, email: EMAIL_API_TOKEN)
+    #       description: "DNS zone for the app"
+    #       verify: ""                # read-only command; used for email and custom (deploy: add `host:` for an ssh test)
+    #       rollback_cmd: ""
     tasks:
       - id: P01-T01
         title: Create project skeleton
@@ -28,6 +35,7 @@ phases:
         needs_decision: false         # true = weigh 2-3 approaches in an ADR first (automatic for high/critical)
         research: []                  # topics to research on the web first, e.g. ["Stripe webhooks retries"]
         depends_on: []
+        owner_only: false             # true = needs you (accounts, keys); listed by `ap preflight`, never run by the agent
 
       - id: P01-T02
         title: Health endpoint

@@ -13,16 +13,17 @@ dependencies = ["PyYAML>=6.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+aws = ["boto3>=1.26"]
 
 [project.scripts]
 autopilot = "autopilot.cli:main"
 ap = "autopilot.cli:main"
 
 [tool.setuptools]
-packages = ["autopilot", "autopilot.backends"]
+packages = ["autopilot", "autopilot.backends", "autopilot.commands"]
 
 [tool.setuptools.package-data]
-autopilot = ["prompts/*.md", "templates/agent/*", "templates/presets/*.yaml"]
+autopilot = ["prompts/*.md", "templates/**/*", "templates/**/*.py", "templates/**/*.sh", "templates/**/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

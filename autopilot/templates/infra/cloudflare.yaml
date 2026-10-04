@@ -1,0 +1,11 @@
+# Declarative Cloudflare state. Only listed items are managed; others are left alone.
+zones:
+  - name: example-test.dev          # test zone only
+    dns:
+      - {type: A,     name: example-test.dev,     content: 203.0.113.10, proxied: true}
+      - {type: CNAME, name: www.example-test.dev, content: example-test.dev, proxied: true}
+      - {type: TXT,   name: example-test.dev,     content: "v=spf1 -all"}
+    waf:
+      # mode is forced to managed_challenge unless the zone sets stage: production
+      - {description: "block wp-login probes", expression: '(http.request.uri.path contains "/wp-login.php")', action: block}
+      - {description: "challenge admin",       expression: '(http.request.uri.path contains "/admin")',       action: managed_challenge}

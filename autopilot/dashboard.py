@@ -188,6 +188,10 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         except (KeyError, TypeError, ValueError):
             stale = 0
     git, checks = (str(run.get("git") or ""), str(run.get("build") or "")) if live else ("", "")
+    warned = [tid for p in plan.phases for tid in warned_tasks(cfg, p)]
+    ended = sorted((r for r in rows.values() if r["status"] == "done" and r["finished_at"]),
+                   key=lambda r: r["finished_at"], reverse=True)[:3]
+    number = {t["id"]: t for t in table}
     return {
         "project": {
             "name": str(cfg.get("name", root.name)), "branch": main, "commit": facts["commit"],
@@ -211,7 +215,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "done": done, "total": len(tasks), "pct": 100 * done // len(tasks) if tasks else 0,
             "phases_done": sum(1 for p in plan.phases if p.tasks and all(status.get(t.id) == "done" for t in p.tasks)),
             "phases_total": len(plan.phases), "blocked": blocked, "questions": len(asked),
-            "warnings": sum(len(warned_tasks(cfg, p)) for p in plan.phases),
+            "warnings": len(warned), "warned": warned[:6],
             "working": len(working) if live else 0, "waiting": max(0, len(tasks) - done - blocked - (len(working) if live else 0)),
             "active": working[0]["n"] if live and working else 0,
         },
@@ -219,6 +223,15 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         # the same simple sentence as docs/NEEDS-YOU.md gives for this problem
         "blocked_why": ({"id": stuck["id"], "why": (problems(stuck["last_error"] or stuck["note"])
                                                     or ["No reason is recorded."])[0][:160]} if stuck else None),
+        # J11: each phase in one line, and the tasks that ended last
+        "phases": [{"id": p.id, "title": p.title, "total": len(p.tasks),
+                    "done": sum(1 for t in p.tasks if status.get(t.id) == "done"),
+                    "status": ("done" if p.tasks and all(status.get(t.id) == "done" for t in p.tasks) else
+                               "running" if any(status.get(t.id) == "done" for t in p.tasks)
+                               or (live and any(run.get("task") == t.id for t in p.tasks)) else "pending")}
+                   for p in plan.phases],
+        "recent": [{"n": number[r["id"]]["n"], "title": number[r["id"]]["title"], "time": number[r["id"]]["time"]}
+                   for r in ended if r["id"] in number],
         "tasks": table,
         "live": live_rows(root, plan),
         "usage": {

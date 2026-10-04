@@ -33,6 +33,10 @@ class Task:
     needs_decision: bool = False   # L2: weigh options in an ADR before building
     research: list[str] = field(default_factory=list)  # L3: topics to research before building
     reopen: bool = False
+    owner_only: bool = False       # needs the owner (credentials, accounts): never run in the agent loop
+
+
+INFRA_TYPES = ("deploy", "cloudflare", "email", "custom")
 
 
 @dataclass
@@ -46,6 +50,8 @@ class Phase:
     deploy: bool = True
     priority: bool = False   # corrective phases jump the queue
     features: list[dict] = field(default_factory=list)  # L4: {id, title, journey} checked once when the phase closes
+    # infra: {steps: [{id, type, description, verify, rollback_cmd, [host], [env]}]}, read by `ap preflight`
+    infra: dict = field(default_factory=dict)
 
     @property
     def max_risk(self) -> str:
@@ -70,6 +76,31 @@ def _features(pid: str, raw) -> list[dict]:
             out.append({"id": str(f.get("id") or f"{pid}-F{i:02d}"), "title": str(f.get("title") or journey)[:120],
                         "journey": journey})
     return out
+
+
+def _infra(pid: str, raw, errors: list[str]) -> dict:
+    """Phase `infra:` -> {"steps": [normalised dicts]}; problems are appended to `errors`."""
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        errors.append(f"phase {pid}: infra must be a mapping with `steps:`")
+        return {}
+    steps, seen = [], set()
+    for i, s in enumerate(_as_list(raw.get("steps")), 1):
+        if not isinstance(s, dict):
+            errors.append(f"phase {pid}: infra step {i} must be a mapping")
+            continue
+        sid = str(s.get("id") or f"{pid}-I{i:02d}")
+        if sid in seen:
+            errors.append(f"phase {pid}: duplicate infra step id {sid}")
+        seen.add(sid)
+        typ = str(s.get("type", "")).lower()
+        if typ not in INFRA_TYPES:
+            errors.append(f"{sid}: infra type {typ!r} not in {list(INFRA_TYPES)}")
+        steps.append({"id": sid, "type": typ, "description": str(s.get("description", "") or ""),
+                      "verify": str(s.get("verify", "") or ""), "rollback_cmd": str(s.get("rollback_cmd", "") or ""),
+                      "host": str(s.get("host", "") or ""), "env": [str(x) for x in _as_list(s.get("env"))]})
+    return {"steps": steps}
 
 
 class Plan:
@@ -115,11 +146,13 @@ class Plan:
                     needs_decision=bool(t.get("needs_decision", False)),
                     research=[str(x) for x in _as_list(t.get("research"))],
                     reopen=bool(t.get("reopen", False)),
+                    owner_only=bool(t.get("owner_only", False)),
                 ))
             phases.append(Phase(id=pid, title=str(p.get("title", pid)), goal=str(p.get("goal", "") or ""),
                                 order=pi, depends_on=[str(d) for d in deps], tasks=tasks,
                                 deploy=bool(p.get("deploy", True)), priority=bool(p.get("priority", False)),
-                                features=_features(pid, p.get("features"))))
+                                features=_features(pid, p.get("features")),
+                                infra=_infra(pid, p.get("infra"), errors)))
             prev_id = pid
         plan = cls(str(data.get("goal", "") or ""), phases)
         errors += plan._validate_refs()
@@ -216,7 +249,7 @@ class Plan:
             finished = finished | {"waiting"}
         ordered = sorted(self.all_tasks(), key=lambda t: (not self.phase_by_id[t.phase_id].priority, t.order))
         for t in ordered:
-            if status.get(t.id, "pending") != "pending":
+            if status.get(t.id, "pending") != "pending" or t.owner_only:  # owner tasks never run in the loop
                 continue
             if any(status.get(d) != "done" for d in t.depends_on):
                 continue

@@ -6,6 +6,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .github_util import identity_env
+
 # Agent sessions can write .git/ and the user's git config. Nothing they plant may run inside the orchestrator's own
 # git calls: hooks and fsmonitor are switched off per call, filters are removed after each session (guard_config).
 SAFE = ["-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false"]
@@ -36,7 +38,7 @@ class Git:
 
     def _git(self, args):
         return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace")
+                              encoding="utf-8", errors="replace", env={**os.environ, **identity_env()})
 
     def _clear_stale_lock(self, stderr: str, min_age: float = 60) -> bool:
         """`index.lock': File exists` from a git process that died (crash, reboot): remove the lock once it is older
@@ -78,10 +80,11 @@ class Git:
     def ensure_repo(self, main: str):
         if not (self.root / ".git").exists():
             self.run("init", "-q", "-b", main)
-        if not self.ok("config", "user.email"):
-            self.run("config", "user.email", "autopilot@localhost")
-        if not self.ok("config", "user.name"):
-            self.run("config", "user.name", "Autopilot")
+        if not identity_env():  # no GitHub identity known: old local fallback (env vars win when it is known)
+            if not self.ok("config", "user.email"):
+                self.run("config", "user.email", "autopilot@localhost")
+            if not self.ok("config", "user.name"):
+                self.run("config", "user.name", "Autopilot")
         exclude = self.root / ".git" / "info" / "exclude"
         exclude.parent.mkdir(parents=True, exist_ok=True)
         current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
