@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 
-_cache: tuple[str, str] | None = None   # (name, noreply email); only a success is cached
+_cache: tuple[str, str] | None = None   # (name, noreply email); a success is cached for the process
+_failed_at: float | None = None         # when gh last gave no identity
+RETRY_SECS = 300  # gh is asked again after this time, never on each git call (that made the suite 6x slower)
 
 
 def set_github_user(login: str, uid: int | str | None = None):
@@ -15,8 +18,8 @@ def set_github_user(login: str, uid: int | str | None = None):
 
 def github_identity() -> tuple[str, str] | None:
     """(name, noreply email) or None when gh is missing / not logged in and nobody gave a username."""
-    global _cache
-    if _cache is None:
+    global _cache, _failed_at
+    if _cache is None and (_failed_at is None or time.monotonic() - _failed_at >= RETRY_SECS):
         try:
             p = subprocess.run(["gh", "api", "user"], capture_output=True, text=True, encoding="utf-8", timeout=20)
             if p.returncode == 0:
@@ -25,6 +28,8 @@ def github_identity() -> tuple[str, str] | None:
                 _cache = (d.get("name") or d["login"], _cache[1])
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             pass
+        if _cache is None:
+            _failed_at = time.monotonic()
     return _cache
 
 

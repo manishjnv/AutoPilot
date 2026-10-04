@@ -17,6 +17,7 @@ def test_commit_uses_noreply_for_author_and_committer(tmp_path, monkeypatch):
         return real_run(cmd, *a, **k)
 
     monkeypatch.setattr(github_util, "_cache", None)
+    monkeypatch.setattr(github_util, "_failed_at", None)
     monkeypatch.setattr(github_util.subprocess, "run", fake_run)
     g = Git(tmp_path)
     g.ensure_repo("main")
@@ -25,3 +26,18 @@ def test_commit_uses_noreply_for_author_and_committer(tmp_path, monkeypatch):
     out = g.run("log", "-1", "--format=A:%an <%ae>%nC:%cn <%ce>")
     assert out == "A:Bob B <42+bob@users.noreply.github.com>\nC:Bob B <42+bob@users.noreply.github.com>"
     assert len(calls) == 1  # gh asked once, then cached
+
+
+def test_a_failed_lookup_is_not_repeated_on_each_git_call(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, *a, **k):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=1, stdout="")
+
+    monkeypatch.setattr(github_util, "_cache", None)
+    monkeypatch.setattr(github_util, "_failed_at", None)
+    monkeypatch.setattr(github_util.subprocess, "run", fake_run)
+    assert github_util.identity_env() == {} and github_util.identity_env() == {} and len(calls) == 1
+    monkeypatch.setattr(github_util, "_failed_at", github_util.time.monotonic() - github_util.RETRY_SECS - 1)
+    assert github_util.identity_env() == {} and len(calls) == 2  # asked again after the wait, e.g. after a login
