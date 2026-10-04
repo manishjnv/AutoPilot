@@ -44,6 +44,15 @@ flowchart LR
     audit -->|complete| app["Working app"]
 ```
 
+## Follow the build
+
+`ap watch` shows the build in the terminal. The status page shows the same data in your browser. The two pictures
+use sample data.
+
+![The terminal window of the watch command: panels for the project, the tasks, the live output, the progress, the usage, the files and the issues.](assets/dashboard-terminal.png)
+
+![The status page in the browser: the question for you at the top, then the same panels as the terminal window.](assets/dashboard-browser.png)
+
 ## Real results
 
 Two real projects, each a CLI built from a plan:
