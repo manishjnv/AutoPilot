@@ -138,10 +138,14 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         st = "running" if live and run.get("task") == t.id else status.get(t.id, "pending")
         st = st if st in ("done", "running", "blocked") else "pending"
         tries = int(r["attempts"] or 0) if r else 0
+        if st == "running":  # the session in work, not the last attempt in the database
+            tries, model = int(run.get("attempt") or 1), name(run.get("model"))
+        else:
+            model = name(r["model"]) if r else ""
         return {"n": i + 1, "id": t.id, "title": t.title, "phase": t.phase_id, "status": st,
                 "time": (_span(r["started_at"], r["finished_at"]) if st == "done" else
                          _span(r["started_at"], now) if st == "running" else "") if r else "",
-                "detail": " · ".join(x for x in (name(r["model"]) if r else "",
+                "detail": " · ".join(x for x in (model,
                                                  f"{tries} attempts" if tries > 1 else "") if x)}
 
     table = [one(i, t) for i, t in enumerate(tasks)]
