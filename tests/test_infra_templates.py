@@ -11,7 +11,7 @@ Z = {"id": "z1"}
 
 class H(BaseHTTPRequestHandler):
     dns, waf, calls, sent = [], [], [], []
-    verified = True
+    verified, postmark, fail_put = True, False, False
 
     def log_message(self, *a): pass
 
@@ -32,8 +32,17 @@ class H(BaseHTTPRequestHandler):
             elif m == "PATCH": H.dns[int(p.rsplit("/", 1)[1])].update(body)
             return self._send(200, H.dns)
         if "/rulesets/" in p:
+            if m == "PUT" and H.fail_put: return self._send(500, None)
             if m == "PUT": H.waf = body["rules"]
             return self._send(200, {"rules": H.waf})
+        if H.postmark and p.startswith("/domains"):
+            if self.headers.get("X-Postmark-Server-Token") != "pm_fake_0000": return self._send(401, None)
+            if m == "GET" and p.startswith("/domains?"): return self._raw({"Domains": []})
+            if m == "POST": return self._raw({"ID": 7})
+            if p == "/domains/7": return self._raw({"ID": 7, "DKIMPendingHost": "pm._domainkey.example-test.dev",
+                                                    "DKIMPendingTextValue": "k=rsa; p=fake", "DKIMHost": "", "DKIMTextValue": ""})
+            if p == "/domains/7/verifyDkim": return self._raw({"DKIMVerified": H.verified})
+        if H.postmark and p == "/email": H.sent.append(body); return self._raw({"MessageID": "m"})
         if p == "/domains" and m == "GET": return self._send(200, None) if False else self._raw({"data": []})
         if p == "/domains": return self._raw({"id": "d1", "records": [{"record": "DKIM", "type": "TXT", "name": "k._domainkey", "value": "pk"}]})
         if p.startswith("/domains/d1/verify"): return self._raw({})
@@ -52,7 +61,7 @@ class H(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def srv():
-    H.dns, H.waf, H.calls, H.sent, H.verified = [], [], [], [], True
+    H.dns, H.waf, H.calls, H.sent, H.verified, H.postmark, H.fail_put = [], [], [], [], True, False, False
     s = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=s.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{s.server_port}"
@@ -76,7 +85,9 @@ def test_cloudflare_dry_apply_idempotent_rollback(srv, tmp_path):
     r = run("cloudflare_apply.py", ["--file", f], env, tmp_path)
     assert "no changes" in r.stdout and not [c for c in H.calls[n:] if c[0] != "GET"]
     H.dns.pop()  # drift, then rollback from snapshot (taken before 1st apply = empty) must not crash
-    assert run("cloudflare_apply.py", ["--rollback"], env, tmp_path).returncode == 0
+    r = run("cloudflare_apply.py", ["--rollback"], env, tmp_path)  # K: the drift is a hand edit: stop, show it
+    assert r.returncode == 6 and "removed:" in r.stderr and "sekret" not in r.stdout + r.stderr
+    assert run("cloudflare_apply.py", ["--rollback", "--force-restore"], env, tmp_path).returncode == 0
 
 
 def test_cloudflare_bad_token(srv, tmp_path):
@@ -101,6 +112,86 @@ def test_email_not_verified(srv, tmp_path):
     H.verified = False
     r = run("email_verify.py", [], email_env(srv), tmp_path)
     assert r.returncode == 5 and "Click" in r.stderr and not H.sent
+
+
+CF_ENV = {"CLOUDFLARE_TOKEN": "sekret"}
+
+
+def test_cloudflare_rollback_without_hand_edits_restores(srv, tmp_path):
+    env = {**CF_ENV, "CLOUDFLARE_API": srv}
+    H.dns.append({"type": "A", "name": "old.example-test.dev", "content": "192.0.2.1", "id": "0"})
+    f = str(T / "infra" / "cloudflare.yaml")
+    assert run("cloudflare_apply.py", ["--file", f], env, tmp_path).returncode == 0
+    assert "example-test.dev" in json.loads((tmp_path / "cf_snapshot.after.json").read_text())
+    r = run("cloudflare_apply.py", ["--rollback"], env, tmp_path)  # no hand edit: the WAF rules go back to none
+    assert r.returncode == 0 and "rollback example-test.dev: PUT_WAF" in r.stdout and H.waf == []
+
+
+def test_cloudflare_rollback_after_a_failed_apply_needs_no_force(srv, tmp_path):
+    H.fail_put = True  # the DNS records go in, then the WAF call fails
+    env = {**CF_ENV, "CLOUDFLARE_API": srv}
+    assert run("cloudflare_apply.py", ["--file", str(T / "infra" / "cloudflare.yaml")], env, tmp_path).returncode == 4
+    assert run("cloudflare_apply.py", ["--rollback"], env, tmp_path).returncode == 0
+
+
+def test_cloudflare_rollback_without_apply_record_stops(srv, tmp_path):
+    (tmp_path / "cf_snapshot.json").write_text(json.dumps({"example-test.dev": {"dns": [], "waf": []}}))
+    r = run("cloudflare_apply.py", ["--rollback"], {**CF_ENV, "CLOUDFLARE_API": srv}, tmp_path)
+    assert r.returncode == 6 and "no record of the last apply" in r.stderr
+    assert not [c for c in H.calls if c[0] != "GET"]
+
+
+def test_cloudflare_rollback_checks_the_token_first(srv, tmp_path):
+    (tmp_path / "cf_snapshot.json").write_text(json.dumps({"example-test.dev": {"dns": [], "waf": []}}))
+    r = run("cloudflare_apply.py", ["--rollback", "--force-restore"], {"CLOUDFLARE_TOKEN": "bad", "CLOUDFLARE_API": srv}, tmp_path)
+    assert r.returncode == 3 and H.calls == [("GET", "/user/tokens/verify")]
+
+
+def test_email_postmark_mocked(srv, tmp_path):  # mocked HTTP only: no real Postmark account
+    H.postmark = True
+    env = {**email_env(srv), "EMAIL_PROVIDER": "postmark", "EMAIL_API_TOKEN": "pm_fake_0000"}
+    r = run("email_verify.py", [], env, tmp_path)
+    assert r.returncode == 0 and H.sent[0]["To"] == "o@x.dev" and "pm_fake_0000" not in r.stdout + r.stderr
+    assert {"spf.mtasv.net" in d["content"] for d in H.dns if d["name"] == "example-test.dev"} == {True}
+    assert any(d["name"] == "pm._domainkey.example-test.dev" for d in H.dns)
+
+
+def test_email_postmark_not_verified(srv, tmp_path):
+    H.postmark, H.verified = True, False
+    env = {**email_env(srv), "EMAIL_PROVIDER": "postmark", "EMAIL_API_TOKEN": "pm_fake_0000"}
+    r = run("email_verify.py", [], env, tmp_path)
+    assert r.returncode == 5 and not H.sent
+
+
+FAKE_BOTO3 = """import json, os
+class NotFound(Exception): pass
+class _C:
+    class exceptions: NotFoundException = NotFound
+    log = os.environ["FAKE_SES_LOG"]
+    def _w(s, x): open(s.log, "a").write(json.dumps(x) + "\\n")
+    def get_email_identity(s, EmailIdentity):
+        if not os.path.exists(s.log + ".made"): raise NotFound()
+        return {"DkimAttributes": {"Tokens": ["t1", "t2", "t3"]}, "VerifiedForSendingStatus": True}
+    def create_email_identity(s, EmailIdentity):
+        open(s.log + ".made", "w").close(); s._w(["create", EmailIdentity])
+        return {"DkimAttributes": {"Tokens": ["t1", "t2", "t3"]}}
+    def send_email(s, **k): s._w(["send", k["Destination"]["ToAddresses"]])
+def client(name):
+    assert name == "sesv2"
+    return _C()
+"""
+
+
+def test_email_ses_with_fake_boto3(srv, tmp_path):  # a fake boto3 module: passes with or without real boto3
+    (tmp_path / "fake").mkdir()
+    (tmp_path / "fake" / "boto3.py").write_text(FAKE_BOTO3)
+    log = tmp_path / "ses.log"
+    env = {**email_env(srv), "EMAIL_PROVIDER": "ses", "EMAIL_API_TOKEN": "", "FAKE_SES_LOG": str(log),
+           "PYTHONPATH": str(tmp_path / "fake")}
+    r = run("email_verify.py", [], env, tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert [json.loads(x) for x in log.read_text().splitlines()] == [["create", "example-test.dev"], ["send", ["o@x.dev"]]]
+    assert sorted(d["name"] for d in H.dns if d["type"] == "CNAME") == [f"t{i}._domainkey.example-test.dev" for i in (1, 2, 3)]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX bash; CI/WSL covers it")

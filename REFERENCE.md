@@ -4,7 +4,7 @@ Facts to look up. For a first project, read the [tutorial](GUIDE.md). For one sp
 [how-to guides](HOWTO.md). To learn why Autopilot works this way, read the [architecture](ARCHITECTURE.md).
 
 **On this page:** [Commands](#commands) · [Environment variables](#environment-variables) · [Files](#files) ·
-[Settings](#settings) · [Models](#models) · [Usage and budget](#usage-and-budget) · [Self-healing](#self-healing) ·
+[Settings](#settings) · [Gate guards](#gate-guards) · [Models](#models) · [Usage and budget](#usage-and-budget) · [Self-healing](#self-healing) ·
 [Glossary](#glossary)
 
 ## Commands
@@ -138,10 +138,35 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 
 Sessions do not load your own Claude Code settings, plugins, hooks, or MCP servers. Your `CLAUDE.md` still loads,
 and the project's own `.claude/settings.json` and `.mcp.json` also load. Thus a run acts the same on each computer.
-To load your own settings too, for example a proxy or an `apiKeyHelper`, set `agent.user_config: true`.
+Your own settings add cost and context to each session. To load them too, for example a proxy or an
+`apiKeyHelper`, set `agent.user_config: true`.
+
+When the `gh` CLI is logged in, each commit of Autopilot uses your GitHub no-reply address as the author and the
+committer. Your git settings do not change.
 
 Autopilot supports these stacks: python, node, go, rust, java, docker, static, and generic. Each project type works
 when you put its build and test commands in `commands`.
+
+## Gate guards
+
+The gate runs these guards on each task before the checks. A guard that finds a problem fails the attempt.
+
+| Guard | Finds |
+|---|---|
+| Deleted test | A test file that the change deletes |
+| Renamed test | A test file that moves to a path that is not a test path |
+| Fewer tests | A test file with fewer test functions than before |
+| Fewer assertions | A test file with fewer assertions than before |
+| Skip marker | A new skip or focus marker in a test |
+| Collection hook | A new hook in `conftest.py` that changes which tests run |
+| CI file | An added, changed or deleted CI pipeline file (`gate.ci_files`) |
+| Test settings | A removed test setting, or an added `--ignore`, `--deselect` or `-k` in a test setting file |
+| Protected file | A change to the plan, the settings, the questions file, the backlog, or a path in `gate.protected` |
+| Secret scan | An added line that looks like a key, a token, or a password |
+| Empty change | No changed files, unless the task has `allow_no_changes: true` |
+
+A task with `allow_test_changes: true` gets the test guards as warnings, not as failures. The paths of test files
+come from `gate.test_globs`.
 
 ## Models
 
@@ -186,17 +211,18 @@ A run stops only for a problem that needs a person. Each repair sends a `heal` a
 
 | Problem | What Autopilot does |
 |---|---|
-| The code of a task fails its checks | Tries a stronger model, then a diagnosis, then asks you. It builds the other tasks |
-| A tool is missing | Runs the setup again. If the tool is still missing, one repair session repairs the setup |
+| The code of a task fails its checks | Moves the task up `models.ladder` to a stronger model, then starts a diagnosis, then asks you. It builds the other tasks |
+| `main` fails its checks | A fixer session repairs `main` before new work. It gets three attempts by default (`retries.max_fixer_attempts`) |
+| A tool is missing | Runs the setup again. If the tool is still missing, one repair session repairs the setup. A run gets one repair session |
 | The Claude CLI is broken, logged out during a run, or offline | Installs the CLI again the way you installed it, or waits, and then tries again. This is not a failed attempt. An npm install gets `npm`. Other installs get the installer from claude.ai. For a winget install, Autopilot shows `winget upgrade Anthropic.ClaudeCode`. It shows the command before it runs it |
-| The usage limit is reached | Sleeps until the window resets |
+| The usage limit is reached | Sleeps until the window resets, for all billing types. The pause before the limit (`usage.reserve_pct`) is for a subscription only |
 | The `autopilot` command is not on the PATH | Adds a launcher and corrects the PATH |
-| The push to GitHub fails | Continues to build on your computer, and tries the push again at each commit |
+| The push to GitHub fails | Tries the push again after 30 seconds. Then it continues to build on your computer, and tries the push again at each commit |
 | `main` is different from GitHub | Applies the local commits again on top of the GitHub commits |
 | An old git lock file exists | Deletes the lock file and tries again |
-| `plan.yaml` is damaged | Restores the last version that loads |
-| `state.db` is damaged | Restores the backup from the start of the run |
-| Autopilot stops with an error | Writes a crash report, then starts again from the saved state |
+| `plan.yaml` is damaged | Restores the last version that loads, from the last 30 commits on `main` that changed it |
+| `state.db` is damaged | Restores the backup. Autopilot makes a backup at each run start |
+| Autopilot stops with an error | Writes a crash report, then starts again from the saved state. It restarts 10 times at most. The same crash three times on one task parks that task |
 
 **These problems still need you:**
 
@@ -213,6 +239,7 @@ A run stops only for a problem that needs a person. Each repair sends a `heal` a
 | Plan | `PLAN.md`, your description of the app. Autopilot makes `.agent/plan.yaml` from it |
 | Phase | A group of tasks that gives one part of the app |
 | Task | One unit of work. One session does one task |
+| Digest | The short summary in the alert at the end of a run or at a stop. It shows the built tasks, the blocked tasks, and the questions for you |
 | Session | One run of Claude Code with a new, empty context |
 | Run | One `autopilot run`, from the start until the end or a stop |
 | Checks | The build, lint, type, test, secret and test-tamper checks that Python runs after each task |

@@ -76,6 +76,27 @@ def test_host_that_is_an_ssh_option_rejected():
             _deploy_plan(host=host)
 
 
+def test_recheck_names_the_credential_never_the_value(monkeypatch):
+    phase = Plan.from_dict(DATA).phases[0]
+    monkeypatch.setattr(pf, "http_get", lambda url, tok: 200)
+    assert pf.recheck(phase, env={"CLOUDFLARE_TOKEN": "cf_fake_0000000000000000"}) == ""
+    monkeypatch.setattr(pf, "http_get", lambda url, tok: 401)  # the token expired during the run
+    why = pf.recheck(phase, env={"CLOUDFLARE_TOKEN": "cf_fake_0000000000000000"})
+    assert why == "credential check failed before the deploy: CLOUDFLARE_TOKEN (I1) is error"
+    assert "missing" in pf.recheck(phase, env={}) and "cf_fake_" not in why
+
+
+def test_recheck_without_infra_steps_is_empty():
+    assert pf.recheck(Plan.from_dict({"phases": [{"tasks": [{"id": "T1", "title": "x"}]}]}).phases[0], env={}) == ""
+
+
+def test_infra_phase_gets_an_adr_and_is_critical():
+    plan = Plan.from_dict({"phases": [DATA["phases"][0], {"id": "P02", "tasks": [{"id": "T3", "title": "y"}]}]})
+    p1, p2 = plan.phases
+    assert all(t.needs_decision for t in p1.tasks) and p1.max_risk == "critical"
+    assert not p2.tasks[0].needs_decision and p2.max_risk == "medium"
+
+
 def test_bad_infra_type_rejected():
     with pytest.raises(PlanError):
         Plan.from_dict({"phases": [{"infra": {"steps": [{"type": "ftp"}]}, "tasks": []}]})

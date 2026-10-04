@@ -127,13 +127,13 @@ pie title Tokens by model, SecretScan run
 
 | Problem | What happens |
 |---|---|
-| A usage limit or a rate limit | The run sleeps until the window resets |
+| A usage limit or a rate limit | The run sleeps until the window resets. A subscription run also pauses before the limit |
 | The Claude CLI, the login or the network is down | The run waits, then starts the same session again |
-| A tool is missing | The run does the setup again, then starts one repair session |
-| `main` fails its checks | A fixer session repairs it before more work |
-| The push fails, or `main` is different from GitHub | The run continues on your computer, tries again, and sends you one alert |
-| The plan file or the state file is damaged | The run restores the last good copy |
-| Autopilot stops with an error | Autopilot starts again from the saved state |
+| A tool is missing | The run does the setup again, then starts one repair session. A run gets one repair session |
+| `main` fails its checks | A fixer session repairs it before more work. It gets three attempts by default |
+| The push fails, or `main` is different from GitHub | The run tries again after 30 seconds, then continues on your computer and tries at each commit. You get one alert |
+| The plan file or the state file is damaged | The run restores the last good copy: the plan from the last 30 commits on `main`, the state from the backup of the run start |
+| Autopilot stops with an error | Autopilot starts again from the saved state, 10 times at most. The same crash three times on one task parks that task |
 
 A limit or an outage never counts as a failed attempt. The full list is in the
 [reference](REFERENCE.md#self-healing).
@@ -177,8 +177,48 @@ No session needs a long chat history. After a crash or a restart, the run contin
 | `docs.py` | Writes the history, the changelog, the handoff, and the RCA log |
 | `decisions.py` | `docs/NEEDS-YOU.md` |
 | `report.py` | The status report, the status line, and the live page |
+| `dashboard.py` | The data of the dashboard for the terminal and the browser |
+| `dash_term.py`, `dash_web.py` | The dashboard in the terminal and on the status page |
 | `notify.py` | Telegram, Slack, ntfy, and webhook alerts |
 | `deploy.py` | Deploy, health check, and rollback |
 | `doctor.py` | Checks of your computer, and safe repairs |
 | `backends/` | Runs Claude Code, or a different agent CLI |
 | `prompts/` | The prompt text for each type of session |
+
+## 12. The dashboard
+
+`ap watch` shows a dashboard in a terminal window of 100 x 24 or larger. The status page shows the same dashboard
+in the browser. One module makes the data, and two views draw it. Thus the terminal and the browser always agree.
+
+```mermaid
+flowchart LR
+    accTitle: One data source for two views
+    accDescr: dashboard.py reads the plan, the state, the run journal and git. The terminal view and the browser view draw the same data.
+    src["Plan, state,<br/>run journal, git"] --> data["dashboard.py<br/>one data set"]
+    data --> term["Terminal view<br/>ap watch"]
+    data --> web["Browser view<br/>status page"]
+```
+
+| Panel | Content |
+|---|---|
+| Project | The status, questions for you, the task now, the next task, the size, the last commit, the phases |
+| Tasks | Each task with its status, its time, and its model |
+| Live output | The steps of the session in plain words |
+| Progress, Usage, Files, Issues | The counts, the usage windows, the changed files, the blocked tasks, and the warnings |
+
+## 13. Claude Code alone and with Autopilot
+
+| | Claude Code alone | With Autopilot |
+|---|---|---|
+| Direction | Claude can choose the design as it works. | Your plan sets the design. The gate refuses a change to the plan. |
+| Run time | You give the next step in the chat. | `ap start` runs all tasks in the background. |
+| Context | A long chat can lose early detail. | Each task starts a new session with a short brief. |
+| Checks | The model can say that work is done. | Autopilot runs your build, lint and test commands. A task merges only if they pass. |
+| Test honesty | A test can be deleted or skipped. | The gate refuses deleted tests, fewer tests, fewer assertions and skip markers. |
+| Failures | You find and repair a problem. | A stronger model tries again. Autopilot repairs a missing tool or a red main branch, and restarts after a crash. |
+| Questions | The chat waits for you. | That task and its dependent tasks wait. Other tasks continue. |
+| Status | You scroll the chat. | `ap watch` shows tasks, live output, progress and usage. |
+| Git | You manage branches. | One branch for each task. It merges only after green checks. |
+| Review | The model checks its own work. | Critical tasks get a separate review. A final audit adds repair tasks. |
+
+Use Claude Code alone for a small change, a question, exploration, or a design that is not decided.

@@ -55,6 +55,8 @@ class Phase:
 
     @property
     def max_risk(self) -> str:
+        if self.infra.get("steps"):  # K: an infra change is risk critical, so prod never deploys without `approve`
+            return "critical"
         if not self.tasks:
             return "low"
         return max((t.risk for t in self.tasks), key=RISKS.index)
@@ -151,11 +153,14 @@ class Plan:
                     reopen=bool(t.get("reopen", False)),
                     owner_only=bool(t.get("owner_only", False)),
                 ))
+            infra = _infra(pid, p.get("infra"), errors)
+            for t in tasks if infra.get("steps") else []:  # K: the decide session writes an ADR before the work
+                t.needs_decision = True
             phases.append(Phase(id=pid, title=str(p.get("title", pid)), goal=str(p.get("goal", "") or ""),
                                 order=pi, depends_on=[str(d) for d in deps], tasks=tasks,
                                 deploy=bool(p.get("deploy", True)), priority=bool(p.get("priority", False)),
                                 features=_features(pid, p.get("features")),
-                                infra=_infra(pid, p.get("infra"), errors)))
+                                infra=infra))
             prev_id = pid
         plan = cls(str(data.get("goal", "") or ""), phases)
         errors += plan._validate_refs()

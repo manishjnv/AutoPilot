@@ -1,17 +1,19 @@
 # How-to guides
 
 Each guide does one job. For your first project, start with the [tutorial](GUIDE.md). To look up a command or a
-setting, use the [reference](REFERENCE.md).
+setting, use the [reference](REFERENCE.md). The guides use `ap`, the short name of `autopilot`.
 
 | Job | Guide |
 |---|---|
 | Daily use | [Answer a question](#answer-a-question-from-autopilot) · [Give advice to a task](#give-advice-to-a-task) · [Stop and continue a run](#stop-and-continue-a-run) · [Repair a blocked task](#repair-a-blocked-task) · [Add features after a run](#add-features-after-a-run) |
+| Audits | [Start an audit now](#start-an-audit-now) |
 | Projects | [Change the plan in plain words](#change-the-plan-in-plain-words) · [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
+| Tasks | [Get a design choice or research before a task](#get-a-design-choice-or-research-before-a-task) |
 | Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
-| GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) |
+| GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) · [Merge each task through a pull request](#merge-each-task-through-a-pull-request) |
 | Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
-| Accounts and agents | [Use an API key](#use-an-api-key-instead-of-a-subscription) · [Use a different agent CLI](#use-a-different-agent-cli) · [Share Autopilot](#share-autopilot-with-a-different-person) |
+| Accounts and agents | [Limit the usage and the cost](#limit-the-usage-and-the-cost-of-a-run) · [Use an API key](#use-an-api-key-instead-of-a-subscription) · [Use a different agent CLI](#use-a-different-agent-cli) · [Share Autopilot](#share-autopilot-with-a-different-person) |
 | Autopilot itself | [Run the smoke test](#run-the-smoke-test) · [Test a change to a prompt](#test-a-change-to-a-prompt) · [Run the tests of Autopilot](#run-the-tests-of-autopilot) |
 
 ## Answer a question from Autopilot
@@ -22,17 +24,17 @@ account, or a business decision. The run builds the other tasks while it waits.
 1. In a terminal, list the open questions with their suggestions, and answer each one:
 
    ```powershell
-   autopilot answer
+   ap answer
    ```
 
    Autopilot asks for each answer. An empty line skips a question.
 2. To answer one question directly, find its ID in `docs/NEEDS-YOU.md`, for example `D-001`. Then send the answer:
 
    ```powershell
-   autopilot answer D-001 "use Stripe"
+   ap answer D-001 "use Stripe"
    ```
 
-You can answer while the run continues. With no terminal, `autopilot answer` prints its usage and exits with a
+You can answer while the run continues. With no terminal, `ap answer` prints its usage and exits with a
 non-zero code. When no run is active, you can also write your answer after "Your answer:" in the file, and then
 commit the file.
 
@@ -40,35 +42,37 @@ commit the file.
 
 Use a hint when you know something that helps a task, for example the library to use or the cause of a failure.
 
-1. Find the ID of the task with `autopilot status`, for example `P04-T02`.
+1. Find the ID of the task with `ap status`, for example `P04-T02`.
 2. Send the hint:
 
    ```powershell
-   autopilot hint P04-T02 "use the sqlite backend, not postgres"
+   ap hint P04-T02 "use the sqlite backend, not postgres"
    ```
 
 Each later session of the task gets the hint, also a retry. Autopilot keeps the last 5 hints for each task, with a
 maximum of 2000 characters each. A hint does not change the rules or the checks. If the task is blocked, run
-`autopilot unblock P04-T02` to use the hint.
+`ap unblock P04-T02` to use the hint.
 
 ## Stop and continue a run
 
 1. Stop the run:
 
    ```powershell
-   autopilot stop
+   ap stop
    ```
 
    The run stops before its next session. It does not stop a session that is in progress.
-2. Continue the run:
+2. Continue the run in the background:
 
    ```powershell
-   autopilot run --clear-stop
+   ap start
    ```
 
+   The build continues after you close the terminal. To follow it, run `ap watch`.
+
 > [!NOTE]
-> A plain `autopilot run` stops again at once while the stop flag exists. Use `--clear-stop`, or run
-> `autopilot resume` first.
+> A plain `ap run` stops again at once while the stop flag exists. Use `ap start` or `ap run --clear-stop`, or
+> run `ap resume` first.
 
 ## Repair a blocked task
 
@@ -77,17 +81,17 @@ A blocked task failed all its attempts. Usually, the task description is not cle
 1. Find the reason:
 
    ```powershell
-   autopilot status
+   ap status
    ```
 
 2. Correct the task description or its acceptance criteria in `.agent/plan.yaml`.
 3. Put the task back in the queue:
 
    ```powershell
-   autopilot unblock P04-T02
+   ap unblock P04-T02
    ```
 
-To remove the task from the plan, use `autopilot skip P04-T02`.
+To remove the task from the plan, use `ap skip P04-T02`.
 
 ## Add features after a run
 
@@ -96,17 +100,29 @@ To remove the task from the plan, use `autopilot skip P04-T02`.
 3. Start a run:
 
    ```powershell
-   autopilot run
+   ap run
    ```
 
 One replan session adds the new ideas to the plan. It ignores ideas that the plan already has.
+
+## Start an audit now
+
+1. Start the audit that you need:
+
+   ```powershell
+   ap review --kind completion
+   ```
+
+   Use `periodic` for a check of the work so far, `completion` for a check of the full app, or `replan` for a plan
+   update.
+2. Read the result in the terminal. An audit that finds gaps adds fix tasks to the plan.
 
 ## Change the plan in plain words
 
 1. Send the change:
 
    ```powershell
-   autopilot change "add a dark mode"
+   ap change "add a dark mode"
    ```
 
 2. Autopilot says that the change costs one replan session. Type `1` to start, or `2` to stop.
@@ -124,18 +140,26 @@ When a run is active, Autopilot writes the idea to `docs/BACKLOG.md`. The run ta
 2. Make the tasks from your plan or roadmap:
 
    ```powershell
-   autopilot quickstart --plan-doc ROADMAP.md
+   ap quickstart --plan-doc ROADMAP.md
    ```
 
-   If you have no plan document, use `autopilot onboard` and then `autopilot doctor`. The onboard session reads the
+   If you have no plan document, use `ap onboard` and then `ap doctor`. The onboard session reads the
    repository and the README, and then writes a plan.
 3. Show the tasks in order, and read `.agent/plan.yaml` and `.agent/BRAIN.md`:
 
    ```powershell
-   autopilot next
+   ap next
    ```
 
-4. Start the run with `autopilot run`.
+4. Start the run with `ap run`.
+
+## Get a design choice or research before a task
+
+1. Open `.agent/plan.yaml` and find the task.
+2. To compare 2 or 3 designs before the work, add `needs_decision: true`. The choice goes to `docs/adr/`.
+3. To get web research first, add `research:` with a list of topics. The notes go to `docs/research/`.
+
+Tasks with the risk `high` or `critical` get the design choice by default (`decide.risks`).
 
 ## Write a plan that runs well
 
@@ -195,6 +219,15 @@ The run checks GitHub when it starts, and then every 30 minutes (`intake.poll_mi
 
 On GitHub, only people with triage access can add a label. The coding session gets only the rewritten task, never
 the text of the issue.
+
+## Merge each task through a pull request
+
+1. Log in to the GitHub CLI with `gh auth login`.
+2. In `.agent/project.yaml`, set `git.push: true` and `git.mode: pr`.
+
+Each task then opens a pull request. Autopilot merges it when the CI checks pass. If the CI fails, or gives no
+result after `git.pr_timeout_min` minutes (default 30), Autopilot closes the pull request. That is a failed attempt.
+Tasks then run one at a time.
 
 ## Run Autopilot on a server
 
@@ -264,6 +297,17 @@ Shell commands in a session can then connect only to these domains. Other effect
 - Autopilot does not load the MCP servers of the project.
 - The checks and the deploy commands of Autopilot run outside the sandbox.
 
+## Limit the usage and the cost of a run
+
+1. Open `.agent/project.yaml`.
+2. To keep a part of each 5-hour window for your own work, set `usage.reserve_pct`. The default is 15.
+3. To start the Opus sessions only early in a window, set `usage.opus_by_pct`, for example `50`.
+4. Set the cost limits in `budget_usd`: `per_session`, `per_task`, `per_phase`, `daily` and `total`.
+5. Keep `agent.user_config: false`. Your own plugins, hooks and MCP servers add cost and context to each session.
+
+When the run reaches the reserve, it pauses until the window resets. When it reaches the `daily` limit, it sleeps
+until the next day. When it reaches the `total` limit, it stops. The `usage` keys apply to a subscription only.
+
 ## Use an API key instead of a subscription
 
 1. Set `ANTHROPIC_API_KEY` in the environment of the run.
@@ -289,7 +333,7 @@ To send the requests through a gateway such as LiteLLM or OpenRouter, set `agent
 2. The other person does [steps 1 to 3 of the tutorial](GUIDE.md#step-1-install-three-programs) on their computer,
    with their own Claude login.
 
-Autopilot never shares your login. To continue a project, the other person clones it and runs `autopilot run`. The
+Autopilot never shares your login. To continue a project, the other person clones it and runs `ap run`. The
 `.agent/` folder has the plan and the history. The state database starts empty.
 
 ## Run the smoke test
@@ -311,7 +355,7 @@ shows the effect of a prompt change.
 4. In the first folder, start a run with the prompts before the change:
 
    ```bash
-   autopilot run --max-sessions 10
+   ap run --max-sessions 10
    ```
 
 5. Change the prompt. Then start the same run in the copy.
@@ -319,7 +363,7 @@ shows the effect of a prompt change.
 
    | Measure | Where |
    |---|---|
-   | Tasks done, and tasks that passed on the first try | `autopilot stats` |
+   | Tasks done, and tasks that passed on the first try | `ap stats` |
    | Faults that the feature checks found | `FAIL` in `.agent/history/<phase>/PROOF.md` |
    | Faults that the audit found | `.agent/audits/` |
 
@@ -336,13 +380,13 @@ the same Claude plan as the chat. This does not work in cloud sessions.
 Install Autopilot and start a build for me. Show me each command before you run it.
 1. Check that git, uv and claude are installed, and that `claude auth status` shows a login.
    If one is missing, show me the tutorial https://github.com/manishjnv/AutoPilot/blob/main/GUIDE.md and stop.
-2. If `autopilot --version` fails, install it: uv tool install git+https://github.com/manishjnv/AutoPilot
-   If the shell then does not find autopilot, use the folder that `uv tool dir --bin` shows.
+2. If `ap --version` fails, install it: uv tool install git+https://github.com/manishjnv/AutoPilot
+   If the shell then does not find ap, use the folder that `uv tool dir --bin` shows.
 3. Ask me what to build and in which folder. Refuse my home folder and the root of a drive.
 4. Tell me that the build runs for hours on my Claude plan, then wait for my "go".
-5. Run: autopilot quickstart -C "<folder>" --idea "<my idea>" --run --detach
+5. Run: ap quickstart -C "<folder>" --idea "<my idea>" --run --detach
 6. After one minute, show me the last 20 lines of <folder>/.agent/logs/detached.log.
-7. Tell me to follow the build with: autopilot watch -C "<folder>"
+7. Tell me to follow the build with: ap watch -C "<folder>"
 ```
 
 **Option 2: install the plugin.** It adds the `/autopilot` command. In Claude Code, type:
@@ -356,7 +400,7 @@ Then type `/autopilot` and your idea. `/autopilot status`, `/autopilot answer` a
 run. If a different command has the same name, use the full name `/autopilot:autopilot`. The plugin has no hooks. It only runs `autopilot` commands, and it asks before it installs Autopilot.
 
 Both options start the build with `--detach`. The build is a separate process, so it continues after you close the
-chat. Stop it with `autopilot stop -C "<folder>"`.
+chat. Stop it with `ap stop -C "<folder>"`.
 
 ## Install with one script
 
@@ -398,7 +442,7 @@ the step starts. A second run is safe: the script skips a program that is alread
    | macOS, Linux, WSL | `bash install.sh --dry-run` |
 
 4. Run the same command without the dry-run option.
-5. Open a new terminal. Then run `autopilot`.
+5. Open a new terminal. Then run `ap`.
 
 | Fact | Detail |
 |---|---|

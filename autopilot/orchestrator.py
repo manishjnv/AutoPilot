@@ -1750,10 +1750,24 @@ class Orchestrator:
         rows = [{**f, "phase": p.id, **seen.get(f["id"], {"passes": None})} for p in self.plan.phases for f in p.features]
         (self.ad / "features.json").write_text(json.dumps({"features": rows}, indent=1), encoding="utf-8")
 
+    def credentials_stop(self, phase_id: str, env_name: str) -> str:
+        """K: the infra credentials of the phase are checked again just before a deploy. '' = go on."""
+        from .commands.preflight import recheck
+        phase = self.plan.phase_by_id.get(phase_id)
+        why = recheck(phase) if phase else ""
+        if why:
+            log.warning("%s deploy of %s stopped: %s", env_name, phase_id, why)
+            self.notify.send("deploy_failed", f"{env_name} {phase_id}: {why}")
+        return why
+
     def deploy_phase(self, phase) -> str:
         notes = []
         ref = self.git.head()
         staging_ok = True
+        if self.credentials_stop(phase.id, "staging"):  # nothing is changed: fix the credential, then approve
+            if self.cfg.get("deploy.prod.enabled"):  # without this, `approve` has no ref and the deploy is lost
+                self.state.set_phase(phase.id, prod_status="awaiting_approval", prod_ref=ref)
+            return "deploy stopped: a credential check failed (staging did not run)"
         if self.cfg.get("deploy.staging.enabled"):
             res = deploy(self.cfg, "staging", ref, phase.id, self.state.last_staging_ref(exclude=phase.id))
             staging_ok = res.ok
@@ -1790,6 +1804,9 @@ class Orchestrator:
         return "; ".join(notes)
 
     def deploy_prod(self, phase_id: str, ref: str) -> str:
+        if self.credentials_stop(phase_id, "prod"):
+            self.state.set_phase(phase_id, prod_status="awaiting_approval", prod_ref=ref)
+            return "prod deploy stopped: a credential check failed"
         res = deploy(self.cfg, "prod", ref, phase_id, self.state.last_prod_ref())
         self.state.set_phase(phase_id, prod_status="deployed" if res.ok else "failed", prod_ref=ref)
         if res.ok:

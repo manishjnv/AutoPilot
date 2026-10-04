@@ -1,6 +1,7 @@
 # Security policy
 
 Autopilot runs a coding agent that has shell access. A fault in its guards can damage a computer or leak a secret.
+Autopilot masks the values of known secret variables in the error text of a failed deploy.
 
 ## What to report
 

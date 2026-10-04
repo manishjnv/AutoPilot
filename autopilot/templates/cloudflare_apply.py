@@ -2,9 +2,11 @@
 """Declarative, idempotent Cloudflare apply (DNS + WAF custom rules).
 
 Usage: cloudflare_apply.py [--dry-run] [--file infra/cloudflare.yaml]
-                           [--snapshot cf_snapshot.json] [--rollback]
+                           [--snapshot cf_snapshot.json] [--rollback [--force-restore]]
 Env: CLOUDFLARE_TOKEN (never printed), CLOUDFLARE_API (override base URL, for mocks)
-Exit: 0 ok | 2 bad input | 3 auth failed | 4 API/verify error
+Exit: 0 ok | 2 bad input | 3 auth failed | 4 API/verify error | 6 records changed by hand since the last apply
+Rollback: the zone must still be in the state that the last apply left (<snapshot>.after.json). If it is not,
+the differences are printed and nothing changes, unless --force-restore is given. It never asks for input.
 WAF: unless a zone sets `stage: production`, every rule is downgraded to managed_challenge.
 """
 import argparse, json, os, sys, urllib.error, urllib.parse, urllib.request
@@ -98,11 +100,38 @@ def zone_id(name):
     return res[0]["id"]
 
 
-def rollback(snap_path, dry):
+def after_path(snap_path):
+    return os.path.splitext(snap_path)[0] + ".after.json"
+
+
+def hand_edits(left, now):
+    """What changed between the state that the last apply left and the state now (as lines)."""
+    rec = lambda st: {json.dumps([dns_key(r), dns_val(r)]) for r in st["dns"]}  # noqa: E731
+    a, b = rec(left), rec(now)
+    return ([f"removed: {x}" for x in sorted(a - b)] + [f"added or changed: {x}" for x in sorted(b - a)]
+            + (["WAF rules changed"] if left["waf"] != now["waf"] else []))
+
+
+def rollback(snap_path, dry, force=False):
     snap = json.load(open(snap_path))
-    for name, s in snap.items():
+    try:
+        left = json.load(open(after_path(snap_path)))
+    except FileNotFoundError:
+        left = {}
+    zones, edits = [], []
+    for name in snap:
         zid = zone_id(name)
         cur = get_state(zid)
+        zones.append((name, zid, cur))
+        edits += [f"{name}: {x}" for x in (hand_edits(left[name], cur) if name in left
+                                          else ["no record of the last apply, so hand edits are not known"])]
+    if edits and not force:  # never overwrite hand edits without notice
+        for x in edits:
+            print(scrub(x), file=sys.stderr)
+        raise CFError("the zone changed since the last apply; nothing was restored. "
+                      "Check the lines above, then run again with --force-restore to overwrite them", 6)
+    for name, zid, cur in zones:
+        s = snap[name]
         # ponytail: restore = re-create snapshot records missing now + restore WAF; extra records are left.
         want = {"dns": [d for d in s["dns"]], "waf": s["waf"]}
         ops = plan({"dns": want["dns"], "waf": want["waf"], "stage": "production"}, cur)
@@ -134,29 +163,42 @@ def apply(cfg, dry, snap_path):
     if any(ops for _, _, ops in work):
         json.dump(snap, open(snap_path, "w"), indent=2)
         print(f"snapshot saved: {snap_path}")
-    for z, zid, ops in work:
-        for op, p in ops:
-            run_op(zid, op, p)
-        left = plan(z, get_state(zid))  # verify
-        if left:
-            raise CFError(f"verify failed for {z['name']}: {len(left)} pending ops")
-        print(f"{z['name']}: verified")
+    after = {}
+    try:
+        for z, zid, ops in work:
+            for op, p in ops:
+                run_op(zid, op, p)
+            after[z["name"]] = st = get_state(zid)
+            left = plan(z, st)  # verify
+            if left:
+                raise CFError(f"verify failed for {z['name']}: {len(left)} pending ops")
+            print(f"{z['name']}: verified")
+    finally:  # a rollback compares the zone with this state first; a failed apply must leave it too
+        if any(ops for _, _, ops in work):
+            for z, zid, _ in work:
+                if z["name"] not in after:
+                    try:
+                        after[z["name"]] = get_state(zid)
+                    except CFError:
+                        pass  # no record for this zone: its rollback then needs --force-restore
+            json.dump(after, open(after_path(snap_path), "w"), indent=2)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--rollback", action="store_true")
+    ap.add_argument("--force-restore", action="store_true", help="rollback even if records changed by hand")
     ap.add_argument("--file", default="infra/cloudflare.yaml")
     ap.add_argument("--snapshot", default="cf_snapshot.json")
     a = ap.parse_args(argv)
     try:
         if not TOKEN:
             raise CFError("CLOUDFLARE_TOKEN not set", 3)
+        call("GET", "/user/tokens/verify")  # fail early on bad token, before any change (apply and rollback)
         if a.rollback:
-            rollback(a.snapshot, a.dry_run)
+            rollback(a.snapshot, a.dry_run, a.force_restore)
         else:
-            call("GET", "/user/tokens/verify")  # fail early on bad token
             apply(yaml.safe_load(open(a.file)) or {}, a.dry_run, a.snapshot)
     except (CFError, OSError, yaml.YAMLError, KeyError) as e:
         code = e.code if isinstance(e, CFError) else 2

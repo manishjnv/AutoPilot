@@ -9,16 +9,18 @@ decides when a task is complete.
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-## Why use it
+## Claude Code alone and with Autopilot
 
-| A coding agent alone | With Autopilot |
-|---|---|
-| Says "tests pass" | **Runs the checks itself.** It merges only code that passes |
-| Skips or deletes a test that fails | **The test-tamper guard** fails the task |
-| Makes more errors after many hours | **Starts a new session for each task** |
-| Stops and waits for your answer | **Does not wait.** It records the question and builds the other tasks |
-| Stops after a crash or a usage limit | **Repairs the problem** and continues |
-| Says that the plan is complete | **Tries each feature, then audits the full app** |
+| | Claude Code alone | With Autopilot |
+|---|---|---|
+| Direction | Claude can choose the design as it works. | Your plan sets the design. The gate refuses a change to the plan. |
+| Checks | The model can say that work is done. | Autopilot runs your build, lint and test commands. A task merges only if they pass. |
+| Failures | You find and repair a problem. | A stronger model tries again. Autopilot repairs a missing tool or a red main branch, and restarts after a crash. |
+| Questions | The chat waits for you. | That task and its dependent tasks wait. Other tasks continue. |
+| Status | You scroll the chat. | `ap watch` shows tasks, live output, progress and usage. |
+
+The [full comparison](ARCHITECTURE.md#13-claude-code-alone-and-with-autopilot) has ten rows. Use Claude Code alone
+for a small change, a question, exploration, or a design that is not decided.
 
 ## How it works
 
@@ -62,8 +64,8 @@ Both runs used a subscription. The envguard audits found 8 real bugs, and Autopi
 
 ## Quick start
 
-You need a paid Claude plan or an API key. The free Claude plan cannot use Claude Code. The first install takes
-approximately 4 minutes.
+You need a paid Claude plan or an API key. The free Claude plan cannot use Claude Code. `ap` is the short name of
+`autopilot`.
 
 ```powershell
 winget install --id Git.Git -e
@@ -72,7 +74,7 @@ irm https://claude.ai/install.ps1 | iex
 # Open a new terminal. Then:
 uv tool install git+https://github.com/manishjnv/AutoPilot
 claude auth login
-autopilot quickstart -C myapp --idea "a todo list CLI with due dates" --run
+ap quickstart -C myapp --idea "a todo list CLI with due dates" --run
 ```
 
 These commands are for Windows PowerShell. For macOS and Linux, and for each step in detail, see the

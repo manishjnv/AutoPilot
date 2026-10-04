@@ -54,7 +54,8 @@ terminal does not find them.
 uv tool install git+https://github.com/manishjnv/AutoPilot
 ```
 
-If the terminal does not find `autopilot`, run `uv tool update-shell`, and then open a new terminal.
+The install adds two commands: `autopilot` and its short name `ap`. This tutorial uses `ap`. If the terminal does
+not find `ap`, run `uv tool update-shell`, and then open a new terminal.
 
 ## Step 3: Log in to Claude
 
@@ -62,7 +63,7 @@ If the terminal does not find `autopilot`, run `uv tool update-shell`, and then 
 claude auth login
 ```
 
-If you skip this step, `autopilot quickstart` and `autopilot run` stop before the first session. An API key
+If you skip this step, `ap quickstart` and `ap run` stop before the first session. An API key
 (`ANTHROPIC_API_KEY`) does not need a login.
 
 ## Step 4: Start the build
@@ -70,7 +71,7 @@ If you skip this step, `autopilot quickstart` and `autopilot run` stop before th
 Give your idea to Autopilot:
 
 ```powershell
-autopilot quickstart -C myapp --idea "a todo list CLI with due dates" --run
+ap quickstart -C myapp --idea "a todo list CLI with due dates" --run
 ```
 
 This one command:
@@ -81,7 +82,7 @@ This one command:
 4. Starts the build.
 
 > [!TIP]
-> To answer the same questions step by step, run `autopilot` with no arguments. If you have your own plan, see
+> To answer the same questions step by step, run `ap` with no arguments. If you have your own plan, see
 > [Use a project that already exists](HOWTO.md#use-a-project-that-already-exists).
 
 While the build runs:
@@ -95,19 +96,19 @@ To follow the run from a different terminal, run `cd myapp`, and then use one of
 
 | To see | Do this |
 |---|---|
-| Each step, live | `autopilot watch`. Ctrl+C stops the watch, not the run |
-| A snapshot of the progress | `autopilot status` |
+| Each step, live | `ap watch`. Ctrl+C stops the watch, not the run |
+| A snapshot of the progress | `ap status` |
 | All log lines | Open `.agent/logs/autopilot.log` |
 
 If Autopilot has a question for you, it writes the question in `docs/NEEDS-YOU.md` and builds the other tasks. To
-answer, run `autopilot answer`. See [Answer a question from Autopilot](HOWTO.md#answer-a-question-from-autopilot).
+answer, run `ap answer`. See [Answer a question from Autopilot](HOWTO.md#answer-a-question-from-autopilot).
 
 ## Step 5: Examine the result
 
 - At the end of the run, a message shows what Autopilot built, the blocked tasks, and the questions for you. It also
   shows an estimate of the work that remains.
 - A `Not verified` line in the message shows the work that no check covered. Examine that work yourself.
-- `autopilot stats` shows the number of tasks done, the cost, the time and what you had to do.
+- `ap stats` shows the number of tasks done, the cost, the time and what you had to do.
 - The code is on the `main` branch. `CHANGELOG.md` lists the changes, and `docs/RCA.md` lists the bugs and their
   causes.
 
