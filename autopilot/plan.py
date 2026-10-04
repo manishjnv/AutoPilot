@@ -97,9 +97,12 @@ def _infra(pid: str, raw, errors: list[str]) -> dict:
         typ = str(s.get("type", "")).lower()
         if typ not in INFRA_TYPES:
             errors.append(f"{sid}: infra type {typ!r} not in {list(INFRA_TYPES)}")
+        host = str(s.get("host", "") or "")
+        if host.startswith("-") or any(c.isspace() for c in host):  # preflight gives it to ssh as an argument
+            errors.append(f"{sid}: host {host!r} must be user@server (no leading `-`, no spaces)")
         steps.append({"id": sid, "type": typ, "description": str(s.get("description", "") or ""),
                       "verify": str(s.get("verify", "") or ""), "rollback_cmd": str(s.get("rollback_cmd", "") or ""),
-                      "host": str(s.get("host", "") or ""), "env": [str(x) for x in _as_list(s.get("env"))]})
+                      "host": host, "env": [str(x) for x in _as_list(s.get("env"))]})
     return {"steps": steps}
 
 

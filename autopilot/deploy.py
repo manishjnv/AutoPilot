@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from .gate import run_commands
 from .log_scrub import scrub_secrets
 
-_SECRET_ENV = ("CLOUDFLARE_TOKEN", "EMAIL_API_TOKEN", "DEPLOY_SSH_KEY")  # more via deploy.secret_env
+# masked in every failure text; more (a zone ID, another token) via deploy.secret_env
+_SECRET_ENV = ("CLOUDFLARE_TOKEN", "EMAIL_API_TOKEN", "DEPLOY_SSH_KEY", "DEPLOY_SSH_HOST", "DEPLOY_SSH_KEY_PATH")
 
 
 @dataclass

@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from autopilot.dash_term import frame
+from autopilot.dash_term import frame, normalize
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 SIZES = [(100, 24), (120, 30), (133, 37), (190, 50)]
@@ -179,3 +179,104 @@ def test_project_panel_has_no_duplicates():
 def test_small_window_keeps_status_and_needs_you():
     out = left(frame(data(), 100, 24))
     assert "Status" in out and "Questions for you" in out and "Elapsed" in out
+
+
+# ---------- J11 ----------
+PHASES = [{"id": "P01", "title": "a", "total": 4, "done": 4, "status": "done"},
+          {"id": "FIX002", "title": "b", "total": 5, "done": 4, "status": "running"},
+          {"id": "P05", "title": "c", "total": 3, "done": 0, "status": "pending"}]
+
+
+def right(lines):
+    return "\n".join(x[-30:] for x in strip(lines))
+
+
+def test_normalize_keeps_phases_next_and_task_id():
+    d = data(phases=PHASES, next=[("ap watch", "see the build"), ["ap stop"], "odd", 7])
+    d["progress"]["warned"] = ["T1", "bad \x1b[2J id"] + [f"T{i}" for i in range(3, 12)]
+    out = normalize(d)
+    assert out["phases"][1] == {"id": "FIX002", "status": "running", "done": 4, "total": 5}
+    assert out["next"] == [("ap watch", "see the build"), ("ap stop", "")]
+    assert out["tasks"][0]["id"] == "T1"
+    assert len(out["progress"]["warned"]) == 6 and "\x1b" not in "".join(out["progress"]["warned"])
+    assert normalize({"phases": 3, "next": "x"})["phases"] == [] and normalize({"next": "x"})["next"] == []
+
+
+def test_progress_has_no_percent_line_and_no_left_line():
+    out = right(frame(data(), 120, 30))
+    assert not any(x.strip("│ ") == "85%" for x in out.splitlines())
+    assert "Left 10m" not in out and "85%" in out  # the bar still shows the percentage
+    assert "Left     : 10m" in left(frame(data(), 120, 30))
+
+
+@pytest.mark.parametrize("label", ["Branch", "  Writes the code.", "Added", "Modified", "Blocked ", "Warnings", "Checks"])
+def test_labels_and_state_sentence_are_not_dim(label):
+    assert "\x1b[2m" + label not in line_with(data(), label)
+
+
+def test_side_notes_and_zero_values_stay_dim():
+    assert "\x1b[2mResets in 4h05m" in line_with(data(), "Resets in")
+    d = data()
+    d["progress"]["warnings"] = 0
+    assert "\x1b[2m0" in line_with(d, "Warnings")
+
+
+def test_group_rule_lines():
+    out = left(frame(data(), 120, 40)).splitlines()
+    for title in ("! Questions for you", "Now", "Next", "Size", "Last commit"):
+        line = next(x for x in out if f"── {title} ─" in x)
+        assert line == f"│ ── {title} " + "─" * (28 - len(title)) + " │"
+    assert out[1].startswith("│ Project  : csv2json")  # the status group has no rule
+    assert not any(x.strip("│ ") in ("", "Now", "Size") for x in out[1:20])  # no blank line, no title line
+    assert "\x1b[1m" in line_with(data(), "── Now", rows=40) and "\x1b[2m── " in line_with(data(), "── Now", rows=40)
+
+
+def test_warned_task_ids_below_the_count():
+    d = data()
+    d["progress"]["warned"] = ["P01-T02", "P02-T01"]
+    out = right(frame(d, 120, 40)).splitlines()
+    at = next(i for i, x in enumerate(out) if "Warnings" in x)
+    assert "P01-T02 P02-T01" in out[at + 1]
+    assert "P01-T02" not in right(frame(data(), 120, 40))
+
+
+def test_phases_group():
+    out = left(frame(data(phases=PHASES), 120, 50))
+    assert "── Phases ─" in out and "✓ P01 4/4" in out and "▶ FIX002 4/5" in out and "○ P05 0/3" in out
+    assert out.index("── Last commit") < out.index("── Phases")  # the last group
+    many = [{"id": f"P{i:02d}", "total": 2, "done": 2 if i < 6 else 0,
+             "status": "done" if i < 6 else "running" if i == 6 else "pending"} for i in range(1, 10)]
+    out = left(frame(data(phases=many), 120, 50))
+    assert [f"P{i:02d}" in out for i in range(1, 10)] == [False] * 3 + [True] * 5 + [False]  # five, around P06
+    assert "Phases" not in left(frame(data(), 120, 50))
+
+
+def test_cut_order_at_100x24():
+    out = left(frame(data(phases=PHASES), 100, 24))
+    for kept in ("Status", "Questions for you", "── Now", "── Next"):
+        assert kept in out
+    assert "── Phases" not in out and "── Size" not in out
+
+
+def test_start_time_in_status_block():
+    out = left(frame(data(), 100, 24)).splitlines()
+    at = next(i for i, x in enumerate(out) if "Started  : 2026-10-04 06:17 " in x)
+    assert at < next(i for i, x in enumerate(out) if "Questions for you" in x)
+    assert "Model" not in "\n".join(out[:at + 3])  # the model is in the Now group only
+
+
+def test_group_that_does_not_fit_does_not_stop_the_next():
+    d = data()
+    d["project"].update(stale_min=0, last_commit_age="")
+    out = left(frame(d, 100, 24))
+    assert "── Size" not in out and "── Last commit" in out and "close phase FIX001" in out
+
+
+def test_next_step_line_at_the_bottom_of_issues():
+    d = data(next=[("ap watch", "see the build"), ("ap stop", "stop the build")])
+    out = strip(frame(d, 120, 40))
+    assert out[-3][-30:] == "│ " + "Run: ap watch".ljust(26) + " │"
+    assert "[36m" in line_with(d, "Run: ap watch", rows=40)
+    assert "ap stop" not in "\n".join(out)  # one line only
+    assert "Run: ap watch" not in "\n".join(frame(d, 120, 30))  # no free row: no line
+    assert "Run: ap" not in right(frame(data(), 120, 40))  # no data: no line

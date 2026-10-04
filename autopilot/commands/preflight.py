@@ -7,6 +7,8 @@ import subprocess
 import urllib.error
 import urllib.request
 
+from ..log_scrub import scrub_secrets
+
 # type -> env var that must be set; the check is read-only
 CRED = {"deploy": "DEPLOY_SSH_KEY", "cloudflare": "CLOUDFLARE_TOKEN", "email": "EMAIL_API_TOKEN"}
 CF_VERIFY = "https://api.cloudflare.com/client/v4/user/tokens/verify"
@@ -29,8 +31,13 @@ def run_cmd(cmd: list[str] | str, shell: bool = False) -> tuple[int, str]:  # te
         return 1, str(e)[:200]
 
 
-def _check(step: dict, val: str) -> tuple[str, str]:
-    """-> (ok|error, detail) for one present credential."""
+def _check(step: dict, val: str, secrets: dict[str, str]) -> tuple[str, str]:
+    """-> (ok|error, detail) for one present credential. Text from a command is scrubbed: it can hold a token or host."""
+    st, detail = _probe(step, val)
+    return st, scrub_secrets(detail, secrets) if st == "error" else detail
+
+
+def _probe(step: dict, val: str) -> tuple[str, str]:
     t = step["type"]
     if t == "cloudflare":
         code = http_get(CF_VERIFY, val)
@@ -52,6 +59,9 @@ def run_preflight(plan, cfg, env=None) -> list[dict]:
     """Report rows {item, status: ok|missing|error, detail}. Any row that is not ok blocks the run."""
     env = os.environ if env is None else env
     rows, seen = [], set()
+    steps = [s for ph in plan.phases for s in ph.infra.get("steps", [])]
+    secrets = {n: env[n] for s in steps for n in [*CRED.values(), *s["env"]] if env.get(n)}
+    secrets.update({f"host:{s['id']}": s["host"] for s in steps if s["host"]})
     for ph in plan.phases:
         for s in ph.infra.get("steps", []):
             for name in ([CRED[s["type"]]] if s["type"] in CRED else []) + s["env"]:
@@ -59,7 +69,7 @@ def run_preflight(plan, cfg, env=None) -> list[dict]:
                     rows.append({"item": f"{name} ({s['id']})", "status": "missing",
                                  "detail": s["description"] or f"needed by {s['type']} step {s['id']}"})
                 elif name == CRED.get(s["type"]) or s["verify"]:
-                    st, d = _check(s, env[name])
+                    st, d = _check(s, env[name], secrets)
                     rows.append({"item": f"{name} ({s['id']})", "status": st, "detail": d})
                 seen.add(name)
     for name in cfg.get("agent.env_passthrough", []) or []:

@@ -116,22 +116,27 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     p, pr, ny, now, size = d["project"], d["progress"], d["needs_you"], d["now"], d["size"]
 
     def row(label, value, style=None):
-        return [[(f"{label:<9}: ", "dim"), (value, style)]] if value != "" else []
+        return [[f"{label:<9}: ", (value, style)]] if value != "" else []
 
     def text(t, style=None, indent=""):
         return [[(indent + x, style)] for x in wrap2(t, w - 4 - len(indent))]
+
+    def rule(title, style="bold"):
+        """The first line of a titled group: the title in a line of the full inner width."""
+        return [("── ", "dim"), (title, style), (" " + "─" * max(w - 8 - len(title), 0), "dim")]
     status = row("Project", p["name"]) + row("Branch", p["branch"]) + row("Status", p["status"], TONE.get(p["tone"]))
-    status += text(p["state_words"], "dim", "  ")
+    status += text(p["state_words"], None, "  ")
     if p["stale_min"] > 0:
         status.append([(f"No change for {p['stale_min']} min.", {"warn": "yellow", "bad": "red"}.get(p["stale"], "dim"))])
-    groups = [status + row("Elapsed", p["elapsed"]) + row("Left", p["eta"])]
+    groups = [status + row("Started", p["started"][:16]) + row("Elapsed", p["elapsed"]) + row("Left", p["eta"])]
     if ny:
         n = max(count(pr.get("questions")), len(ny))
-        groups.append([[("! Questions for you", "bold yellow")], f"{n} questions wait for you." if n > 1 else "1 question waits for you.",
+        groups.append([rule("! Questions for you", "bold yellow"),
+                       f"{n} questions wait for you." if n > 1 else "1 question waits for you.",
                        *text(ny[0]["title"]), [("Run: ", None), ("ap answer", "cyan")]])
     if now and (now["title"] or now["model"] or count(now["n"])):
         n, total, tries = count(now["n"]), count(pr.get("total")), count(now["attempt"])
-        g = [[("Now", "bold")]]
+        g = [rule("Now")]
         if n:
             g.append([("Task ", None), (f"{n} of {total}" if total else str(n), "count")])
         g += text(now["title"])
@@ -140,9 +145,9 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
                        TRY.get(tries, "red"))])
         groups.append(g + (row("Time", now["time"]) if n else []) + row("Model", now["model"]))
     if p["next"]:
-        groups.append([[("Next", "bold")], *text(p["next"])])
+        groups.append([rule("Next"), *text(p["next"])])
     if size:
-        g = [[("Size", "bold")]]
+        g = [rule("Size")]
         if size.get("code") is not None:
             g += row("Code", f"{count(size['code']):,} lines")
         if size.get("tests") is not None:
@@ -155,13 +160,23 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
             g += row("This run", f"+{count(size['run_lines']):,} lines, {count(size.get('run_files'))} files")
         groups.append(g)
     if p["last_commit"]:
-        groups.append([[("Last commit", "bold")], *text(p["last_commit"]),
+        groups.append([rule("Last commit"), *text(p["last_commit"]),
                        *([[(f"{p['last_commit_age']} ago", "dim")]] if p["last_commit_age"] else [])])
+    ph = d["phases"]
+    if ph:  # five lines at most, around the active phase; the last group, so it is cut first
+        at = next((i for i, x in enumerate(ph) if x["status"] == "running"),
+                  next((i for i, x in enumerate(ph) if x["status"] != "done"), len(ph) - 1))
+        start = min(max(at - 2, 0), max(len(ph) - 5, 0))
+        g = [rule("Phases")]
+        for x in ph[start:start + 5]:
+            sym, _, st = STATUS.get(x["status"], STATUS["pending"])
+            g.append([(sym, st), f" {x['id']} ", (f"{x['done']}/{x['total']}", "count" if x["done"] else "dim")])
+        groups.append(g)
     rows = []
     for g in groups:
-        if rows and len(rows) + 1 + len(g) > h - 2:
-            break
-        rows += ([""] if rows else []) + g
+        if rows and len(rows) + len(g) > h - 2:
+            continue  # a group that does not fit does not stop the smaller groups after it
+        rows += g
     return box("Project", rows, w, h, color)
 
 
@@ -172,12 +187,10 @@ def cnt(n: int, style=None):
 
 def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     pr, u, f, why = d["progress"], d["usage"], d["files"], d["blocked_why"]
-    prog = [[(f"{round(d['share'] * 100)}%", "bold")], bar(d["share"]),
+    prog = [bar(d["share"]),
             [cnt(count(pr.get("done")), "count"), " done · ", cnt(count(pr.get("working")), "count"), " working"],
             [alert(count(pr.get("blocked")), "red"), " blocked · ", cnt(count(pr.get("waiting")), "count"), " waiting"],
             [(f"{count(pr.get('phases_done'))} of {count(pr.get('phases_total'))}", "count"), " phases"]]
-    if d["project"]["eta"]:
-        prog.append(f"Left {d['project']['eta']}")
     use = []
     for label, key in (("5h", "five"), ("Week", "week"), ("Context", "context")):
         if num(u.get(key)) is not None:
@@ -189,19 +202,21 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     use += [f"{m['name']:<9}{m['tokens_text']:>6} {round((num(m['share']) or 0) * 100):>3}%" for m in u["models"]]
     if u["cost_text"]:
         use.append(f"Cost    {u['cost_text']}")
-    issues = [[("Blocked   ", "dim"), alert(count(pr.get("blocked")), "red")]]
+    issues = [["Blocked   ", alert(count(pr.get("blocked")), "red")]]
     if why:
         issues += wrap2(f"{why['id']}: {why['why']}", w - 4)
-    issues += [[(f"{label:<10}", "dim"), alert(count(pr.get(key)), "yellow")]
+    issues += [[f"{label:<10}", alert(count(pr.get(key)), "yellow")]
                for label, key in (("Questions", "questions"), ("Warnings", "warnings"))]
-    issues += [[(f"{k:<10}", "dim"), (v, "green" if v == "OK" else "red")] for k, v in d["health"].items() if k != "words" and v]
+    issues += ["  " + x for x in wrap2(" ".join(pr["warned"]), w - 6)]  # the tasks that have a warning
+    issues += [[f"{k:<10}", (v, "green" if v == "OK" else "red")] for k, v in d["health"].items() if k != "words" and v]
     issues += [[(x, "red")] for x in wrap2(d["health"]["words"], w - 4)]
     boxes = [("Progress", prog), ("Usage", use)]
     if f is not None:
-        boxes.append(("Files", [[("Added     ", "dim"), cnt(count(f.get("added")), "green")],
-                                [("Modified  ", "dim"), cnt(count(f.get("modified")))],
-                                [("Deleted   ", "dim"), cnt(count(f.get("deleted")), "red")]]))
+        boxes.append(("Files", [["Added     ", cnt(count(f.get("added")), "green")],
+                                ["Modified  ", cnt(count(f.get("modified")))],
+                                ["Deleted   ", cnt(count(f.get("deleted")), "red")]]))
     boxes.append(("Issues", issues))
+    tip = d["next"][0][0] if d["next"] else ""
     out, left = [], h
     for i, (title, lines) in enumerate(boxes):
         if left < 3:
@@ -209,6 +224,8 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
         need = min(len(lines) + 2, left)
         if i == len(boxes) - 1 or left - need < 3:  # the last box that fits takes the spare rows
             need = left
+        if title == "Issues" and tip and len(lines) < need - 2:  # the next step in the last row, only with a free row
+            lines = lines + [""] * (need - 3 - len(lines)) + [[("Run: ", None), (tip, "cyan")]]
         out += box(title, lines, w, need, color)
         left -= need
     return out + [" " * w] * left
@@ -269,6 +286,9 @@ def normalize(data) -> dict:
     def sub(k):
         return data[k] if isinstance(data.get(k), dict) else {}
 
+    def listed(k):
+        return data[k] if isinstance(data.get(k), (list, tuple)) else []
+
     def rows(k, keys):
         return [{key: clean(r.get(key)) for key in keys} for r in data.get(k) or [] if isinstance(r, dict)]
     p, u, pr = sub("project"), sub("usage"), sub("progress")
@@ -289,10 +309,15 @@ def normalize(data) -> dict:
                                                     "state_words", "elapsed", "eta", "next", "last_commit",
                                                     "last_commit_age")},
                     "stale_min": count(p.get("stale_min"))},
-        "progress": pr, "share": num(share) or 0.0, "now": now, "size": size,
+        "progress": {**pr, "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6]},
+        "share": num(share) or 0.0, "now": now, "size": size,
+        "phases": [{"id": clean(r.get("id")), "status": clean(r.get("status")), "done": count(r.get("done")),
+                    "total": count(r.get("total"))} for r in listed("phases") if isinstance(r, dict)],
+        "next": [(clean(t[0]), clean(t[1]) if len(t) > 1 else "") for t in listed("next")
+                 if isinstance(t, (list, tuple)) and t],
         "needs_you": [x for x in (one(r, ("id", "title")) for r in data.get("needs_you") or []) if x],
         "blocked_why": one(data.get("blocked_why"), ("id", "why")),
-        "tasks": rows("tasks", ("n", "title", "status", "time", "detail")),
+        "tasks": rows("tasks", ("n", "id", "title", "status", "time", "detail")),
         "live": rows("live", ("at", "text", "kind")),
         "usage": {**u, "tokens_text": clean(u.get("tokens_text")), "cost_text": cost_text,
                   "reset_in": clean(u.get("reset_in")),
