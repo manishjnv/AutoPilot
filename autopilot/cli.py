@@ -456,7 +456,7 @@ def hints(root: Path, running: bool | None, color: bool) -> str:
 
 def cmd_preflight(args):
     """Phase 0: credentials the plan needs are set and work, else exit 1 (also called by `run`)."""
-    from .commands.preflight import report_text, run_preflight, approval_setup
+    from .commands.preflight import report_text, run_preflight
     root = Path(args.path).resolve()
     try:
         plan = Plan.load(root / AGENT_DIR / "plan.yaml")
@@ -465,15 +465,7 @@ def cmd_preflight(args):
         return 1
     rows = run_preflight(plan, Config.load(root))
     print(report_text(rows))
-    if any(r["status"] != "ok" for r in rows):
-        return 1
-    # All credentials OK; set up approvals to run unattended
-    actions = approval_setup()
-    if actions:
-        print("\nApproval setup:")
-        for a in actions:
-            print(f"  ✓ {a}")
-    return 0
+    return 1 if any(r["status"] != "ok" for r in rows) else 0
 
 
 def cmd_run(args):

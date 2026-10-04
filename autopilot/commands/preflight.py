@@ -83,61 +83,27 @@ def report_text(rows: list[dict]) -> str:
 
 
 def approval_setup() -> list[str]:
-    """Bypass interactive prompts: PowerShell policy, git credential cache, SSH agent, npm flags, WSL sudo.
-    Returns a list of setup actions taken."""
+    """Advice for manual setup to bypass interactive prompts. Does NOT modify global config (owner's standing rule).
+    Returns a list of recommendations only (no automatic actions)."""
     actions = []
 
-    # 1. PowerShell execution policy (Windows only)
-    import platform
-    if platform.system() == "Windows":
-        rc, _ = run_cmd(["powershell", "-Command", "Set-ExecutionPolicy", "-ExecutionPolicy", "Bypass", "-Scope", "Process", "-Force"])
-        if rc == 0:
-            actions.append("PowerShell execution policy set to Bypass")
-
-    # 2. Git credential cache (all platforms)
-    rc, _ = run_cmd(["git", "config", "--global", "credential.helper", "cache"])
-    if rc == 0:
-        actions.append("Git credential cache enabled")
-
-    # 3. SSH agent (all platforms)
-    # Start ssh-agent if not running, and load DEPLOY_SSH_KEY if present
+    # 1. SSH agent (info only)
     ssh_key = os.environ.get("DEPLOY_SSH_KEY")
     if ssh_key and os.path.isfile(ssh_key):
-        # Try ssh-add; if agent is not running, it will fail gracefully and we continue
-        rc, _ = run_cmd(["ssh-add", ssh_key])
+        rc, _ = run_cmd(["ssh-add", "-l"])
         if rc == 0:
-            actions.append(f"SSH key {os.path.basename(ssh_key)} loaded into agent")
+            actions.append("SSH agent running; load key with: ssh-add " + ssh_key)
         else:
-            # Agent may not be running; populate known_hosts as fallback
-            if "host" in os.environ:
-                host = os.environ.get("host", "").split("@")[-1].split(":")[ 0]
-                rc, _ = run_cmd(["ssh-keyscan", "-t", "rsa,ed25519", host, ">>", os.path.expanduser("~/.ssh/known_hosts")], shell=True)
-                if rc == 0:
-                    actions.append(f"SSH known_hosts updated for {host}")
+            actions.append("SSH agent not running; start with: eval $(ssh-agent -s)")
 
-    # 4. WSL sudo NOPASSWD (Linux only, requires sudo)
-    if platform.system() == "Linux" and os.path.exists("/etc/os-release"):
-        # Check if running in WSL by reading /etc/os-release
-        try:
-            with open("/etc/os-release") as f:
-                if "microsoft" in f.read().lower():
-                    # WSL detected; try to add NOPASSWD for the current user
-                    user = os.environ.get("USER", "autopilot")
-                    rc, _ = run_cmd(["sudo", "-n", "bash", "-c", f"echo '{user} ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/{user}"])
-                    if rc == 0:
-                        actions.append(f"WSL sudo NOPASSWD configured for {user}")
-        except (OSError, UnicodeDecodeError):
-            pass  # Not WSL or permission denied
-
-    # 5. npm flags (non-interactive, no audit/fund warnings)
-    rc, _ = run_cmd(["npm", "config", "set", "audit", "false"])
-    if rc == 0:
-        run_cmd(["npm", "config", "set", "fund", "false"])
-        actions.append("npm audit and fund warnings disabled")
-
-    # 6. GitHub gh CLI (pre-authenticate if not already)
+    # 2. GitHub gh CLI (info only)
     rc, _ = run_cmd(["gh", "auth", "status"])
     if rc != 0:
-        actions.append("Warning: GitHub CLI not authenticated; `gh` calls may prompt")
+        actions.append("GitHub CLI not authenticated; run: gh auth login")
+
+    # 3. Info for other setup (owner does manually)
+    import platform
+    if platform.system() == "Windows":
+        actions.append("PowerShell: run as Administrator to avoid execution policy prompts")
 
     return actions
