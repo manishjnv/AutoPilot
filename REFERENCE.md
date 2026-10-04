@@ -25,12 +25,13 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
 | `autopilot run` | Builds until the completion audit passes |
 | `autopilot start` | Starts or continues the build in the background. It is the same as `run --clear-stop --detach` |
-| `autopilot watch` | Follows a run live, in plain words. Each work cycle is one line. A status panel at the bottom shows the build, the progress, the usage, and the health. Ctrl+C stops the watch, not the run |
+| `autopilot watch` | Follows a run live. A large terminal window shows a dashboard. It has panels for the project, the tasks, the live output, the progress, the usage, the files, and the issues. A small window shows the scrolling view with a status panel at the bottom. Ctrl+C stops the watch, not the run |
+| `autopilot watch --scroll` | Shows the scrolling view in plain words, also in a large window |
 | `autopilot watch --detail` | Shows each technical log line as it is |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
 | `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
-| `autopilot serve [--port 8765]` | Starts the status page without a run |
+| `autopilot serve [--port 8765]` | Starts the status page without a run. The page shows the same dashboard as the terminal, and the full report below it |
 | `autopilot answer` | Lists the open questions with their suggestions. In a terminal, it asks for each answer (an empty line skips one). With no terminal, it prints the usage and exits with a non-zero code |
 | `autopilot answer D-003 "text"` | Answers a question from `docs/NEEDS-YOU.md`. Works while a run is active |
 | `autopilot change "text"` | Changes the plan in plain words. It costs one replan session. It asks `1 start, 2 stop`, then `1 keep, 2 undo`. `--yes` asks nothing. During a run, the idea goes to `docs/BACKLOG.md`. Done tasks never change |

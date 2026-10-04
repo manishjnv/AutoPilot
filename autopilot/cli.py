@@ -502,7 +502,7 @@ def _open_state(root: Path):
 
 
 def cmd_status(args):
-    from .report import build_report, next_steps_text, run_journal, status_line
+    from .report import build_report, run_journal, status_line
     cfg, plan, state = _open_state(Path(args.path).resolve())
     print(status_line(cfg, plan, state, run_journal(cfg.root),
                       shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None) + "\n")
@@ -517,17 +517,101 @@ def cmd_stats(args):
     print(proof_stats(cfg, plan, state))
 
 
+def watch_end(root: Path, run: dict, color: bool, hold: bool):
+    """J8: the end of the simple view and of the dashboard: the end line, the status in short, the next steps.
+    A window that the build opened (`hold`) stays until the person closes it."""
+    from .plain import ending, paint, tint
+    print("\n" + paint(ending(run.get("outcome")), "bold", color))
+    try:
+        for row in status_reader(root, words="panel")().split("\n"):
+            print(tint(row, color))
+    except Exception:  # noqa: BLE001 — no plan: the end line is enough
+        pass
+    print(hints(root, False, color))
+    if hold and sys.stdin and sys.stdin.isatty():
+        try:
+            input(paint("\nPress Enter to close this window.", "dim", color))
+        except (EOFError, KeyboardInterrupt):
+            pass
+
+
+def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
+    """J9: the full-window dashboard (dash_term.frame) on the terminal's second screen, drawn again each second.
+    Returns None when this terminal cannot show it (too small, no plan yet): the caller uses the scrolling view.
+    A window made too small later shows one line that says so. Ctrl+C and the end of the build give the first
+    screen back, with the end message on it."""
+    import time
+
+    from .dash_term import MIN_COLS, MIN_ROWS, frame
+    from .dashboard import dashboard_data
+    from .report import run_journal
+    from .state import State
+    size = shutil.get_terminal_size()
+    if size.columns < MIN_COLS or size.lines < MIN_ROWS:
+        return None
+    box: dict = {}
+
+    def data() -> dict:
+        plan_file = root / AGENT_DIR / "plan.yaml"
+        stamp = plan_file.stat().st_mtime
+        if box.get("stamp") != stamp:  # first call, or the plan gained tasks
+            if "state" in box:
+                box["state"].db.close()
+            box.update(cfg=Config.load(root), plan=Plan.load(plan_file), state=State(root / AGENT_DIR / "state.db"),
+                       stamp=stamp)
+        return dashboard_data(box["cfg"], box["plan"], box["state"], run_journal(root))
+    try:
+        data()
+    except Exception:  # noqa: BLE001 — no plan yet
+        return None
+    out, done, ended = sys.stdout, 0, False
+    out.write("\x1b[?1049h\x1b[?25l\x1b[?7l")  # the second screen, no cursor, no line wrap
+    try:
+        while True:
+            size = shutil.get_terminal_size()
+            try:
+                d = data()
+                rows = frame(d, size.columns, size.lines, color)
+                title = "".join(c for c in str(d.get("line", "")) if c.isprintable())
+                out.write("\x1b[H" + "\n".join(rows) + f"\x1b]0;{title}\x07")
+            except ValueError:  # the window is too small now
+                out.write("\x1b[2J\x1b[HThe window is too small for the dashboard. Make it larger, or run: ap watch --scroll")
+            except Exception:  # noqa: BLE001 — e.g. the plan is being rewritten right now: keep the last picture
+                pass
+            out.flush()
+            done = done + 1 if run_journal(root).get("status") == "finished" else 0
+            if done >= 3:
+                ended = True
+                break
+            time.sleep(tick)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        out.write("\x1b[?7h\x1b[?25h\x1b[?1049l")
+        out.flush()
+        if "state" in box:
+            box["state"].db.close()
+    if ended:
+        watch_end(root, run_journal(root), color, hold)
+    return 0
+
+
 def cmd_watch(args):
     """Follow a run from any terminal: progress, current step, then every live line until the run finishes."""
     import time
 
-    from .plain import SimpleView, colors_on, ending, paint, tint
+    from .plain import SimpleView, colors_on, paint
     from .report import next_steps_text, run_journal
     root = Path(args.path).resolve()
     log = root / AGENT_DIR / "logs" / "autopilot.log"
     # J1: plain words on a terminal; the technical lines with --detail, and when the output is not a terminal
     simple = bool(getattr(args, "simple", False)) or (sys.stdout.isatty() and not getattr(args, "detail", False))
     color = colors_on(sys.stdout)
+    if (simple and color and sys.stdout.isatty() and not getattr(args, "scroll", False)
+            and not getattr(args, "simple", False)):  # J9: the dashboard, when the window is large enough
+        rc = watch_dashboard(root, color, bool(getattr(args, "hold", False)))
+        if rc is not None:
+            return rc
     names = {}
     try:
         cfg, plan, state = _open_state(root)
@@ -620,18 +704,7 @@ def cmd_watch(args):
                 if simple:
                     show("", final=True)
                     bar.stop()  # J8: the panel goes; its facts stay on the screen as normal lines
-                    print("\n" + paint(ending(run.get("outcome")), "bold", color))
-                    try:
-                        for row in status_reader(root, words="panel")().split("\n"):
-                            print(tint(row, color))
-                    except Exception:  # noqa: BLE001 — no plan: the end line is enough
-                        pass
-                    print(hints(root, False, color))
-                    if getattr(args, "hold", False) and sys.stdin and sys.stdin.isatty():
-                        try:  # J8: a window that the build opened stays until the person closes it
-                            input(paint("\nPress Enter to close this window.", "dim", color))
-                        except (EOFError, KeyboardInterrupt):
-                            pass
+                    watch_end(root, run, color, bool(getattr(args, "hold", False)))
                 else:
                     print(f"\nrun finished: {run.get('outcome', '?')}")
                     print(next_steps_text(root, running=False))
@@ -1068,6 +1141,7 @@ def main(argv=None):
     p.add_argument("--detail", action="store_true", help="the technical view: every log line as it is")
     p.add_argument("--simple", action="store_true", help="plain words, also when the output is not a terminal")
     p.add_argument("--hold", action="store_true", help="at the end of the build, wait for Enter (a window of its own)")
+    p.add_argument("--scroll", action="store_true", help="the scrolling view in plain words, not the dashboard")
     p = add("serve", cmd_serve, "live read-only status page in the browser")
     p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8765)
     p.add_argument("--refresh", type=int, default=30, help="seconds between page reloads")

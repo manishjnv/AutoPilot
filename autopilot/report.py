@@ -495,52 +495,7 @@ def run_journal(root) -> dict:
         return {}
 
 
-def live_section(root, lines: int = 25, plan=None) -> str:
-    """J7: what the run does now, in the same plain words as the watch window: the last lines of the simple view."""
-    from pathlib import Path
-
-    from . import AGENT_DIR
-    from .plain import SimpleView, ending
-    run = run_journal(root)
-    log = Path(root) / AGENT_DIR / "logs" / "autopilot.log"
-    ids = plan.all_tasks() if plan is not None else []
-    view = SimpleView({t.id: (i + 1, len(ids), t.title, t.description) for i, t in enumerate(ids)})
-    # ponytail: reads the full log on each page load (every 30 s); read only the end if a log grows to many MB
-    raw = log.read_text(encoding="utf-8", errors="replace").splitlines()[-400:] if log.exists() else []
-    tail = ([out for row in raw for out in view.feed(row)] + view.close())[-lines:]
-    state = run.get("status", "no run yet")
-    head = [f"## Now ({state})", "",
-            f"- Start: {str(run.get('started_at', '-')).replace('T', ' ')}. Last update: "
-            f"{str(run.get('updated_at', '-')).replace('T', ' ')}."]
-    if state == "finished":
-        head.append(f"- {ending(run.get('outcome'))}")
-    return "\n".join(head + ["", "```"] + tail + ["```", ""]
-                     + ["## What you can do next", ""] + [f"- `{t}`" for t in next_steps(root, state == "running")]
-                     + [""])
-
-
 # ---------- P5: live status page ----------
-def html_page(md: str, refresh: int = 30, title: str = "Autopilot status") -> str:
-    """The report as one self-refreshing HTML page. ponytail: escaped markdown in <pre>, no renderer dependency.
-    J8: a small script gets the new text; when the server is gone (the build ended), the last status stays on the
-    page below a notice. The script only sets text, never HTML. Without scripts, the page reloads as before."""
-    import html
-    script = ("setInterval(async()=>{const off=document.getElementById('off');try{"
-              "const r=await fetch(location.href,{cache:'no-store'});if(!r.ok)throw 0;"
-              "const d=new DOMParser().parseFromString(await r.text(),'text/html');"
-              "document.querySelector('pre').textContent=d.querySelector('pre').textContent;"
-              "document.title=d.title;off.hidden=true}catch(e){off.hidden=false}}," + str(int(refresh) * 1000) + ")")
-    return ("<!doctype html><html><head><meta charset=utf-8>"
-            "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<noscript><meta http-equiv=refresh content={int(refresh)}></noscript><title>{html.escape(title)}</title>"
-            "<style>:root{color-scheme:light dark}body{margin:16px;font:14px/1.5 ui-monospace,Consolas,monospace}"
-            "pre{white-space:pre-wrap;overflow-wrap:anywhere}"
-            "#off{padding:8px 12px;border:2px solid #c80;border-radius:6px;font-weight:bold}</style></head>"
-            "<body><p id=off hidden>The build stopped, or the status server is off. This page shows the last status. "
-            "For the status now, run: ap status</p>"
-            f"<pre>{html.escape(md)}</pre><script type=module>{script}</script></body></html>")
-
-
 def is_loopback(host: str) -> bool:
     import ipaddress
     if host == "localhost":
@@ -584,11 +539,13 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
                 cfg, plan = Config.load(root), Plan.load(root / AGENT_DIR / "plan.yaml")
                 state = State(root / AGENT_DIR / "state.db")
                 try:
-                    run = run_journal(root)  # G8: the status line is the page's first line and the tab's title
-                    body = html_page(status_line(cfg, plan, state, run) + "\n\n"
-                                     + "\n".join(status_panel(cfg, plan, state, run)) + "\n\n"  # J5: by category
-                                     + live_section(root, plan=plan) + "\n"
-                                     + build_report(cfg, plan, state), refresh, status_line(cfg, plan, state, run, 0))
+                    from .dash_web import render
+                    from .dashboard import dashboard_data
+                    # J9: the dashboard; the full report is below it, closed until the reader opens it
+                    run = run_journal(root)
+                    data = dashboard_data(cfg, plan, state, run)
+                    data["line"] = status_line(cfg, plan, state, run, 0)  # G8: the short line is the tab's title
+                    body = render(data, refresh, report_md=build_report(cfg, plan, state))
                 finally:
                     state.db.close()
             except Exception as exc:  # noqa: BLE001  a half-written plan mid-replan must not kill the server

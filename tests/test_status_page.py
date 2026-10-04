@@ -5,7 +5,7 @@ import urllib.request
 
 import pytest
 
-from autopilot.report import html_page, is_loopback, status_server
+from autopilot.report import is_loopback, status_server
 from test_autopilot import make_project, phases_basic
 
 
@@ -71,8 +71,8 @@ def test_page_starts_with_what_the_run_is_doing_now(serve, tmp_path):
     (agent / "logs" / "autopilot.log").write_text(
         "2026-10-02 09:44:55 INFO   ▸ P01-T01 Skeleton [haiku] · Write src/app/cli.py · 2m02s\n", encoding="utf-8")
     body = get(serve())[1]
-    assert body.index("Now (running)") < body.index("Autopilot report")
-    assert "09:44  Writes cli.py." in body and "INFO" not in body and "09:44:55" not in body  # J7: plain words
+    assert body.index("Live output") < body.index("Autopilot report")  # J9: the dashboard, then the full report
+    assert "<time>09:44</time><span>Writes cli.py.</span>" in body and "INFO" not in body and "09:44:55" not in body
 
 
 def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, capsys):
@@ -109,7 +109,7 @@ def test_page_title_and_first_line_are_the_status_line(serve, tmp_path):
                                                 "attempt": 1, "max_attempts": 3, "git": "OK", "build": "OK"}))
     body = get(serve())[1]
     assert "<title>ON │ Code │ Task 0/3 0% │ Ph 0/2 │ Blk 0</title>" in body  # the tab shows it even in the background
-    assert body.index("ON │ Code │ P01-T01 Try 1/3 │ Task 0/3 0%") < body.index("Now (running)")
+    assert "Writes the code." in body and 'aria-current="true"' in body and "<span>Task 1/3</span>" in body  # J9
 
 
 def test_a_second_run_or_plain_autopilot_follows_the_active_run(tmp_path, monkeypatch, capsys):
@@ -144,7 +144,10 @@ def test_a_headless_run_opens_a_watch_window(tmp_path, monkeypatch):
     assert cmd[-4:] == ["autopilot", "watch", "-C", str(tmp_path)] or "watch" in " ".join(map(str, cmd))
 
 
-def test_report_text_is_escaped():
-    assert "<script>alert" not in html_page("<script>alert(1)</script>") and "&lt;script&gt;" in html_page("<script>")
-    page = html_page("x", refresh=7)  # J8: the page keeps the last status when the server is gone
-    assert "<p id=off hidden>" in page and "},7000)" in page and "textContent" in page and "innerHTML" not in page
+def test_page_text_is_escaped(serve, tmp_path):
+    import json
+    agent = tmp_path / "proj" / ".agent"
+    (agent / "run.json").write_text(json.dumps({"status": "finished", "outcome": "<script>alert(1)</script>"}))
+    body = get(serve(refresh=7))[1]
+    assert "<script>alert" not in body and "&lt;script&gt;alert" in body
+    assert "<p id=off hidden>" in body and "},7000)" in body and "innerHTML" not in body  # J8: the last status stays

@@ -217,19 +217,6 @@ def test_status_panel_has_short_words_and_uses_the_window_width(tmp_path):
     assert len(status_panel(orch.cfg, orch.plan, orch.state, live, width=40)) == 4
 
 
-def test_the_browser_page_shows_the_plain_view_and_the_panel(tmp_path):
-    from autopilot.report import live_section
-    orch = Orchestrator(make_project(tmp_path, phases_basic(), BASE), backend=FakeBackend(), sleep=lambda s: None)
-    orch.run()
-    log = orch.cfg.root / ".agent" / "logs" / "autopilot.log"
-    log.parent.mkdir(parents=True, exist_ok=True)
-    log.write_text(step("P01-T01 a [haiku]", "Write E:\\x\\src\\x.py; Bash pytest -q") + "\n", encoding="utf-8")
-    (orch.cfg.root / ".agent" / "run.json").write_text(json.dumps({"status": "finished", "outcome": "plan complete"}))
-    text = live_section(orch.cfg.root, plan=orch.plan)
-    assert "Task 1 of 3: a" in text and "18:07  Writes x.py. Runs the tests." in text
-    assert "The build is complete." in text and "INFO" not in text and "[haiku]" not in text
-
-
 def test_status_bar_with_four_rows(monkeypatch):
     monkeypatch.delenv("AUTOPILOT_PLAIN", raising=False)
     monkeypatch.setattr(cli, "enable_vt", lambda: True)
