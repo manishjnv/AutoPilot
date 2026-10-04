@@ -9,3 +9,6 @@ docs/
 .env
 .env.*
 .claude/
+
+# local-only: projects that Autopilot built in test runs (each has its own git repository)
+sampleProject/
