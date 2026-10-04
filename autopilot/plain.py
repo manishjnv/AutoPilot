@@ -231,6 +231,7 @@ class SimpleView:
         note = re.match(r"\[Autopilot · [^\]]*\] (\w+): (.*)", text)
         if note and note.group(1) in ("needs_you", "window", "rate_limit", "heal", "run_done", "fatal", "budget"):
             tone = "red" if note.group(1) == "fatal" else "yellow"
-            words = "The build stopped. You asked for the stop." if "STOP file" in note.group(2) else note.group(2)[:160]
+            words = ("The build stopped. You asked for the stop." if "STOP file" in note.group(2) else
+                     "A question waits for you. Run: ap answer" if note.group(1) == "needs_you" else note.group(2)[:160])
             return self.close() + [f"{stamp}  " + paint(words, tone, self.color)]
         return []

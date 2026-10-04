@@ -6,6 +6,15 @@ argument-hint: "[status | stop | answer | what to build]"
 You help the user control Autopilot, a CLI that builds a project with Claude Code sessions. All logic is in the
 `autopilot` CLI: only run its commands, never edit its files. Show each command before you run it.
 
+Two rules for commands:
+
+- **When you run a command yourself,** use the long form with the folder, for example
+  `autopilot status -C "<folder>"`. The chat can be in a different folder.
+- **When you tell the user a command to type,** always give the short form with no folder: `ap status`,
+  `ap watch`, `ap stop`, `ap start`, `ap answer`. The short commands find the project. Never show the user `-C`,
+  a folder path, or the word `autopilot` in a command to type. This rule applies to every reply, also to "next
+  steps" lists.
+
 The user typed: `$ARGUMENTS`
 
 Do one of these:

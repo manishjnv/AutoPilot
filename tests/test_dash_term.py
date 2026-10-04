@@ -14,9 +14,16 @@ def data(n=21, running=18, files=True, **over):
               "time": "2m", "detail": "Haiku"} for i in range(1, n + 1)]
     d = {"project": {"name": "csv2json", "branch": "main", "commit": "4bac378", "model": "Haiku",
                      "run_id": "20261004-061714-9496", "started": "2026-10-04 06:17:14", "status": "running",
-                     "state_words": "Writes the code.", "elapsed": "12m", "eta": "10m", "attempt": 1},
+                     "state_words": "Writes the code.", "elapsed": "12m", "eta": "10m", "attempt": 1,
+                     "tone": "good", "last_commit": "close phase FIX001", "last_commit_age": "7m", "next": "Next task",
+                     "stale_min": 7, "stale": "warn",
+                     "now": {"n": 21, "title": "Force replacement", "attempt": 2, "max_attempts": 3, "time": "2m",
+                             "model": "Haiku"}},
          "progress": {"done": 18, "total": n, "pct": 85, "phases_done": 4, "phases_total": 5, "blocked": 1,
-                      "questions": 0, "warnings": 2},
+                      "questions": 1, "warnings": 2, "working": 1, "waiting": 0, "active": 21},
+         "needs_you": [{"id": "D-001", "title": "A question for the owner"}],
+         "blocked_why": {"id": "FIX001-T06", "why": "PROBLEM"},
+         "size": {"code": 598, "tests": 1898, "docs": 1059, "test_count": 172, "run_lines": 246, "run_files": 13},
          "tasks": tasks,
          "live": [{"at": "06:17", "text": "Task 1 of 21: Skeleton", "kind": "heading"},
                   {"at": "", "text": "Goal: make it", "kind": "goal"},
@@ -25,11 +32,11 @@ def data(n=21, running=18, files=True, **over):
                   {"at": "06:19", "text": "All checks passed.", "kind": "good"},
                   {"at": "06:20", "text": "The checks failed.", "kind": "bad"},
                   {"at": "06:21", "text": "Something odd.", "kind": "note"}],
-         "usage": {"five": 0.12, "week": 0.72, "context": 0.34, "tokens_text": "21.8M", "cost": 8.41,
+         "usage": {"reset_in": "4h05m", "five": 0.12, "week": 0.72, "context": 0.34, "tokens_text": "21.8M", "cost": 8.41,
                    "models": [{"name": "Haiku", "tokens_text": "16.1M", "share": 0.74},
                               {"name": "Sonnet", "tokens_text": "5.7M", "share": 0.26}]},
          "files": {"added": 3, "modified": 8, "deleted": 1} if files else None,
-         "health": {"git": "OK", "checks": "OK"}, "next": [], "line": "x"}
+         "health": {"git": "OK", "checks": "FAIL", "words": "The checks fail on main."}, "next": [], "line": "x"}
     d.update(over)
     return d
 
@@ -101,4 +108,74 @@ def test_long_text_cut():
 
 def test_status_bar_last():
     out = frame(data(), 120, 30)
-    assert "csv2json" in out[-1] and "Task 18/21" in out[-1] and out[-1].startswith(" csv2json")
+    assert "csv2json" in out[-1] and "Task 21/21" in out[-1] and out[-1].startswith(" csv2json")
+
+
+NEW = ("needs_you", "blocked_why", "size")
+
+
+def left(lines):
+    return "\n".join(x[:36] for x in strip(lines))
+
+
+def line_with(d, text, color=True, cols=120, rows=30):
+    return next(x for x in frame(d, cols, rows, color) if text in ANSI.sub("", x))
+
+
+def test_keys_missing():
+    d = data()
+    for k in NEW:
+        d.pop(k)
+    d["project"] = {"name": "x"}
+    d["usage"].pop("reset_in")
+    for cols, rows in SIZES:
+        out = frame(d, cols, rows, True)
+        assert len(out) == rows and all(len(x) == cols for x in strip(out))
+        assert strip(out) == frame(d, cols, rows)
+
+
+def test_needs_you():
+    out = "\n".join(frame(data(), 120, 30))
+    assert "Questions for you" in out and "ap answer" in out
+    d = data(needs_you=[])
+    assert "Questions for you" not in "\n".join(frame(d, 120, 30)) and "ap answer" not in "\n".join(frame(d, 120, 30))
+
+
+def test_now_and_try_colors():
+    out = "\n".join(frame(data(), 120, 40))
+    assert "Now" in out and "Task 21 of 21" in out and "Try 2 of 3" in out
+    assert "[33m" in line_with(data(), "Try 2 of 3", rows=40)
+    d = data()
+    d["project"]["now"]["attempt"] = 3
+    assert "[31m" in line_with(d, "Try 3 of 3", rows=40)
+
+
+def test_size():
+    out = "\n".join(frame(data(), 120, 50))
+    assert "Code" in out and "598 lines" in out and "172 tests" in out and "1,898" in out
+    assert "Size" not in "\n".join(frame(data(size=None), 120, 50))
+
+
+def test_usage_levels():
+    d = data()
+    d["usage"].update(five=0.05, week=0.74, context=0.95)
+    assert "[32m" in line_with(d, "5h")
+    assert "[33m" in line_with(d, "Week")
+    assert "[31m" in line_with(d, "Context ")
+
+
+def test_status_bar_task():
+    assert "Task 21/21" in frame(data(), 120, 30)[-1]
+    d = data()
+    d["progress"]["active"] = 0
+    assert "Done 18/21" in frame(d, 120, 30)[-1]
+
+
+def test_project_panel_has_no_duplicates():
+    out = left(frame(data(), 120, 40))
+    assert "Tokens" not in out and "Cost" not in out and "Commit " not in out
+
+
+def test_small_window_keeps_status_and_needs_you():
+    out = left(frame(data(), 100, 24))
+    assert "Status" in out and "Questions for you" in out and "Elapsed" in out

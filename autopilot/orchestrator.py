@@ -964,7 +964,7 @@ class Orchestrator:
             self.state.event("review", f"{task.id}: no verdict, merged without review")
         return ""
 
-    GENERIC_QUESTION = "I could not finish this feature and cannot decide how to proceed on my own. What should I do?"
+    GENERIC_QUESTION = "The agent could not complete this task. How must it continue?"
 
     def _park(self, task, branch, attempts, error):
         self.git.checkout_main(self.main)

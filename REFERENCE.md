@@ -64,7 +64,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `AUTOPILOT_WEBHOOK` | Alerts to a different web service |
 | `AUTOPILOT_STATUS_TOKEN` | Lets the status page serve on an address that is not local |
 | `AUTOPILOT_PLAIN=1` | Removes the pinned status row at the bottom of the terminal, and the color. `status` and the page still show the status line |
-| `NO_COLOR=1` | Removes the color |
+| `NO_COLOR=1` | Removes the color. Claude Code sets this value for its tools, so a window that a build opens from Claude Code ignores it. Use `AUTOPILOT_PLAIN=1` there |
 | `AUTOPILOT_NO_BROWSER=1` | Does not open the browser |
 | `AUTOPILOT_NO_AUTOFIX=1` | Stops every automatic install and repair |
 | `AUTOPILOT_CLAUDE_BIN` | The path to the `claude` program. Autopilot also finds `claude` in `~/.local/bin` when the PATH is old |

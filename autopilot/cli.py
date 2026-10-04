@@ -889,25 +889,28 @@ def cmd_answer(args):
     state = State(Path(args.path).resolve() / AGENT_DIR / "state.db")  # no run lock: works while a run is active
     if args.decision_id and args.text is not None:
         return _store_answer(state, args.decision_id, args.text)
-    usage = 'autopilot answer <id> "text"'
+    usage = 'ap answer <id> "text"'
     if args.decision_id:
         if not _tty():
             print(f"usage: {usage}")
             return 1
-        text = _ask(f"{args.decision_id} answer> ")
+        text = _ask(f"Your answer for {args.decision_id}: ")
         return _store_answer(state, args.decision_id, text) if text else 1
     rows = state.decisions("OPEN")[::-1]
     if not rows:
-        print("no open questions")
+        print("No question waits for you.")
         return 0
-    for r in rows:
-        q = " ".join((r["question"] or "").split())
-        print(f"{r['id']}  {r['title']}\n    {q[:200]}" + (f"\n    suggestion: {r['suggestion']}" if r["suggestion"] else ""))
+    from .decisions import explain
+    for r in rows:  # the same simple words as docs/NEEDS-YOU.md
+        print(f"\n{r['id']}  {r['title']}")
+        for line in explain(r):
+            print("  " + line.replace("**", "").replace("`", ""))
+    print("\nWrite each answer in your own words, as an instruction for the agent.")
     if not _tty():
         print(f"usage: {usage}")
         return 1
     for r in rows:
-        text = _ask(f"{r['id']} answer (empty = skip)> ")
+        text = _ask(f"Your answer for {r['id']} (Enter = no answer now): ")
         if text is None:
             break
         if text:

@@ -462,12 +462,15 @@ def next_steps(root, running: bool | None = None) -> list[str]:
     except Exception:  # noqa: BLE001 — no plan yet, or a plan being rewritten
         return ["autopilot quickstart            turn your plan or idea into tasks"]
     path = cfg.get("needs_you.path", "docs/NEEDS-YOU.md")
-    if open_d:
-        first = sorted(d["id"] for d in open_d)[0]
-        tips.append(f"{len(open_d)} question(s) for you in {path}: autopilot answer {first} \"your answer\"")
-    if blocked:
-        tips.append(f"{len(blocked)} task(s) blocked: fix the spec in .agent/plan.yaml, then autopilot unblock "
-                    f"{blocked[0]['id']}")
+    if open_d:  # J10: short commands and simple words, the same column form as the other rows
+        n = len(open_d)
+        tips.append(f"ap answer                       answer the {'question' if n == 1 else f'{n} questions'} "
+                    f"that {'waits' if n == 1 else 'wait'} for you ({path})")
+    asked = {d["task_id"] for d in open_d}
+    free = [r["id"] for r in blocked if r["id"] not in asked]
+    if free:  # a blocked task with no question: the person corrects the task, then starts it again
+        tips.append(f"ap unblock {free[0]:<21}start this blocked task again (first correct the task in "
+                    ".agent/plan.yaml)")
     if running:
         tips += ["ap watch                        follow the build live (Ctrl+C closes the view only)",
                  "ap stop                         stop before the next session; ap start continues later"]
@@ -475,8 +478,8 @@ def next_steps(root, running: bool | None = None) -> list[str]:
         tips += [f"ap start                        build the {pending} remaining task(s)  (ap next: the order)"]
     else:
         tips += ["ap stats                        the results of the build",
-                 f"add ideas to {cfg.get('docs.backlog', 'docs/BACKLOG.md')} (one '- idea' per line), then "
-                 "autopilot run"]
+                 f"ap start                        build more: first add ideas to "
+                 f"{cfg.get('docs.backlog', 'docs/BACKLOG.md')} (one '- idea' on each line)"]
     return tips + ["ap status                       progress, cost and blocked tasks · ap -h: all commands"]
 
 

@@ -78,7 +78,8 @@ def test_owner_decision_parks_task_and_run_continues(tmp_path):
     assert d["status"] == "OPEN" and d["blocks"] == '["P01-T01", "P01-T02"]'
     text = show(root, "main:docs/NEEDS-YOU.md")
     assert "## D-001 · P01-T01 a · OPEN" in text and "Which payment provider?" in text
-    assert "Blocked until answered: P01-T01, P01-T02" in text and "My suggestion: Stripe" in text
+    assert "**What waits:** P01-T01, P01-T02. All other tasks continue." in text
+    assert "**Suggestion from the agent:** Stripe" in text and "2. Run `ap answer`." in text  # simple words, numbered steps
     assert "[autopilot] needs-you D-001" in git(root, "log", "--format=%s")
     assert any("D-001" in m for m in events(orch, "needs_you"))
     assert git(root, "status", "--porcelain").strip() == ""
@@ -101,13 +102,13 @@ def test_owner_decision_parks_task_and_run_continues(tmp_path):
 def test_answer_without_arguments(tmp_path, monkeypatch, capsys):
     (tmp_path / "a").mkdir()
     empty = make_project(tmp_path / "a", phases_basic())
-    assert cli_main(["answer", "-C", str(empty)]) == 0 and "no open questions" in capsys.readouterr().out
+    assert cli_main(["answer", "-C", str(empty)]) == 0 and "No question waits for you." in capsys.readouterr().out
     root, _, orch, _ = parked_run(tmp_path)
     capsys.readouterr()
     assert cli_main(["answer", "-C", str(root)]) == 1                       # no terminal: list + usage, nothing asked
     out = capsys.readouterr().out
-    assert "D-001" in out and "Which payment provider?" in out and "suggestion: Stripe" in out
-    assert 'autopilot answer <id> "text"' in out and orch.state.decision("D-001")["status"] == "OPEN"
+    assert "D-001" in out and "Which payment provider?" in out and "Suggestion from the agent: Stripe" in out
+    assert 'ap answer <id> "text"' in out and orch.state.decision("D-001")["status"] == "OPEN"
     assert cli_main(["answer", "-C", str(root), "D-001"]) == 1               # id only, no terminal: usage
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
@@ -211,3 +212,22 @@ def test_red_main_at_start_runs_corrective_phase_first(tmp_path):
     assert ids.index("FIX001-T01") < ids.index("P01-T02") and ids.index("FIX001-T01") < ids.index("P02-T01")
     assert not orch.main_red and all(v == "done" for v in orch.state.status_map().values())
     assert not (root / "BROKEN").exists()
+
+
+def test_a_question_is_in_simple_words():
+    from autopilot.decisions import explain, problems
+    d = {"checked": "3 attempts by the agent", "suggestion": "", "blocks": '["FIX001-T06"]',
+         "question": "I could not finish this feature and cannot decide how to proceed on my own. What should I do?",
+         "why": "PROBLEM: test count dropped in tests/test_e2e.py: 34 -> 28 PROBLEM: assertion count dropped in "
+                "tests/test_e2e.py: 78 -> 59"}
+    assert explain(d) == [
+        "- **What happened:** The agent made 3 attempts. The checks did not pass.",
+        "- **The problem:**",
+        "  - The number of tests in `tests/test_e2e.py` decreased from 34 to 28.",
+        "  - The number of assertions in `tests/test_e2e.py` decreased from 78 to 59.",
+        "- **The question:** The agent could not complete this task. How must it continue?",
+        "- **What waits:** FIX001-T06. All other tasks continue."]
+    assert problems("the build failed") == ["the build failed"] and problems("") == []
+    one = explain({"checked": "", "suggestion": "Use Stripe", "blocks": "[]", "question": "Which one?", "why": "x"})
+    assert one == ["- **The problem:** x", "- **The question:** Which one?",
+                   "- **Suggestion from the agent:** Use Stripe", "- **What waits:** No task waits."]
