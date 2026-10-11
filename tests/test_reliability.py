@@ -115,6 +115,23 @@ def test_stuck_watch_needs_consecutive_repeats():
     assert all(off(tool_line(command="ls")) == "" for _ in range(10))
 
 
+def test_repeated_final_report_is_not_stuck(tmp_path, monkeypatch):
+    assert all(stuck_watch(4)(tool_line("StructuredOutput", status="done")) == "" for _ in range(6))
+    line = tool_line("StructuredOutput", status="done")
+    body = ("print(json.dumps({'type': 'system', 'session_id': 'sx'}), flush=True)\n"
+            f"for _ in range(4): print({line!r}, flush=True)\n"
+            "print(json.dumps({'type': 'result', 'result': '', 'session_id': 'sx', "
+            "'structured_output': {'status': 'done', 'summary': 'x'}}), flush=True)\n")
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, body))
+    res = ClaudeCLIBackend(Config.load(tmp_path)).run(SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path)))
+    assert res.ok and not res.stuck and res.report.get("status") == "done"
+
+
+def test_system_prompt_asks_for_one_final_report():
+    from autopilot.context import PROMPTS
+    assert "Call the final report once, at the end." in (PROMPTS / "system.md").read_text(encoding="utf-8")
+
+
 def test_result_event_is_the_last_result_line():
     raw = "\n".join([json.dumps({"type": "system", "subtype": "init", "session_id": "s9"}), tool_line(command="ls"),
                      json.dumps({"type": "result", "result": "fine", "session_id": "s9"}), "trailing noise"])

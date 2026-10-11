@@ -195,7 +195,8 @@ def stuck_watch(limit: int):
         ev = next(_events(line), {})
         content = (ev.get("message") or {}).get("content") if ev.get("type") == "assistant" else None
         for c in content if isinstance(content, list) else []:
-            if isinstance(c, dict) and c.get("type") == "tool_use":
+            if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") != "StructuredOutput":
+                # J14.1: the final report is never "stuck"; a repeated one is ignored (the result event carries it once)
                 key = json.dumps([c.get("name"), c.get("input")], sort_keys=True, default=str)
                 count[0] = count[0] + 1 if key == last[0] else 1
                 last[0] = key
