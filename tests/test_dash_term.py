@@ -108,7 +108,8 @@ def test_long_text_cut():
 
 def test_status_bar_last():
     out = frame(data(), 120, 30)
-    assert "csv2json" in out[-1] and "Task 21/21" in out[-1] and out[-1].startswith(" csv2json")
+    assert "Task 21/21" in out[-1] and out[-1].startswith(" Task") and "csv2json" not in out[-1]  # J13/14: seven keys
+    assert "5h 12%" in out[-1]
 
 
 NEW = ("needs_you", "blocked_why", "size")
@@ -178,7 +179,7 @@ def test_project_panel_has_no_duplicates():
 
 def test_small_window_keeps_status_and_needs_you():
     out = left(frame(data(), 100, 24))
-    assert "Status" in out and "Questions for you" in out and "Elapsed" in out
+    assert "Branch" in out and "Questions for you" in out and "Elapsed" in out
 
 
 # ---------- J11 ----------
@@ -206,10 +207,10 @@ def test_progress_has_no_percent_line_and_no_left_line():
     out = right(frame(data(), 120, 30))
     assert not any(x.strip("│ ") == "85%" for x in out.splitlines())
     assert "Left 10m" not in out and "85%" in out  # the bar still shows the percentage
-    assert "Left     : 10m" in left(frame(data(), 120, 30))
+    assert "Left" not in left(frame(data(), 120, 30)[:-1]) and "Left 10m" in frame(data(), 120, 30)[-1]
 
 
-@pytest.mark.parametrize("label", ["Branch", "  Writes the code.", "Added", "Modified", "Blocked ", "Warnings", "Checks"])
+@pytest.mark.parametrize("label", ["Branch", "Added", "Modified", "Warnings", "Checks"])
 def test_labels_and_state_sentence_are_not_dim(label):
     assert "\x1b[2m" + label not in line_with(data(), label)
 
@@ -247,13 +248,103 @@ def test_phases_group():
     many = [{"id": f"P{i:02d}", "total": 2, "done": 2 if i < 6 else 0,
              "status": "done" if i < 6 else "running" if i == 6 else "pending"} for i in range(1, 10)]
     out = left(frame(data(phases=many), 120, 50))
-    assert [f"P{i:02d}" in out for i in range(1, 10)] == [False] * 3 + [True] * 5 + [False]  # five, around P06
+    assert all(f"P{i:02d}" in out for i in range(1, 10)) and "more" not in out  # J13/1: all nine fit
     assert "Phases" not in left(frame(data(), 120, 50))
+    for rows in range(30, 50):  # not all fit: the last row counts the rest
+        out = left(frame(data(phases=many), 120, rows))
+        shown = sum(f"P{i:02d}" in out for i in range(1, 10))
+        if 0 < shown < 9:
+            break
+    assert 0 < shown < 9 and f"… {9 - shown} more" in out
+    lines = out.splitlines()
+    assert "more" in lines[max(i for i, x in enumerate(lines) if "P0" in x or "more" in x)]  # it is the last row
+
+
+def test_progress_count_and_phases_panel_agree():
+    ph = [{"id": f"P{i}", "total": 2, "done": 2 if i <= 3 else 0, "status": "done" if i <= 3 else "pending"}
+          for i in range(1, 8)]
+    d = data(phases=ph)
+    d["progress"].update(phases_done=3, phases_total=7)
+    out = frame(d, 120, 50)
+    assert "3 of 7" in right(out) and left(out).count("✓") == 3 and left(out).count("○") == 4
+
+
+def test_this_run_is_two_rows_and_nothing_wraps():
+    d = data()
+    d["size"].update(run_lines=1234567, run_files=12345, code=9999999, tests=8888888, docs=7777777, test_count=666666)
+    for cols, rows in SIZES:
+        out = strip(frame(d, cols, rows + 20))
+        assert all(len(x) == cols for x in out)
+        at = next(i for i, x in enumerate(out) if "This run : +1,234,567 lines" in x)
+        assert "12345 files" in out[at + 1][:36] and "..." not in out[at][:36]
+        assert out[at][:2] == "│ " and out[at][34:36] == " │"
+
+
+# ---------- J13 rows 11 and 14 ----------
+def test_data_age_and_stale():
+    def title(age):
+        return strip(frame(data(asof={"age": age, "stopped": ""}), 120, 30))[0][:36]
+    assert "data 3s old" in title(3) and "stale" not in title(3)
+    assert "data 45s old stale" in title(45) and "\x1b[33mdata 45s old stale" in frame(
+        data(asof={"age": 45, "stopped": ""}), 120, 30, True)[0]
+    assert "data —" in title(None)
+    assert "data" not in "".join(strip(frame(data(), 120, 30))[:1])  # no key in the data: no note
+
+
+def test_stopped_run_shows_the_time_on_every_panel():
+    out = "\n".join(strip(frame(data(asof={"age": 3, "stopped": "12:50"}), 120, 40)[:-1]))
+    tops = [x for x in out.splitlines() if "┌─" in x]
+    assert len(tops) >= 5 and all("stopped 12:50" in x for x in tops) and "data 3s" not in out
+    small = strip(frame(data(asof={"age": 3, "stopped": "12:50"}), 100, 24, True))
+    assert all(len(x) == 100 for x in small) and sum("stopped 12:50" in x for x in small) >= 4
+
+
+def test_no_value_appears_in_two_panels():
+    """One data dict, every panel and the bar: a key shows in one panel; only the bar repeats task, progress, left,
+    blocked, tokens, cost and 5h."""
+    d = data(asof={"age": 5, "stopped": ""}, phases=PHASES, next=[("ap watch", "see")])
+    d["project"].update(name="NAMEZ", branch="BRANCHZ", started="2026-10-04 06:17:14", elapsed="ELAPSEDZ", eta="ETAZ",
+                        last_commit="COMMITZ", next="NEXTZ", stale_min=57,
+                        now={"n": 21, "title": "NOWZ", "attempt": 2, "max_attempts": 3, "time": "TASKTIMEZ", "model": "MODELZ"})
+    d["progress"].update(done=141, working=143, blocked=147, waiting=153, questions=159, warnings=161, phases_done=167,
+                         phases_total=171)
+    d["usage"].update(tokens_text="TOKZ", cost=83.17, five=0.79, week=0.88, context=0.55)
+    d["usage"]["models"] = [{"name": "SPLITZ", "tokens_text": "SPLITTOKZ", "share": 0.5}]
+    d["size"].update(code=191919, tests=292929, docs=393939, test_count=494949)
+    d["health"] = {"git": "GITZ", "checks": "CHECKZ", "words": ""}
+    lines = strip(frame(d, 190, 60))
+    assert len(lines) == 60
+    bar = lines[-1]
+    body = lines[:-1]
+    # split the three columns, then the right column in its boxes
+    cols = [[x[:36] for x in body], [x[36:-30] for x in body], [x[-30:] for x in body]]
+    panels, cur = [], None
+    for col in cols:
+        for x in col:
+            if x.startswith("┌"):
+                cur = []
+                panels.append(cur)
+            if cur is not None:
+                cur.append(x)
+            if x.startswith("└"):
+                cur = None
+    texts = ["\n".join(p) for p in panels]
+    assert len(texts) >= 7
+    keys = ["NAMEZ", "BRANCHZ", "ELAPSEDZ", "ETAZ", "COMMITZ", "NEXTZ", "NOWZ", "TASKTIMEZ", "MODELZ", "SPLITZ",
+            "GITZ", "CHECKZ", "191,919", "292,929", "393,939", "494,949", r"\b141\b", r"\b143\b", r"\b147\b", r"\b153\b",
+            r"\b159\b", r"\b161\b", r"\b167\b", r"\b171\b", "TOKZ", r"83\.17", "79%", "88%", "55%", r"\b57 min"]
+    import re
+    for k in keys:
+        n = sum(bool(re.search(k, t)) for t in texts)
+        assert n <= 1, (k, n)
+    for k in ("NAMEZ", "BRANCHZ", "ELAPSEDZ", "COMMITZ", "NOWZ", "MODELZ"):  # the bar repeats nothing outside the seven
+        assert k not in bar
+    assert "ETAZ" in bar and "TOKZ" in bar and "$83.17" in bar and "5h 79%" in bar and "Blocked 147" in bar
 
 
 def test_cut_order_at_100x24():
     out = left(frame(data(phases=PHASES), 100, 24))
-    for kept in ("Status", "Questions for you", "── Now", "── Next"):
+    for kept in ("Branch", "Questions for you", "── Now", "── Next"):
         assert kept in out
     assert "── Phases" not in out and "── Size" not in out
 
@@ -278,5 +369,5 @@ def test_next_step_line_at_the_bottom_of_issues():
     assert out[-3][-30:] == "│ " + "Run: ap watch".ljust(26) + " │"
     assert "[36m" in line_with(d, "Run: ap watch", rows=40)
     assert "ap stop" not in "\n".join(out)  # one line only
-    assert "Run: ap watch" not in "\n".join(frame(d, 120, 30))  # no free row: no line
+    assert "Run: ap watch" not in "\n".join(frame(d, 120, 24))  # no free row: no line
     assert "Run: ap" not in right(frame(data(), 120, 40))  # no data: no line

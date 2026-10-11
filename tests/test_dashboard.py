@@ -19,7 +19,7 @@ def test_data_is_plain_and_has_every_part(tmp_path):
     data = dashboard_data(orch.cfg, orch.plan, orch.state, {})
     json.dumps(data)  # only plain types: a view never needs the plan or the state
     assert set(data) == {"project", "progress", "tasks", "live", "usage", "files", "health", "next", "line",
-                         "needs_you", "blocked_why", "size", "phases", "recent"}
+                         "needs_you", "blocked_why", "size", "phases", "recent", "asof"}
     assert data["phases"][0] == {"id": "P01", "title": data["phases"][0]["title"], "total": 2, "done": 2, "status": "done"}
     assert len(data["recent"]) == 3 and {"n", "title", "time"} == set(data["recent"][0])
     assert data["project"]["status"] == "idle" and data["project"]["state_words"] == "No build is active."
@@ -90,3 +90,34 @@ def test_an_open_question_and_a_blocked_task_are_named(tmp_path):
     assert data["blocked_why"] == {"id": "P02-T01", "why": "the tests fail on Windows. More text."}
     assert data["needs_you"] == [{"id": data["needs_you"][0]["id"], "title": "P02-T01 the tests fail"}]
     assert data["progress"]["blocked"] == 1 and data["progress"]["questions"] == 1
+
+
+def test_a_frozen_state_file_shows_stale_within_30_seconds(tmp_path):
+    """J13/11: the window reads the age of the newest sign of life; a frozen state file is 'stale' after 30 s."""
+    import os
+    import time
+
+    from autopilot.dash_term import frame
+    from autopilot.dashboard import data_age
+    orch = built(tmp_path)
+    agent = orch.cfg.root / ".agent"
+    old = time.time() - 40
+    for rel in ("state.db", "state.db-wal", "logs/autopilot.log"):
+        if (agent / rel).exists():
+            os.utime(agent / rel, (old, old))
+    run = {"status": "running", "state": "Code", "task": "P02-T01", "attempt": 1,
+           "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(old))}
+    data = dashboard_data(orch.cfg, orch.plan, orch.state, run)
+    assert 38 <= data["asof"]["age"] <= 60 and data["asof"]["stopped"] == "" and data["asof"]["live"]
+    assert "old stale" in frame(data, 120, 30)[0]
+    ended = dashboard_data(orch.cfg, orch.plan, orch.state, {"status": "finished", "updated_at": "2026-10-11T12:50:09"})
+    assert ended["asof"]["stopped"] == "12:50" and "stopped 12:50" in frame(ended, 120, 30)[0]
+    assert data_age(orch.cfg.root / "nowhere", {}) is None  # no source: a dash, never a guess
+
+
+def test_phases_panel_agrees_with_the_progress_count(tmp_path):
+    from autopilot.dash_term import frame
+    orch = built(tmp_path)
+    data = dashboard_data(orch.cfg, orch.plan, orch.state, {})
+    out = "\n".join(x[:36] for x in frame(data, 120, 40)[:-1])
+    assert out.count("✓") == data["progress"]["phases_done"] == data["progress"]["phases_total"] == 2

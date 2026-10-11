@@ -122,6 +122,23 @@ def _first(text, limit: int = 90) -> str:
     return line if len(line) <= limit else line[:limit - 4].rsplit(" ", 1)[0] + " ..."
 
 
+def data_age(root, run: dict) -> int | None:
+    """J13/11: seconds since the newest sign of life: the run journal, the state file (and its WAL), the log. None when
+    none of them has a time (the view shows a dash, never a guess)."""
+    from . import AGENT_DIR
+    stamps = []
+    try:
+        stamps.append(dt.datetime.fromisoformat(run["updated_at"]).timestamp())
+    except (KeyError, TypeError, ValueError):
+        pass
+    for rel in ("state.db", "state.db-wal", "logs/autopilot.log"):
+        try:
+            stamps.append((root / AGENT_DIR / rel).stat().st_mtime)
+        except OSError:
+            pass
+    return max(0, int(time.time() - max(stamps))) if stamps else None
+
+
 def dashboard_data(cfg, plan, state, run: dict) -> dict:
     root = cfg.root
     status, tasks = state.status_map(), plan.all_tasks()
@@ -193,6 +210,9 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
                    key=lambda r: r["finished_at"], reverse=True)[:3]
     number = {t["id"]: t for t in table}
     return {
+        # the age of the data; a run that is not live shows when it stopped
+        "asof": {"age": data_age(root, run), "live": live,
+                 "stopped": "" if live else str(run.get("updated_at") or "")[11:16]},
         "project": {
             "name": str(cfg.get("name", root.name)), "branch": main, "commit": facts["commit"],
             "last_commit": _first(facts["subject"], 60),

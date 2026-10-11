@@ -104,7 +104,13 @@ def test_now_and_size():
     d["progress"] = dict(d["progress"], total=21)
     h = render(d)
     assert "Task 21 of 21" in h and "Try 2 of 3" in h and "598 lines" in h and "1,898 lines, 172 tests" in h
-    assert "+246 lines, 13 files" in h
+    assert "+246 lines" in h and "<dd>13 files</dd>" in h and "Task time" in h  # J13: two rows
+
+    stale = render(dict(d, asof={"age": 45, "stopped": ""}))
+    assert 'class="w">data 45s old stale' in stale and "data 3s old" in render(dict(d, asof={"age": 3, "stopped": ""}))
+    assert "stopped 12:50" in render(dict(d, asof={"age": 3, "stopped": "12:50"}))
+    assert "data —" in render(dict(d, asof={"age": None, "stopped": ""})) and "data " not in render(d).split("<main")[-1][:300]
+    assert render(d).count("Time left") == 0 and "Left 10m" in render(d)  # the bar is the only place for Left
     assert "Size</h3>" not in render(data(size=None))
 
 
