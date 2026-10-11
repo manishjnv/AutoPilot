@@ -187,9 +187,9 @@ budget_usd:
 scheduling:
   phase_dependency: soft  # soft = blocked tasks don't hold later phases; strict = they do
   max_sessions_per_run: 0 # 0 = unlimited
-  parallel: 1             # measured 2026-10-11: 0 batches on a plan of mostly high tasks (N12); 3 = up to three low or
-                          # medium first attempts at once, each in a git worktree; unset = 3 with a test command
-                          # (up to N independent low/medium first attempts at once, each in a git worktree)
+  parallel: 1             # N12: 3 = up to three first attempts at once, each in a git worktree, when their files_in_scope
+                          # share no file; low, medium and high join, critical and retries stay serial; unset = 3 with
+                          # a test command. Default 1 until a measured run is 1.5x faster (see docs/ROADMAP.md N12).
   worktree_setup: true    # run commands.setup in each new worktree (deps like node_modules aren't shared)
   worktree_dir: ""        # where worktrees live; empty = <temp>/autopilot-worktrees (always outside the repo)
 
