@@ -43,6 +43,9 @@ PLACEHOLDER_RX = re.compile(r"(?i)example|placeholder|change_?me|dummy|fake|samp
 SKIP_HINT = (" (skips are not allowed, `skipif` on a platform condition too: make the test run on this machine, "
              "or test the behavior another way and list the gap under followups)")
 FAKE_HINT = " (test data? use a value containing example, dummy or fake)"
+# N7: the new-file rule; system.md repeats it word for word and the gate (P07-T02) quotes it in the retry
+NEW_FILE_RULE = ("Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) "
+                 "needs a reason: list each one with its reason in the report field `new_files`.")
 SETTINGS_FILES = {"pyproject.toml", "setup.cfg", "package.json", "tox.ini", "pytest.ini"}
 SETTINGS_REMOVED_RX = re.compile(r'addopts|testpaths|python_files|"test"\s*:|testMatch|testPathIgnorePatterns')
 SETTINGS_ADDED_RX = re.compile(r"--ignore|--deselect|(^|\s)-k\s|testPathIgnorePatterns|modulePathIgnorePatterns|"

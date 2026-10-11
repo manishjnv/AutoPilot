@@ -102,6 +102,20 @@ def model_rank(model: str) -> int:
     return next((i for i, name in enumerate(MODEL_ORDER) if name in m), 1)
 
 
+def _one_line(x) -> str: return " ".join(str(x or "").split())
+
+
+def new_file_lines(report: dict) -> str:
+    """N7: one `new file <path>: <reason>` line per report `new_files` entry, for the task commit message. Text-only
+    backends are not schema-checked: bad entries are dropped and a reason can never add lines (e.g. a fake trailer)."""
+    items = report.get("new_files") if isinstance(report, dict) else None
+    if not isinstance(items, list):
+        return ""
+    lines = [f"new file {_one_line(e.get('path'))}: {_one_line(e.get('reason'))[:300] or '(no reason given)'}"
+             for e in items if isinstance(e, dict) and _one_line(e.get("path"))]
+    return "\n\n" + "\n".join(lines) if lines else ""
+
+
 # G8: the word the status line shows for each kind of session
 STATE = {"task": "Code", "fixer": "Fix", "unstick": "Fix", "repair": "Fix", "verify": "Review", "audit": "Review",
          "replan": "Plan", "decide": "Plan", "review": "Review", "research": "Plan", "onboard": "Plan", "triage": "Plan"}
@@ -1169,7 +1183,8 @@ class Orchestrator:
         if phase.priority:
             self.docs.rca(task.id, task.title, res.report.get("rca"))
         self.docs.status(self.plan, status)
-        self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}\n\nmodel: {model}, attempt {attempt}")
+        self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}{new_file_lines(res.report)}\n\n"
+                            f"model: {model}, attempt {attempt}")
         if self.cfg.get("git.mode", "direct") == "pr":
             sha = self._merge_pr(task, branch)
         else:
@@ -1314,7 +1329,8 @@ class Orchestrator:
         if not gate.ok:
             return gate.report()
         files, summary = wt.staged_files(), str(res.report.get("summary", "")).strip()
-        wt.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}\n\nmodel: {model}, attempt 1 (parallel)")
+        wt.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}{new_file_lines(res.report)}\n\n"
+                      f"model: {model}, attempt 1 (parallel)")
         try:
             sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
         except GitError as exc:
