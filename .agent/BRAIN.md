@@ -10,7 +10,8 @@ The agent only writes code for one task at a time.
 
 Current roadmap step: **section N** — adopt a half-built project, run under any agent CLI, start with one `ap`
 command. Principles of N: one word to learn (`ap`); read before write; done work stays done; a new file needs a
-reason; the IDE is not the runner, the CLI is.
+reason; the IDE is not the runner, the CLI is. Status: P01-P04, P06-P08 done. Open: P09-T01 (N7 guard on in the
+template) and two owner tasks: P05-T03 (release tag, checksums) and P07-T03 (live check under Kiro, suite on WSL).
 
 Owner documents (link, do not copy): `README.md`, `GUIDE.md` (tutorial), `HOWTO.md` (tasks, install),
 `REFERENCE.md` (all commands and settings), `ARCHITECTURE.md` (why and how), `SECURITY.md`. The roadmap
@@ -33,7 +34,9 @@ Package `autopilot/` (setuptools packages: `autopilot`, `autopilot.backends`, `a
   N6: `write_ide_rules(root)` appends one `<!-- autopilot:begin -->` block (template `ide_rules.md`) to the rule
   file of each IDE present (`.cursor/rules/autopilot.mdc`, `.kiro/steering/autopilot.md`,
   `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`); skipped when the marker exists.
-  Known bug (P08-T01): the `commands:` regex in `cmd_init` has re.S and drops every block after it.
+  P08-T01: `cmd_init --stack` replaces only the indented lines of the `commands:` block; every later block
+  (gate:, agent:, models:, ...) and its comments stay. P08-T02: a CLAUDE.md with the old Autopilot heading but no
+  `ap status` gets the last two snippet lines (Commands + plan files) appended once; `ap status` is the marker.
 - `orchestrator.py` — the autonomous loop: `run_setup()` runs `commands.setup` at start; `repair_env()` starts one
   session that fixes tooling; task sessions, gate, retry ladder, diagnosis, phase checks, audits, deploys.
 - `gate.py` — `task_gate(cfg, git, task)`: no-change, protected files, test-tamper, secret scan, scope warning, then
@@ -46,7 +49,7 @@ Package `autopilot/` (setuptools packages: `autopilot`, `autopilot.backends`, `a
 - `context.py` — renders prompts (`render(name, **vars)` fills `{{var}}`) and the context pack of each session;
   `discovery_pack(root, cfg)` (N1: git log, documents, stack files, test result) for onboarding.
 - `backends/` — `claude_cli.py` (Claude Code headless, stream-json) and `command.py` (any CLI: prompt on stdin,
-  JSON report in stdout; `PRESETS` for codex, gemini, opencode, kiro, cursor, aider; `_MODEL_OPT` = `--model`
+  JSON report in stdout; `PRESETS` for codex, gemini, opencode, kiro, cursor, aider (the config error lists `PRESETS` keys); `_MODEL_OPT` = `--model`
   for kiro/cursor/aider, else `-m`; a `{prompt_file}` placeholder writes a temp prompt file outside the worktree
   (aider). The default `agent.backend: claude_cli` lives in `config.defaults()`, not the template).
   `get_backend(cfg)` picks by `agent.backend`.
@@ -56,8 +59,12 @@ Package `autopilot/` (setuptools packages: `autopilot`, `autopilot.backends`, `a
   doctor row is WARN only).
 - `commands/preflight.py` — `ap preflight`: read-only credential checks for plan `infra` steps.
 - `schemas.py` — JSON Schemas of session reports (passed to Claude as `--json-schema`). A new report field must be
-  added here too. N7 (P07) adds an optional `new_files` [{path, reason}] to the task report; the gate then needs
-  a reason for each added non-test file (`task_gate(..., report=None)`, problems quoted to the retry).
+  added here too. N7: optional `new_files` [{path, reason}] in the task report. `gate.NEW_FILE_RULE` is the rule
+  text (system.md repeats it word for word, a test pins it; import it, never copy). `gate.missing_reasons` is
+  called by `task_gate(..., report=None)` only when `gate.new_file_reasons` is true: one problem line with up to
+  20 paths, then the rule. Test files and `.agent/` need no reason. Code default off (key absent = off, not in
+  `config.defaults()`); the template is still `false` until P09-T01. `orchestrator.new_file_lines(report)` builds
+  the commit-message reason lines for both commit paths.
 - `prompts/*.md` — session prompts (`system.md` rules of every session, `task.md`, `onboard.md`, `verify.md` = phase
   functional check, `review.md`, ...).
 - `templates/agent/` — files `ap init` copies (`project.yaml`, `plan.yaml`, `BRAIN.md`, `CLAUDE.md.snippet`, ...);
@@ -101,7 +108,7 @@ Package `autopilot/` (setuptools packages: `autopilot`, `autopilot.backends`, `a
 
 ## How to run
 - Setup: `python -m pip install -e ".[dev]" ruff`
-- Test: `python -m pytest -q` (507 tests collected at onboarding; the owner runs them on WSL)
+- Test: `python -m pytest -q` (the owner runs them on WSL; on Windows a few older `skipif(win32)` tests skip)
 - Lint: `python -m ruff check --select E9,F63,F7,F82 .`
 - Try the CLI: `python -m autopilot --help`, `ap doctor`, `ap validate -C <project>`.
 - Platform-only test parts: guard them with a plain `if` inside the test (e.g. bash present), keep the text checks

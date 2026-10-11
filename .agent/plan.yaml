@@ -489,17 +489,20 @@ phases:
           Owner only: needs real logged-in runners and the friend's project (or a copy). Check the "Done when" of
           section N: one real task passes with Claude and with one other runner (N3); a copy of the friend's project
           starts at its real next task with one `ap` command under Kiro (N1, N4); it gets no second plan or notes
-          file (N7); a Cursor or Kiro chat shows the `ap` commands when asked "how do I continue" (N6). Also run the
-          full test suite on WSL (`python -m pytest -q`): sessions ran it on Windows only.
+          file (N7: the adopted project.yaml has `gate.new_file_reasons: true` from the template, P09-T01); a Cursor
+          or Kiro chat shows the `ap` commands when asked "how do I continue" (N6). Also run the full test suite on
+          WSL (`python -m pytest -q`): sessions ran it on Windows only (the Windows skips come from older
+          `skipif(sys.platform == "win32")` tests in test_autofix, test_infra_templates and test_quickstart).
         acceptance_criteria:
           - "One real task passes with Claude Code and one with another runner"
           - "The friend's project (or a copy) continues from its real next task under Kiro after one `ap` command"
+          - "The adopted project gets no second plan or notes file; a task that adds a file without a reason is retried with the rule quoted"
           - "`python -m pytest -q` passes on WSL"
         files_in_scope: []
         verify: []
         needs_decision: false
         research: []
-        depends_on: [P07-T02, P08-T01, P08-T02]
+        depends_on: [P07-T02, P08-T01, P08-T02, P09-T01]
         owner_only: true
 
   # ------------------------------------------------------------------ N follow-ups
@@ -555,4 +558,41 @@ phases:
         needs_decision: false
         research: []
         depends_on: [P08-T01]
+        owner_only: false
+
+  # ------------------------------------------------------------------ N7 on for new projects
+  - id: P09
+    title: "N7 guard on for new and adopted projects"
+    depends_on: [P08]
+    goal: >
+      The new-file guard (P07-T02) is opt-in and the template sets it to false, so no project gets it. New and
+      adopted projects (`ap init`, plain `ap`) get `gate.new_file_reasons: true`; an existing project.yaml without
+      the key keeps the old behaviour (off).
+    tasks:
+      - id: P09-T01
+        title: "Template turns the new-file guard on; old project.yaml stays off"
+        risk: medium
+        description: |
+          Follow-up of P07-T02 (now possible since P08-T01 keeps the `gate:` block at init).
+          - `autopilot/templates/agent/project.yaml`: `new_file_reasons: true`; keep the comment, reword it so it says
+            new projects have it on and a project.yaml without the key has it off.
+          - Do NOT add the key to `config.defaults()`: the code default stays off (unset -> falsy), so existing
+            project.yaml files and the test fakes keep working. `tests/test_autopilot.py:make_project` overwrites
+            project.yaml after init, so its orchestrator tests are not affected; check the other tests that run init
+            and then the loop with a fake agent (`tests/test_autofix.py`, `tests/test_runner_detect.py`,
+            `tests/test_adopt.py`) and run them. If a fake there adds a non-test file, make the fake report a
+            `new_files` entry with a reason (never turn the guard off in a test to make it pass, never remove a test).
+          - REFERENCE.md: the `gate` row says "default `true` in new projects, off when the key is missing"; the
+            "New file" row says the same.
+          - Add tests to `tests/test_new_file_gate.py` (build folders in tmp_path, call `cmd_init`).
+        acceptance_criteria:
+          - "After `cmd_init` on a fresh tmp folder (with and without `--stack python`), `Config.load(root).get(\"gate.new_file_reasons\")` is True"
+          - "A project.yaml with a `gate:` block that has no `new_file_reasons` key loads with the value falsy, and `task_gate` with a report and an added non-test file has no new-file problem"
+          - "The template comment above or beside `new_file_reasons` is still in the project.yaml that init writes"
+          - "REFERENCE.md describes the new default; all existing tests pass unchanged"
+        files_in_scope: ["autopilot/templates/agent/project.yaml", "REFERENCE.md", "tests/test_new_file_gate.py"]
+        verify: []
+        needs_decision: false
+        research: []
+        depends_on: []
         owner_only: false
