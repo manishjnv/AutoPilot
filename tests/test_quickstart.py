@@ -175,6 +175,35 @@ def test_root_install_script_rejects_a_bad_ref(tmp_path):
     assert p.returncode == 2
 
 
+# ---- N5: Python when missing, `ap` on PATH, one final line ----
+FINAL_LINE = "Open a project folder and type `ap`."
+ROOT_INSTALL_PS1 = ROOT_INSTALL.with_name("install.ps1")
+
+
+def test_install_scripts_install_python_only_when_missing_and_check_ap():
+    for script in (ROOT_INSTALL, ROOT_INSTALL_PS1):
+        text = script.read_text(encoding="utf-8")
+        assert "uv python install" in text and "3, 10" in text, script.name
+        assert "ap is on PATH" in text, script.name
+        last = [x for x in text.rstrip().splitlines() if x.strip() not in ("", "}", 'main "$@"')][-1]
+        assert last.endswith(FINAL_LINE + "'"), script.name
+    sh = ROOT_INSTALL.read_text(encoding="utf-8")
+    assert sh.index("if pyok;") < sh.index("uv python install 3.12 ||")
+    assert "have ap" in sh and "Command: $pycmd" in sh
+
+
+def test_root_install_dry_run_ends_with_the_one_final_line(tmp_path):
+    if sys.platform == "win32" or not shutil.which("bash"):
+        return  # the text checks above cover the scripts; the dry run needs a POSIX bash (WSL runs it)
+    home, empty = tmp_path / "home", tmp_path / "empty"
+    home.mkdir(), empty.mkdir()
+    p = subprocess.run([shutil.which("bash"), str(ROOT_INSTALL), "--dry-run"], capture_output=True, text=True,
+                       env={"HOME": str(home), "PATH": str(empty)})
+    assert p.returncode == 0, p.stderr
+    assert p.stdout.splitlines()[-1] == FINAL_LINE
+    assert "Command: uv python install 3.12" in p.stdout and "would check: ap is on PATH" in p.stdout
+
+
 # ---- H5: the guided start (plain `autopilot` in a terminal, no project here) ----
 PLAN_STUB = ("if sys.argv[1:2] == ['--version']: print('2.1.286 (Claude Code)')\n"
              "elif sys.argv[1:2] == ['auth']: sys.exit(AUTH)\n"

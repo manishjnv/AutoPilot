@@ -457,6 +457,8 @@ the step starts. A second run is safe: the script skips a program that is alread
 | Fact | Detail |
 |---|---|
 | Administrator rights | Only on Windows, and only if `winget` installs git |
+| Python | If no Python 3.10 or newer is found, the script runs `uv python install 3.12` for you only. It is the one system install a run makes |
+| `ap` on PATH | The script checks that `ap` runs after the install. At the end it prints ``Open a project folder and type `ap`.`` |
 | git on macOS and Linux | The script does not use `sudo`. If git is missing, it shows the command and stops |
 | Login | The script does not log in for you. It shows `claude auth login` if the login is missing |
 | Remove Autopilot | `uv tool uninstall dev-autopilot` |

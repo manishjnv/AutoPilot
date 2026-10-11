@@ -25,3 +25,5 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [P03-T03] default agent.backend claude_cli lives in config.defaults(), not the template; preflight decides 'unset' from the raw project.yaml (none of backend/command/preset) — every cfg.get reader stays unchanged
 - [2026-10-11] [P03-T03] remember_runner inserts after `agent:` (or appends an agent block) and writes only when yaml.safe_load of the new text gives the old values plus the new keys — a project.yaml is never broken
 - [2026-10-11] [P03-T03] no runner detected but claude installed -> no write, claude_cli default (the H2 login offer still runs); AUTOPILOT_CLAUDE_BIN set -> detection skipped as an explicit claude choice
+- [2026-10-11] [P05-T01] Python install is part of step 4 (still 5 steps) and its dry-run text avoids the words 'would install' — existing tests count exactly 3 of them
+- [2026-10-11] [P05-T01] The Python install uses `uv python install 3.12`; the check looks for python3, python (and py on Windows) with version >= 3.10

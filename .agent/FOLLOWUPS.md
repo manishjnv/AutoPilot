@@ -22,3 +22,6 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P03-T03] ap init writes a short project.yaml without an agent: block, so the runner lines are appended as a new block at the end of the file
 - [P03-T03] doctor.checks still shows the claude rows for a project with no runner set before its first preflight
 - [P03-T03] config.py was edited (one line in defaults(), as the ADR says) although it was not in the listed files
+- [P05-T01] The bash dry-run test returns early on Windows or without bash instead of skipping; it really runs only on WSL/Linux
+- [P05-T01] HOWTO.md pins install.sh and install.ps1 SHA-256 values to an old commit; refresh them when the first release tag is made
+- [P05-T01] install.yml (protected) could also run `ap --version` in the real-install step
