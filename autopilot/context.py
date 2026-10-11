@@ -1,8 +1,13 @@
 """Context packs: the small, fresh bundle every session starts from (instead of a long-lived chat)."""
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
+
+import yaml
+
+from . import proc
 
 PROMPTS = Path(__file__).parent / "prompts"
 FIX_RULES = ("This is a corrective task. 1) Add a regression test that fails before your fix and passes after it. "
@@ -203,3 +208,98 @@ class ContextBuilder:
         if learned:
             text += f"\n## Learnings from earlier failures (don't repeat them)\n{learned}\n"
         return text
+
+
+# N1: discovery pack for onboarding: read before write
+PACK_CAP = 60000
+_SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"}
+_DOC_DIRS = {"docs", ".kiro", ".cursor", ".github"}
+_DOC_STEMS = {"roadmap", "todo", "plan", "changelog", "notes"}
+_PLAN_STEMS = {"plan", "roadmap", "todo", "notes"}
+
+
+def _cap(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit] + f"\n…(truncated: section over {limit} characters)…"
+
+
+def _doc_files(root: Path) -> list[Path]:
+    out = []
+    for dp, dns, fns in os.walk(root):
+        rel = Path(dp).relative_to(root)
+        dns[:] = sorted(d for d in dns if d not in _SKIP_DIRS and (rel / d).as_posix() != ".agent/logs")
+        for f in sorted(fns):
+            r = rel / f
+            top = r.parts[0] if len(r.parts) > 1 else ""
+            if f.lower().endswith(".md") or top in _DOC_DIRS or Path(f).stem.lower() in _DOC_STEMS:
+                out.append(r)
+    return out
+
+
+def _is_plan_like(r: Path) -> bool:
+    return r.stem.lower() in _PLAN_STEMS or (len(r.parts) > 1 and r.parts[0].lower() == "notes")
+
+
+def _head(path: Path, lines: int) -> str:
+    try:
+        return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[:lines])
+    except OSError:
+        return ""
+
+
+def _git_section(root: Path) -> str:
+    try:
+        p = proc.run_proc(["git", "log", "--oneline", "-200"], cwd=str(root), timeout=60)
+    except OSError:
+        return ""
+    return p.stdout.strip() if p.rc == 0 else ""
+
+
+def _stack_section(root: Path) -> str:
+    names: list[str] = []
+    for f in sorted((Path(__file__).parent / "templates" / "presets").glob("*.yaml")):
+        try:
+            names += [str(n) for n in (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("detect", [])]
+        except (OSError, yaml.YAMLError):
+            pass
+    parts = [f"### {n}\n```\n{_head(root / n, 30)}\n```" for n in dict.fromkeys(names) if (root / n).is_file()]
+    return "\n\n".join(parts) or "(no stack files found)"
+
+
+def _test_section(root: Path, cfg) -> str:
+    cmds = cfg.commands("test")
+    if not cmds:
+        return "no test command"
+    secs = int(cfg.get("onboard.test_timeout_sec", 300) or 300)
+    out = []
+    for c in cmds:
+        try:
+            p = proc.run_proc(c, cwd=str(root), timeout=secs, shell=True)
+        except OSError as e:
+            out.append(f"$ {c}\nexit code: not started ({e})")
+            continue
+        tail = "\n".join((p.stdout + "\n" + p.stderr).strip().splitlines()[-40:])
+        status = f"timed out after {secs} s, stopped" if p.timed_out else f"exit code: {p.rc}"
+        out.append(f"$ {c}\n{status}\n```\n{tail}\n```")
+    return "\n\n".join(out)
+
+
+def discovery_pack(root, cfg) -> str:
+    """N1: git log, document tree, stack files and one test run, as markdown under PACK_CAP characters."""
+    root = Path(root)
+    tree = []
+    for r in _doc_files(root):
+        try:
+            size = (root / r).stat().st_size
+        except OSError:
+            continue
+        tree.append(f"- {r.as_posix()} ({size} bytes)")
+        if _is_plan_like(r):
+            h = _head(root / r, 40)
+            if h:
+                tree.append("  ```\n" + "\n".join("  " + x for x in h.splitlines()) + "\n  ```")
+    secs = [("Git log (last 200 commits)", _git_section(root) or "(no git history)", 8000),
+            ("Documents", "\n".join(tree) or "(no documents found)", 24000),
+            ("Stack files", _stack_section(root), 12000),
+            ("Test command result", _test_section(root, cfg), 8000)]
+    pack = "\n\n".join(f"## {t}\n{_cap(b, n)}" for t, b, n in secs)
+    return _cap(pack, PACK_CAP)
