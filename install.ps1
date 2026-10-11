@@ -2,7 +2,8 @@
 # Env: AUTOPILOT_REF (git tag/branch to install), AUTOPILOT_DRY_RUN=1, AUTOPILOT_SKIP_LOGIN=1.
 # Safe to run twice. One UAC prompt at most (N8): it installs Git when missing and creates the scheduled task
 # Autopilot-Setup (highest run level), so later runs install winget packages with no prompt. Edits no profile or
-# PATH setting. `ap uninstall --rights` removes the task.
+# PATH setting. The task's script lives in ProgramData\Autopilot, writable by Administrators only. `ap uninstall --rights`
+# removes the task and that folder.
 param([switch]$DryRun, [switch]$SkipLogin)
 $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
@@ -57,11 +58,14 @@ Write-Host 'This script installs: Git (winget, when missing), uv, Claude Code, P
 Write-Host 'Rights it takes: one administrator prompt now, and the scheduled task Autopilot-Setup (highest run level)'
 Write-Host 'so later runs install winget packages with no prompt. Remove it later with: ap uninstall --rights'
 $TaskName = 'Autopilot-Setup'
-$SetupDir = Join-Path $env:LOCALAPPDATA 'autopilot'
+# The script the task runs lives under ProgramData; the elevated step writes it and lets only Administrators and
+# SYSTEM change it (icacls, well-known SIDs), so a user process can queue winget ids but never change what runs.
+$SetupDir = Join-Path $env:ProgramData 'Autopilot'
 $SetupScript = Join-Path $SetupDir 'setup.ps1'
+$SetupDraft = Join-Path $env:LOCALAPPDATA 'autopilot\setup.draft.ps1'
 # The task runs this script as administrator: it installs the winget ids queued by `ap` (ids only, checked by pattern).
 $SetupBody = @'
-$q = Join-Path $env:LOCALAPPDATA 'autopilot\setup-queue.txt'
+$q = Join-Path $env:ProgramData 'Autopilot\setup-queue.txt'
 if (-not (Test-Path $q)) { exit 0 }
 $ids = Get-Content $q | Where-Object { $_ -match '^[A-Za-z0-9][A-Za-z0-9.+_-]{1,99}$' } | Select-Object -Unique
 Remove-Item $q -Force
@@ -75,14 +79,16 @@ if (-not $needGit) { Write-Host "found: $(Ver git)" }
 elseif (-not (Has winget)) { Fail 1 'install Git from https://git-scm.com/download/win, then run this script again' }
 $gitCmd = 'winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements'
 $taskCmd = "schtasks /Create /TN $TaskName /TR `"powershell -NoProfile -ExecutionPolicy Bypass -File $SetupScript`" /SC ONCE /ST 00:00 /RL HIGHEST /F"
+$aclCmd = "New-Item -ItemType Directory -Force '$SetupDir' | Out-Null; Copy-Item -Force '$SetupDraft' '$SetupScript'; icacls '$SetupScript' /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' '*S-1-5-32-545:RX' | Out-Null"
 if ($DryRun) {
     if ($needGit) { Write-Host "would install. Command: $gitCmd" }
-    Write-Host "would create the scheduled task (one administrator prompt). Command: $taskCmd"
+    Write-Host "would write $SetupScript (Administrators only) and create the scheduled task (one administrator prompt). Command: $aclCmd; $taskCmd"
 } elseif ($needGit -or -not (HasTask)) {
-    New-Item -ItemType Directory -Force $SetupDir | Out-Null
-    Set-Content -Path $SetupScript -Value $SetupBody -Encoding ASCII
+    New-Item -ItemType Directory -Force (Split-Path $SetupDraft) | Out-Null
+    Set-Content -Path $SetupDraft -Value $SetupBody -Encoding ASCII
     $elev = @()
     if ($needGit) { $elev += $gitCmd }
+    $elev += $aclCmd
     $elev += $taskCmd
     $script = ($elev -join '; ') + '; exit $LASTEXITCODE'
     Write-Host "run as administrator (one prompt): $script"
