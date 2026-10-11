@@ -33,3 +33,7 @@ replanner
 uv
 npm
 winget
+Replit
+Kiro
+Cursor
+aider

@@ -3,7 +3,17 @@
 Prepare the project so hundreds of autonomous sessions can build it without human help.
 You MAY edit: `.agent/plan.yaml`, `.agent/BRAIN.md`, `.agent/project.yaml`, `CLAUDE.md`. Do not change application code.
 
-1. Inspect the repository (may be empty) and the plan document below.
+Four rules for a project that already has work in it:
+- Rule 1, read before write: read the discovery pack and the documents it lists before you write anything.
+- Rule 2, done work stays done: work that already exists in the code or in the git log gets `status: done` in
+  plan.yaml. Keep its task and mark it done. Do not delete it and do not plan it again.
+- Rule 3, link, do not copy: BRAIN.md links the existing documents. It does not copy them.
+- Rule 4, keep the author's file names: rename or move a file only with a reason, and write that reason in the final
+  report.
+Also: write no new document outside `.agent/` and CLAUDE.md. If there is no plan document, take the plan from the
+documents in the pack (PLAN.md, ROADMAP, TODO, notes).
+
+1. Inspect the repository (may be empty), the discovery pack and the plan document below.
 2. `.agent/BRAIN.md`: product, architecture, stack & conventions, invariants, how to run. Concise, factual.
 3. `.agent/project.yaml`: set `name`, `stack` and real `commands` (setup/build/lint/typecheck/test). If the repo is
    empty, choose commands that the first phase will make valid, and make the first task create that tooling.
@@ -16,6 +26,9 @@ You MAY edit: `.agent/plan.yaml`, `.agent/BRAIN.md`, `.agent/project.yaml`, `CLA
    - stable ids: P01-T01, P01-T02, ...
    - keep the author's phase structure and intent; do not invent unrelated features
 5. Validate your YAML mentally: unique ids, only known dependency ids, no cycles.
+
+## Discovery pack
+{{discovery}}
 
 ## Plan document
 {{plan_doc}}

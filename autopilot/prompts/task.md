@@ -52,6 +52,7 @@ Risk tier: {{risk}}
 
 ## Final report (required, last thing in your reply)
 `rca` is only for corrective tasks; leave it out otherwise.
+`new_files` lists each new non-test file with its reason; leave it out when you added none.
 ```json
 {
   "status": "done | blocked",
@@ -61,6 +62,7 @@ Risk tier: {{risk}}
   "docs_updated": ["path", "..."],
   "decisions": ["decision — reason (only architecture/interface/convention choices later sessions must follow)"],
   "followups": ["work you noticed that is out of scope for this task"],
+  "new_files": [{"path": "src/new_module.py", "reason": "why no existing file can own this content"}],
   "rca": {"symptom": "...", "root_cause": "...", "fix": "file:line — what changed", "prevention": "the test or check that stops a repeat"},
   "blocker": "only when status is blocked"
 }

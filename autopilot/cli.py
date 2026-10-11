@@ -62,7 +62,7 @@ def cmd_init(args):
         text = proj_path.read_text(encoding="utf-8")
         text = re.sub(r"(?m)^name:.*$", f"name: {name}", text, count=1)
         text = re.sub(r"(?m)^stack:[^#\n]*", f"stack: {stack}            ", text, count=1)
-        text = re.sub(r"(?ms)^commands:\n(?:[ \t]+.*\n)*", cmd_block, text, count=1)
+        text = re.sub(r"(?m)^commands:[ \t]*\n(?:[ \t]+[^\n]*\n)*", lambda m: cmd_block, text, count=1)
         proj_path.write_text(text, encoding="utf-8")
     # gitignore + CLAUDE.md pointer
     gi = root / ".gitignore"
@@ -72,18 +72,56 @@ def cmd_init(args):
             fh.write(snippet)
     cm = root / "CLAUDE.md"
     cm_snip = (TEMPLATES / "agent" / "CLAUDE.md.snippet").read_text(encoding="utf-8")
-    if not cm.exists() or "## Autopilot (autonomous sessions)" not in (t := cm.read_text(encoding="utf-8")) and "## AutoDev (autonomous sessions)" not in t:
+    if not cm.exists():
         with open(cm, "a", encoding="utf-8") as fh:
             fh.write(cm_snip)
+    elif "## Autopilot (autonomous sessions)" not in (t := cm.read_text(encoding="utf-8")) and "## AutoDev (autonomous sessions)" not in t:
+        with open(cm, "a", encoding="utf-8") as fh:
+            fh.write(cm_snip)
+    elif "ap status" not in t:  # P08-T02: an older Autopilot section gets only the two command lines, once
+        lines = cm_snip.rstrip("\n").splitlines()[-2:]
+        with open(cm, "a", encoding="utf-8") as fh:
+            fh.write(("" if t.endswith("\n") or not t else "\n") + "\n".join(lines) + "\n")
+    write_ide_rules(root)  # N6
     print(f"\nstack: {stack}")
     if not getattr(args, "quiet", False):  # quickstart does these steps itself
         print("next:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
               "       autopilot validate && autopilot run")
 
 
+IDE_BEGIN = "<!-- autopilot:begin -->"
+
+
+def write_ide_rules(root):
+    """N6: one marked Autopilot block in the rule file of each IDE present; user text is never changed."""
+    block = (TEMPLATES / "agent" / "ide_rules.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+    targets = []  # (path, front matter for a new file)
+    if (root / ".cursor").is_dir():
+        targets.append((root / ".cursor" / "rules" / "autopilot.mdc", "---\ndescription: Autopilot project rules\nalwaysApply: true\n---\n"))
+    if (root / ".kiro").is_dir():
+        targets.append((root / ".kiro" / "steering" / "autopilot.md", "---\ninclusion: always\n---\n"))
+    if (root / ".vscode").is_dir():
+        targets.append((root / ".github" / "copilot-instructions.md", ""))
+    for name in ("GEMINI.md", "AGENTS.md"):
+        if (root / name).is_file():
+            targets.append((root / name, ""))
+    for path, front in targets:
+        old = path.read_bytes() if path.exists() else b""
+        rel = path.relative_to(root).as_posix()
+        if IDE_BEGIN.encode() in old:
+            print(f"keep     {rel}")
+            continue
+        nl = "\r\n" if b"\r\n" in old else "\n"
+        add = (("" if old.endswith(b"\n") else nl) + nl + block.replace("\n", nl)) if old else front + block
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "ab") as fh:
+            fh.write(add.encode("utf-8"))
+        print(f"{'append' if old else 'create'}   {rel}")
+
+
 def cmd_onboard(args):
     from .backends import SessionRequest, get_backend
-    from .context import render
+    from .context import discovery_pack, render
 
     root = Path(args.path).resolve()
     if not (root / AGENT_DIR / "project.yaml").exists():
@@ -94,7 +132,8 @@ def cmd_onboard(args):
         "(no plan document — derive a sensible plan from the repository and README)"
     if len(plan_doc) > 150_000:
         plan_doc = plan_doc[:150_000] + "\n…(truncated)…"
-    prompt = render("onboard.md", plan_doc=plan_doc)
+    prompt = render("onboard.md", plan_doc=plan_doc, discovery=discovery_pack(root, cfg))  # N1: read before write
+    before = untracked_files(root)
     system = (Path(__file__).parent / "prompts" / "system.md").read_text(encoding="utf-8")
     system += "\nFor THIS onboarding session you ARE allowed to edit the .agent files listed in the assignment."
     backend = get_backend(cfg)
@@ -106,7 +145,23 @@ def cmd_onboard(args):
                                      effort=cfg.get("models.effort.onboard", ""), label="onboarding",
                                      log_path=str(root / AGENT_DIR / "logs" / "onboard.log")))
     print(res.report.get("summary") or res.text[-1500:] or res.error)
+    new = sorted(untracked_files(root) - before)  # N1: no new document outside .agent/ and CLAUDE.md
+    if new:
+        print("WARN  onboarding created new files outside .agent/ and CLAUDE.md (kept, check them): " + ", ".join(new))
     return cmd_validate(args)
+
+
+def untracked_files(root: Path) -> set:
+    """N1: untracked files (git status) outside .agent/ and CLAUDE.md; empty when this is not a git repository."""
+    from .proc import run_proc
+    try:
+        p = run_proc(["git", "status", "--porcelain", "-uall"], cwd=str(root), timeout=60)
+    except (OSError, ValueError):
+        return set()
+    if p.rc != 0:
+        return set()
+    files = {ln[3:].strip().strip('"') for ln in p.stdout.splitlines() if ln.startswith("??")}
+    return {f for f in files if not f.startswith(AGENT_DIR + "/") and f != "CLAUDE.md"}
 
 
 def plan_journal(root: Path, **kw):
@@ -215,6 +270,10 @@ def preflight(cfg) -> bool:
     """Before quickstart or a run: fix the machine where possible (PATH, the claude CLI), then make sure the agent CLI
     can start. False = it can't, and the reason is printed."""
     from .doctor import FAIL, autofix, check_claude, check_path
+    if cfg is not None and not runner_set(cfg.root):
+        if not pick_runner(cfg.root):
+            return False
+        cfg = Config.load(cfg.root)
     cli = cfg is None or cfg.get("agent.backend", "claude_cli") == "claude_cli"  # no project yet (H5): the default
     rows = [check_path()] + (check_claude(cfg) if cli else [])
     for line in autofix(rows):
@@ -226,6 +285,108 @@ def preflight(cfg) -> bool:
         if bad:
             print(f"FAIL  {bad[0][1]}: {bad[0][2]}")
             return False
+    return install_deps(cfg) if cfg is not None else True
+
+
+def install_deps(cfg) -> bool:
+    """N2: project dependencies install without a question; system tools never (the exact command is printed and the
+    run stops). Uses commands.setup when set; when empty, runs the standard command and writes it into commands.setup."""
+    from .doctor import missing_deps, system_tool_hint
+    from .gate import run_commands
+    miss = missing_deps(cfg.root)
+    if not miss:
+        return True
+    for m in miss:
+        tool = m["tool"]
+        if not (shutil.which(tool) or (tool == "python" and (shutil.which("python") or shutil.which("python3")))):
+            print(f"FAIL  {tool} is not installed. Install it with: {system_tool_hint(tool)}")
+            return False
+    setup = cfg.commands("setup")
+    cmds = setup or list(dict.fromkeys(m["command"] for m in miss))
+    note = logging.getLogger("autopilot.preflight")
+    for cmd in cmds:
+        print(f"setup {cmd}")
+        note.info("preflight: installing project dependencies: %s", cmd)
+        r = run_commands([cmd], cfg.root, int(cfg.get("verify_timeout_sec", 1200)))[0]
+        note.info("preflight: %s -> exit %s", cmd, r.rc)
+        if r.rc != 0:
+            print(f"FAIL  {cmd} failed (exit {r.rc}):\n{r.output[-1500:]}")
+            return False
+    if not setup:
+        remember_setup(cfg.root / AGENT_DIR / "project.yaml", cmds)
+    return True
+
+
+def remember_setup(proj_path: Path, cmds: list[str]) -> None:
+    """N2: write `commands.setup` as a text edit, so the comments of project.yaml stay (same approach as cmd_init)."""
+    import re
+    text = proj_path.read_text(encoding="utf-8")
+    value = json.dumps(cmds)
+    new, n = re.subn(r"(?m)^([ \t]+setup:)[ \t]*\[\]", lambda m: f"{m.group(1)} {value}", text, count=1)
+    if not n:
+        new, n = re.subn(r"(?m)^(commands:[ \t]*(?:#.*)?)$", lambda m: f"{m.group(1)}\n  setup: {value}", text, count=1)
+    if n:
+        proj_path.write_text(new, encoding="utf-8")
+        print(f"setup saved in commands.setup of {proj_path.name}")
+
+
+def runner_set(root: Path) -> bool:
+    """N3: does the project's own project.yaml choose the agent CLI? Read raw: Config merges the claude_cli default.
+    An unusual `agent:` value (not a mapping) counts as set, so the file is left alone."""
+    path = Path(root) / AGENT_DIR / "project.yaml"
+    try:
+        agent = (load_yaml(path) if path.exists() else {}).get("agent") or {}
+    except (yaml.YAMLError, AttributeError):
+        return True  # a file preflight cannot read is never edited; validate reports it
+    return not isinstance(agent, dict) or any(agent.get(k) for k in ("backend", "command", "preset"))
+
+
+def pick_runner(root: Path) -> bool:
+    """N3: no runner set -> write the first installed, logged-in agent CLI on PATH. False = none (install hint printed).
+    A claude that is installed but logged out stays the default with no write, so the H2 login offer still runs."""
+    from .backends.claude_cli import ClaudeCLIBackend
+    from .doctor import INSTALL, RUNNERS, detect_runner
+    if os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN"):
+        return True  # an explicit claude binary is a choice: keep the claude_cli default
+    choice = detect_runner()
+    if choice:
+        if not remember_runner(Path(root) / AGENT_DIR / "project.yaml", choice):
+            return False
+        print(f"runner: {next(b for b, be, *_ in RUNNERS if be == choice)} (found on PATH)")
+        return True
+    if shutil.which(ClaudeCLIBackend.resolve_binary()):
+        return True
+    print(f"FAIL  no agent CLI found. Install Claude Code with: {INSTALL['native'][1]}\n"
+          f"      supported: {', '.join(b for b, *_ in RUNNERS)}")
+    return False
+
+
+def remember_runner(proj_path: Path, choice: str) -> bool:
+    """N3: write agent.backend (and agent.preset) as a text edit after the `agent:` line, so comments stay. The new
+    text is parsed first: when it would not give exactly the wanted values, nothing is written."""
+    import re
+    want = {"backend": "claude_cli"} if choice == "claude_cli" else {"backend": "command", "preset": choice}
+    text = proj_path.read_text(encoding="utf-8") if proj_path.exists() else ""
+    m = re.search(r"(?m)^agent:[ \t]*(?:#.*)?$", text)
+    if m:
+        nxt = re.search(r"(?m)^([ \t]+)\S", text[m.end():])
+        ind = nxt.group(1) if nxt else "  "
+        new = text[:m.end()] + "".join(f"\n{ind}{k}: {v}" for k, v in want.items()) + text[m.end():]
+    else:
+        sep = "" if not text or text.endswith("\n") else "\n"
+        new = text + sep + "agent:" + "".join(f"\n  {k}: {v}" for k, v in want.items()) + "\n"
+    try:
+        old_d, new_d = (yaml.safe_load(text) or {}), (yaml.safe_load(new) or {})
+        old_a = old_d.get("agent") or {}
+        ok = (isinstance(new_d.get("agent"), dict) and new_d["agent"] == {**old_a, **want}
+              and {k: v for k, v in new_d.items() if k != "agent"} == {k: v for k, v in old_d.items() if k != "agent"})
+    except (yaml.YAMLError, AttributeError, TypeError):
+        ok = False
+    if not ok:
+        print("FAIL  set agent.backend in .agent/project.yaml (see REFERENCE.md)")
+        return False
+    proj_path.parent.mkdir(parents=True, exist_ok=True)
+    proj_path.write_text(new, encoding="utf-8")
     return True
 
 
@@ -297,6 +458,46 @@ def guided_start() -> int:
         for ph in plan.phases:
             print(f"  {ph.id}  {ph.title}  ({len(ph.tasks)} tasks)")
         print(f"  {len(plan.phases)} phases, {len(plan.all_tasks())} tasks")
+        print("The build runs for hours. It uses your Claude plan.\nIt works without asking you.")
+        print("  1  start now\n  2  not now")
+        if input("> ").strip() == "1":
+            return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
+        print(f"Start later with: autopilot run -C {root}")
+        return 0
+    except KeyboardInterrupt:
+        print()
+        return 130
+    except EOFError:
+        print()
+        return 0
+
+
+def folder_case(root: Path) -> str:
+    """N4: what plain `ap` finds here: "agent" (.agent/project.yaml), "empty" (no entries but dotfiles, e.g. a bare
+    git repo) or "code" (files or documents, no project)."""
+    if (root / AGENT_DIR / "project.yaml").exists():
+        return "agent"
+    try:
+        return "code" if any(not x.name.startswith(".") for x in root.iterdir()) else "empty"
+    except OSError:
+        return "empty"
+
+
+def adopt_start(root: Path) -> int:
+    """N4: plain `autopilot` in a terminal, code and no .agent/: init, read-first onboarding, one-screen summary, start?"""
+    from .report import adopt_summary
+    if why := safe_folder(root):
+        print(f"not adopting this folder: {why}.")
+        return -1
+    try:
+        if not preflight(None):  # the login is checked before anything is created
+            return 1
+        print(f"Found a project without Autopilot in {root}. Reading it …")
+        cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False, quiet=True))
+        rc = cmd_onboard(argparse.Namespace(path=str(root), plan_doc=None, budget="15", run=False, idea=None))
+        if rc:
+            return rc
+        print("\n" + adopt_summary(root))
         print("The build runs for hours. It uses your Claude plan.\nIt works without asking you.")
         print("  1  start now\n  2  not now")
         if input("> ").strip() == "1":
@@ -1191,8 +1392,8 @@ def main(argv=None):
             print("a run is active here; following it (Ctrl+C stops watching, not the run)\n")
             return cmd_watch(argparse.Namespace(path=".", lines=20))
         from .report import next_steps_text
-        if sys.stdin.isatty() and sys.stdout.isatty() and not (Path.cwd() / AGENT_DIR / "project.yaml").exists():
-            if (rc := guided_start()) >= 0:  # -1: no idea given, so the normal banner
+        if sys.stdin.isatty() and sys.stdout.isatty() and (case := folder_case(Path.cwd())) != "agent":
+            if (rc := adopt_start(Path.cwd().resolve()) if case == "code" else guided_start()) >= 0:  # -1: the normal banner
                 return rc
         print(f"autopilot {__version__}: builds your project with Claude Code, checks every step, never waits.")
         print(next_steps_text(Path.cwd()))

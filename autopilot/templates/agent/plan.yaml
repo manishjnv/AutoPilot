@@ -36,6 +36,7 @@ phases:
         research: []                  # topics to research on the web first, e.g. ["Stripe webhooks retries"]
         depends_on: []
         owner_only: false             # true = needs you (accounts, keys); listed by `ap preflight`, never run by the agent
+        # status: done                # only value allowed: the work exists already; recorded as done when the task is new or pending
 
       - id: P01-T02
         title: Health endpoint

@@ -55,9 +55,16 @@ The orchestrator runs the gate after each task. It never accepts the "done" mess
 | Secret scan | An added line that looks like a key, a token, or a password | Fail |
 | Protected files | Changes to the plan, the settings, or the questions file | Fail |
 | Empty diff | No change | Fail |
+| New file | An added file with no reason in the report field `new_files` (test files, `.agent/` and renames excepted; on with `gate.new_file_reasons: true`) | Fail |
 | Scope | Changes outside the files of the task | Warning |
 
 The agent gets these rules before it starts, so it can obey them on the first attempt.
+
+The agent edits the file that owns the content. A move or a rename is allowed. Each new file (test files excepted)
+needs a reason in the report field `new_files`. The task commit gets one line per new file:
+`new file <path>: <reason>`.
+When `gate.new_file_reasons` is `true`, the gate checks the reasons. A new file with no reason fails the
+attempt, and the retry prompt quotes the rule. The setting is off by default, so existing projects keep working.
 
 ## 4. When a task fails
 

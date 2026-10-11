@@ -13,11 +13,12 @@ def obj(required=(), **props) -> dict:
 
 
 RCA = obj(symptom=S, root_cause=S, fix=S, prevention=S)
+NEW_FILES = {"type": "array", "items": obj(["path", "reason"], path=S, reason=S)}  # N7: optional, old reports stay valid
 GAP = obj(["title"], title=S, kind=S, risk=S, related_task=S, description=S, acceptance_criteria=A, files_in_scope=A)
 
 REPORTS = {  # session kind -> schema of its final report
     "task": obj(["status", "summary"], status=STATUS, summary=S, files_changed=A, tests_added=A, docs_updated=A,
-                decisions=A, followups=A, rca=RCA, blocker=S, learning=S),
+                decisions=A, followups=A, rca=RCA, blocker=S, learning=S, new_files=NEW_FILES),
     "fixer": obj(["status", "summary"], status=STATUS, summary=S, root_cause=S, rca=RCA, decisions=A, blocker=S),
     "unstick": obj(["class"], **{"class": {"type": "string", "enum": ["technical", "spec", "owner"]}}, diagnosis=S,
                    decision=S, options_considered=A, question=S, checked=S, why=S, suggestion=S),

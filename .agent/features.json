@@ -1,0 +1,13 @@
+{
+ "features": [
+  {
+   "id": "P06-F01",
+   "title": "IDE rule block written once",
+   "journey": "In a new temporary folder with a `.cursor/rules/` folder and an AGENTS.md that has one line of user text, run `python -m autopilot init` twice. The Cursor rule file and AGENTS.md each contain the Autopilot block exactly once (with `ap status`, `ap next`, `ap start`), and the user's line in AGENTS.md is unchanged.",
+   "phase": "P06",
+   "passes": true,
+   "checked_at": "2026-10-11T14:39:45",
+   "evidence": "Setup: a temp folder with .cursor/rules/ and an AGENTS.md containing 'my own line'. I ran `python -m autopilot init` twice. The first run printed 'append   AGENTS.md'; the second printed 'keep     AGENTS.md'. A new .cursor/rules/autopilot.mdc was created with frontmatter (alwaysApply: true) and one block between <!-- autopilot:begin --> and <!-- autopilot:end -->. AGENTS.md kept 'my own line' as its first line, followed by the same block. In both files, grep counted 1 each of 'ap status', 'ap ne"
+  }
+ ]
+}

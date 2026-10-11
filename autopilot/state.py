@@ -105,6 +105,8 @@ class State:
             if row is None:
                 self.db.execute("INSERT INTO tasks(id, phase, updated_at) VALUES(?,?,?)", (t.id, t.phase_id, now()))
                 added.append(t.id)
+                if t.status == "done":  # N1: finished before Autopilot
+                    self.set_task(t.id, status="done", note="done before Autopilot")
             else:
                 if row["phase"] != t.phase_id:
                     self.db.execute("UPDATE tasks SET phase=? WHERE id=?", (t.phase_id, t.id))
@@ -113,6 +115,8 @@ class State:
                                   note="reopened by replanner")
                     self.set_meta(f"unstick:{t.id}", False)
                     reopened.append(t.id)
+                elif t.status == "done" and row["status"] == "pending":  # N1: never touches running/blocked/skipped
+                    self.set_task(t.id, status="done", note="done before Autopilot")
         for tid, row in existing.items():
             if tid not in plan.task_by_id and row["status"] == "pending":
                 self.set_task(tid, status="skipped", note="removed from plan")

@@ -45,11 +45,13 @@ gate:
     - "vitest.config.*"
     - "karma.conf.*"
     - "phpunit.xml*"
+  new_file_reasons: true # N7: on in new projects; a project.yaml without this key has it off. A file added by a task (test files and .agent/ excepted) needs a reason in the
+                          # report field `new_files`, else the gate fails and the retry quotes the rule
 
 agent:
-  backend: claude_cli     # claude_cli | command
+  # backend: claude_cli   # claude_cli | command; unset = preflight writes the first agent CLI it finds on PATH (N3)
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
-  # preset: codex          # backend=command without a command: codex | gemini | opencode (ready-made invocations)
+  # preset: codex          # backend=command without a command: codex | gemini | opencode | kiro | cursor | aider (ready-made invocations)
   # model_map: {haiku: <small model>, sonnet: <main model>, opus: <largest model>}   # ladder names -> CLI models;
   #                         an unmapped haiku/sonnet/opus uses the CLI's default model
   permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing; or dontAsk + allowed_tools
