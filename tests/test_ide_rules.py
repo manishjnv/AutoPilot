@@ -48,3 +48,24 @@ def test_no_marker_only_claude_md(tmp_path):
     t = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
     for c in ("ap status", "ap next", "ap start"):
         assert t.count(c) == 1
+
+
+def test_old_claude_md_section_gets_ap_lines_once(tmp_path):
+    # P08-T02: a CLAUDE.md written by an older Autopilot (no `ap status`) gets the two command lines, once
+    old = "# Project\n\nUser text.\n\n## Autopilot (autonomous sessions)\nOld section line.\nDo not edit plan.yaml.\n"
+    (tmp_path / "CLAUDE.md").write_text(old, encoding="utf-8")
+    init(tmp_path)
+    t = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+    assert t.startswith(old)
+    for c in ("ap status", "ap next", "ap start"):
+        assert t.count(c) == 1
+    assert t[len(old):].startswith("Commands: `ap status`")
+    init(tmp_path)
+    assert (tmp_path / "CLAUDE.md").read_text(encoding="utf-8") == t
+
+
+def test_claude_md_with_ap_status_untouched(tmp_path):
+    cur = "# Project\n\n## Autopilot (autonomous sessions)\nUse ap status first.\n"
+    (tmp_path / "CLAUDE.md").write_text(cur, encoding="utf-8")
+    init(tmp_path)
+    assert (tmp_path / "CLAUDE.md").read_text(encoding="utf-8") == cur

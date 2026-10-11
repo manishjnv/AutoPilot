@@ -10,3 +10,5 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P07-T02] autopilot/templates/agent/project.yaml is outside the task's file list, so expect a scope warning.
 - [P08-T01] Run the full suite on WSL; this session did not run it.
 - [P08-T01] gate.new_file_reasons can now be written into a new project by ap init, since the gate: block survives.
+- [P08-T02] Run the full suite on WSL (wsltest_self.sh); the Windows full run passed with exit code 0 but gave no pass count, and the owner's WSL run is the real check
+- [P08-T02] Check whether the two skipped tests in the full run predate this change
