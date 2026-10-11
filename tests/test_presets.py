@@ -154,3 +154,17 @@ def test_command_error_names_every_preset(tmp_path):
         assert name in err
     for name in ("kiro", "cursor", "aider"):
         assert name in err
+
+
+def test_trust_all_presets_documented():
+    # P10-T04: SECURITY.md and README name the presets that approve every tool; the flags match PRESETS
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    sec = (root / "SECURITY.md").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert "--trust-all-tools" in PRESETS["kiro"] and "--trust-all-tools" in sec
+    assert " --force " in PRESETS["cursor"] and "--force" in sec
+    assert "--approval-mode=yolo" in PRESETS["gemini"] and "yolo" in sec
+    assert "never ran live" in sec.lower()
+    line = readme.split("## Honest limits")[1].split("- **Approve-all presets:**")[1].split("- **Where")[0]
+    assert "--force" in line and "yolo" in line and "never ran live" in line.lower()
