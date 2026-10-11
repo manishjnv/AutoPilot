@@ -13,6 +13,9 @@ docs/
 # local-only: projects that Autopilot built in test runs (each has its own git repository)
 sampleProject/
 
+# local-only: the Python environment of the promo video tool (its key is in .env)
+vid/
+
 # Autopilot runtime (not committed)
 .agent/state.db
 .agent/state.db-*
