@@ -35,3 +35,4 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [P04-T01] adopt_summary emits no color; no escape codes by construction — color can be added later behind a parameter
 - [2026-10-11] [P04-T02] folder_case(root) in cli.py returns agent, empty or code; entries that start with a dot do not count as content, so a bare git repo is empty — matches the 'only dotfiles / bare git repo' rule
 - [2026-10-11] [P04-T02] adopt_start refuses to adopt the home folder or a filesystem root (safe_folder) and falls back to the banner — sessions run without prompts, so the folder must be safe
+- [2026-10-11] [P07-T01] ADR: A: NEW_FILE_RULE constant in gate.py, same text in system.md pinned by a test, shared new_file_lines(report) helper in orchestrator.py → docs/adr/0004-p07-t01-new-file-rule-constant-in-gate-py-mirrored.md
