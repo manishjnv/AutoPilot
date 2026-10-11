@@ -1,13 +1,16 @@
 """Context packs: the small, fresh bundle every session starts from (instead of a long-lived chat)."""
 from __future__ import annotations
 
+import json
 import os
 import re
+import secrets
 from pathlib import Path
 
 import yaml
 
 from . import proc
+from .gate import verify_commands
 
 PROMPTS = Path(__file__).parent / "prompts"
 FIX_RULES = ("This is a corrective task. 1) Add a regression test that fails before your fix and passes after it. "
@@ -86,11 +89,9 @@ class ContextBuilder:
         return read_capped(self.ad / "FOLLOWUPS.md", 5000, tail=True)
 
     def verify_cmds(self, extra=None) -> str:
-        from .gate import verify_commands
         return bullets([f"`{c}`" for c in verify_commands(self.cfg, extra)], "(no commands configured)")
 
     def owner_answers(self, task_id: str) -> str:
-        import json
         rows = [d for d in self.state.decisions("APPLIED") if task_id in json.loads(d["blocks"] or "[]")]
         out = bullets([f"{d['id']}: {d['question']} → {d['answer']}" for d in reversed(rows)])
         hints = self.hints(task_id)
@@ -136,14 +137,13 @@ class ContextBuilder:
                       acceptance=bullets(task.acceptance_criteria))
 
     def triage_prompt(self, number, title: str, body: str) -> str:
-        import secrets
         tag = f"UNTRUSTED-{secrets.token_hex(6)}"  # unguessable, so the issue text can't fake the end of its block
         return render("triage.md", number=number, tag=tag, title=" ".join(str(title).split())[:200],
                       body=str(body or "(empty)")[:6000])
 
     def research_block(self, task) -> str:
         """The research notes for the task's topics: summaries written by a research session, never raw web text."""
-        from .docs import research_path
+        from .docs import research_path  # local: import cycle with docs
         notes = [read_capped(research_path(self.cfg, t), 4000, default="") for t in task.research]
         notes = [n for n in notes if n]
         head = "## Research for this task (summaries; use them, don't re-search)\n"
