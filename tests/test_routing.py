@@ -104,6 +104,30 @@ def test_small_failure_follows_the_ladder(tmp_path):
     assert models_used(fake) == ["sonnet", "sonnet"]
 
 
+LOW_HAIKU = {**NO_AUDIT, "models": {"ladder": {"low": ["haiku", "haiku", "sonnet"]}}}
+
+
+def test_cut_session_on_haiku_retries_on_sonnet(tmp_path):
+    _, _, fake = run(tmp_path, one_phase("low"), Behave(["timeout", "ok"]), LOW_HAIKU)
+    assert models_used(fake) == ["haiku", "sonnet"]
+
+
+def test_plain_test_failure_on_haiku_stays_on_haiku(tmp_path):
+    _, _, fake = run(tmp_path, one_phase("low"), Behave(["break", "ok"]), LOW_HAIKU)
+    assert models_used(fake) == ["haiku", "haiku"]
+
+
+def test_step_up_survives_a_restart(tmp_path):
+    root = make_project(tmp_path, one_phase("low"), {**NO_DECIDE, **LOW_HAIKU})
+    fake = Behave(["ok"])
+    orch = Orchestrator(root, backend=fake, sleep=lambda s: None)
+    orch.reload_plan()
+    orch.state.set_task("P01-T01", attempts=1, model="haiku")
+    orch.state.set_meta("stepup:P01-T01", True)
+    orch.run()
+    assert models_used(fake) == ["sonnet"]
+
+
 def test_escalation_can_be_turned_off(tmp_path):
     cfg = {**NO_AUDIT, "escalate": {"on_timeout": False, "max_diff_lines": 0, "max_diff_files": 0}}
     _, _, fake = run(tmp_path, one_phase("medium"), Behave(["timeout", "ok"]), cfg)

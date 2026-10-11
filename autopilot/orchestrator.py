@@ -831,6 +831,8 @@ class Orchestrator:
         chain, chain_model = None, ""  # the last failed attempt's session, resumable by the next attempt
         risk = self.effective_risk(task)
         floor = model_rank(row["model"]) if attempts and row["model"] else -1  # U6: never route down
+        if floor >= 0 and self.state.get_meta(f"stepup:{task.id}", False):  # J14.5: the last attempt was cut or looped
+            floor += 1
 
         while attempts < max_attempts:
             per_task = float(self.cfg.get("budget_usd.per_task", 0) or 0)
@@ -903,6 +905,7 @@ class Orchestrator:
             chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
             why = self.escalation(res)
             floor = max(floor, model_rank(model) + (1 if why else 0))
+            self.state.set_meta(f"stepup:{task.id}", bool(why))  # survives a restart; a plain test failure clears it
             if why:
                 log.info("task %s escalates to a stronger model: %s", task.id, why)
             self.git.discard()
