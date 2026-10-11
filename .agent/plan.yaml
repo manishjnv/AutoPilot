@@ -462,10 +462,13 @@ phases:
           The per-task verifier is `gate.py:task_gate` (prompts/verify.md is the phase functional check, not the
           task gate). Add the check: files added in the task diff (`git diff --cached --diff-filter=A`), except files
           that match `tests.test_globs` and files under `.agent/`, need a reason (a `new_files` entry with a non-empty
-          reason for that path). A missing reason is a gate problem whose text quotes the rule, so the existing retry
-          flow gives the next attempt the rule. Pass the session report to the gate (orchestrator call sites,
-          sequential and parallel). A rename (git sees R, not A) needs no reason. Document the gate row in
-          ARCHITECTURE.md (the gate table) and REFERENCE.md.
+          reason for that path). A missing reason is a gate problem (`GateResult.problems`, rendered as
+          `PROBLEM: ...` lines that the retry flow already feeds to the next attempt) whose text quotes the rule
+          constant from P07-T01. Add an optional `report=None` parameter to `task_gate(cfg, git, task)` so existing
+          callers and tests keep working; pass the session report at the three orchestrator call sites (sequential
+          gate, the re-gate after tool repair, and the parallel worktree gate). With `report=None` the check is
+          skipped. A rename (git sees R, not A) needs no reason. Document the gate row in ARCHITECTURE.md (the gate
+          table) and REFERENCE.md.
         acceptance_criteria:
           - "A fake session that adds NOTES2.md with summary \"add notes\" and no new_files -> the gate fails with the rule quoted, and the next attempt's prompt contains the rule"
           - "The same change with new_files [{path: NOTES2.md, reason: \"new module: no file owns the parser\"}] -> the gate passes"
@@ -486,13 +489,70 @@ phases:
           Owner only: needs real logged-in runners and the friend's project (or a copy). Check the "Done when" of
           section N: one real task passes with Claude and with one other runner (N3); a copy of the friend's project
           starts at its real next task with one `ap` command under Kiro (N1, N4); it gets no second plan or notes
-          file (N7); a Cursor or Kiro chat shows the `ap` commands when asked "how do I continue" (N6).
+          file (N7); a Cursor or Kiro chat shows the `ap` commands when asked "how do I continue" (N6). Also run the
+          full test suite on WSL (`python -m pytest -q`): sessions ran it on Windows only.
         acceptance_criteria:
           - "One real task passes with Claude Code and one with another runner"
           - "The friend's project (or a copy) continues from its real next task under Kiro after one `ap` command"
+          - "`python -m pytest -q` passes on WSL"
         files_in_scope: []
         verify: []
         needs_decision: false
         research: []
-        depends_on: [P07-T02]
+        depends_on: [P07-T02, P08-T01, P08-T02]
         owner_only: true
+
+  # ------------------------------------------------------------------ N follow-ups
+  - id: P08
+    title: "N follow-ups: init keeps project.yaml, runner texts"
+    depends_on: [P06]
+    goal: >
+      Fix what sessions of P01-P06 reported: `ap init --stack` must not drop the settings after `commands:`, the
+      config error names every runner preset, and an existing CLAUDE.md gets the `ap` command lines.
+    tasks:
+      - id: P08-T01
+        title: "`ap init --stack` keeps every block after `commands:`"
+        risk: medium
+        description: |
+          Bug (reported in P02-T02): in `autopilot/cli.py:cmd_init` the edit
+          `re.sub(r"(?ms)^commands:\n(?:[ \t]+.*\n)*", cmd_block, text, count=1)` uses re.S, so `.*\n`
+          runs to the last newline of the file: after `ap init --stack python` everything after the commands block
+          (verify_timeout_sec, gate:, agent:, sandbox:, models:, scheduling:, ...) is lost from project.yaml.
+          Replace only the indented lines of the commands block (drop the `s` flag, match one line with `[^\n]*`,
+          or an equivalent line loop), keep the comments of the other blocks, and keep `--force` behaviour. Add the
+          regression tests to `tests/test_presets.py` (build the project in tmp_path, call `cmd_init`).
+        acceptance_criteria:
+          - "After `cmd_init` with stack python on a fresh folder, project.yaml loads with yaml.safe_load and has every top-level key of the template project.yaml (agent, gate, models, scheduling, ...)"
+          - "The commands block holds the python preset commands, and a comment line from a block after commands (e.g. the `scheduling:` line) is still in the text"
+          - "Running `cmd_init` with `force=True` a second time leaves exactly one `commands:` block and the same top-level keys"
+          - "Existing preset and init tests pass unchanged"
+        files_in_scope: ["autopilot/cli.py", "tests/test_presets.py"]
+        verify: []
+        needs_decision: false
+        research: []
+        depends_on: []
+        owner_only: false
+
+      - id: P08-T02
+        title: "Config error lists all presets; an existing CLAUDE.md gets the `ap` lines"
+        risk: low
+        description: |
+          Two small N3/N6 follow-ups:
+          - `autopilot/config.py` (validate): the error "agent.backend=command needs agent.command or agent.preset
+            (codex, gemini, opencode)" names the preset list from `backends.command.PRESETS` instead of a fixed
+            list (so kiro, cursor and aider appear).
+          - `autopilot/cli.py:cmd_init`: a CLAUDE.md that already has the "## Autopilot (autonomous sessions)"
+            heading (written by an older Autopilot) but no `ap status` line gets one short appended block with the
+            two command lines of `templates/agent/CLAUDE.md.snippet` (the `Commands:` line and the plan-files
+            line), once. The user's text stays byte for byte; a CLAUDE.md that already contains `ap status` is not
+            touched; a missing CLAUDE.md still gets the full snippet.
+        acceptance_criteria:
+          - "A project.yaml with agent.backend command and neither command nor preset gives an error text that contains kiro, cursor and aider"
+          - "A CLAUDE.md with the old Autopilot snippet (no `ap status`) gets `ap status`, `ap next` and `ap start` after init; a second init adds nothing; the old text is an unchanged prefix of the new file"
+          - "Existing config and IDE rule tests pass unchanged"
+        files_in_scope: ["autopilot/config.py", "autopilot/cli.py", "tests/test_ide_rules.py", "tests/test_presets.py"]
+        verify: []
+        needs_decision: false
+        research: []
+        depends_on: [P08-T01]
+        owner_only: false
