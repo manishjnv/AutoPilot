@@ -45,10 +45,11 @@ class Reviewer(FakeBackend):
         return super().run(req)
 
 
-def run(tmp_path, plan, fake, cfg=None):
+def run(tmp_path, plan, fake, cfg=None, done=True):
     root = make_project(tmp_path, plan, {**NO_AUDIT, **(cfg or {})})
     orch = Orchestrator(root, backend=fake, sleep=lambda s: None)
-    assert orch.run() == "plan complete"
+    out = orch.run()
+    assert not done or out == "plan complete"
     return root, orch
 
 
@@ -112,12 +113,20 @@ def test_review_can_be_switched_off(tmp_path):
     assert not reviews(fake)
 
 
-def test_no_usable_verdict_merges_and_records_an_event(tmp_path):
-    fake = Reviewer(reviews=[None])
-    root, orch = run(tmp_path, phases({"risk": "critical"}), fake)
-    assert orch.state.task("P01-T01")["status"] == "done"
-    assert "src/P01-T01.txt" in git(root, "ls-files")
+def test_no_verdict_is_retried_once_then_the_task_fails(tmp_path):
+    fake = Reviewer(reviews=[None, {"summary": "no verdict field"}] * 3)
+    root, orch = run(tmp_path, phases({"risk": "critical"}), fake, done=False)
+    assert orch.state.task("P01-T01")["status"] == "blocked"
+    assert len(reviews(fake)) % 2 == 0 and len(reviews(fake)) >= 2
+    assert "src/P01-T01.txt" not in git(root, "ls-files")
     assert any(e["kind"] == "review" for e in orch.state.events(20))
+
+
+def test_verdict_on_the_second_try_merges(tmp_path):
+    fake = Reviewer(reviews=[None, {"verdict": "pass"}])
+    root, orch = run(tmp_path, phases({"risk": "critical"}), fake)
+    assert len(reviews(fake)) == 2 and orch.state.task("P01-T01")["attempts"] == 1
+    assert "src/P01-T01.txt" in git(root, "ls-files")
 
 
 def test_review_report_schema_needs_a_verdict():
