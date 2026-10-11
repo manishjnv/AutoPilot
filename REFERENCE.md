@@ -119,7 +119,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
 | `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing) |
 | `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
-| `onboard` | Onboarding discovery pack | `test_timeout_sec` (300): time limit for the one test run that the pack records |
+| `onboard` | The discovery pack of the onboarding session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | The network allowlist | `enabled` (false), `allowed_domains` |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
@@ -152,7 +152,7 @@ PATH)`. For `claude` it writes `backend: claude_cli`; for a different CLI, `back
 finds no CLI, it prints the install command of Claude Code and stops. A value that you set is never changed.
 
 Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
-`agent.model_map` gives the model option (`-m`, or `--model` for kiro, cursor and aider).
+`agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor` and `aider` presets).
 
 | Preset | Runs | The prompt goes in |
 |---|---|---|
@@ -164,7 +164,7 @@ Agent presets: with `agent.backend: command` and no `agent.command`, `agent.pres
 | `aider` | `aider --message-file ... --yes-always --no-auto-commits` | a temporary file outside the project |
 
 In your own `agent.command`, `{prompt_file}` gives the path of a temporary file with the prompt, and `{model_flag}`
-gives the model option. The prompt also goes in on standard input. The kiro and cursor presets approve all tools,
+gives the model option. The prompt also goes in on standard input. The `kiro` and `cursor` presets approve all tools,
 so run them in a virtual machine or a container.
 
 When the `gh` CLI is logged in, each commit of Autopilot uses your GitHub no-reply address as the author and the

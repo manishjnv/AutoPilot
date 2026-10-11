@@ -101,7 +101,7 @@ install by hand, see [Install by hand](HOWTO.md#install-by-hand). To learn with 
 Autopilot starts a CLI agent for each session. It does not drive a chat panel in an IDE, so you watch the build in
 your IDE or terminal.
 
-- **Supported CLI runners:** Claude Code (the default), kiro-cli, cursor-agent, codex, gemini and aider. Autopilot
+- **Supported CLI runners:** Claude Code (the default), `kiro-cli`, `cursor-agent`, `codex`, `gemini` and `aider`. Autopilot
   uses the one that is installed and logged in. To choose one, set `agent.backend` in `.agent/project.yaml`.
 - **Not supported:** Replit has no CLI that Autopilot can call. The Kiro and Cursor chat panels have none either.
   Use the `kiro-cli` or `cursor-agent` CLI instead.
