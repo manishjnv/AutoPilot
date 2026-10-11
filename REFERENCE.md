@@ -141,7 +141,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `research` | Web research for a task | `enabled` (true), `dir` (docs/research) |
 | `functional` | The feature check at the end of each phase | `enabled` (true), `init` |
 | `escalate` | An early move to a stronger model | `on_timeout`, `max_diff_lines` (300), `load_bearing` |
-| `scheduling` | The order and parallel work | `phase_dependency` (soft), `parallel` (1) |
+| `scheduling` | The order and parallel work | `phase_dependency` (soft), `parallel` (3 with a test command in direct mode, else 1). Tasks run in parallel by default. Two tasks that share a file never run together. A task with an empty `files_in_scope` runs alone. |
 | `git` | Push and pull | `push` (false), `pull` (true), `mode` (direct or pr) |
 | `intake` | Fix tasks from GitHub | `enabled` (false), `label` (autopilot), `poll_minutes` (30) |
 | `deploy` | Staging and production | `cmd`, `health_url`, `rollback_cmd` |

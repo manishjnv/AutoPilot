@@ -35,6 +35,12 @@ def one_task(n=1):
                                                      for i in range(1, n + 1)]}]
 
 
+def scoped(phases):  # N12: tasks run together only with a files_in_scope each
+    for t in phases[0]["tasks"]:
+        t["files_in_scope"] = [f"src/{t['id']}.txt"]
+    return phases
+
+
 def test_rule_is_in_system_prompt_and_task_prompt_asks_for_new_files():
     assert "\n" not in NEW_FILE_RULE and "new_files" in NEW_FILE_RULE
     assert f"- {NEW_FILE_RULE}\n" in (PROMPTS / "system.md").read_text(encoding="utf-8")  # no drift from the gate
@@ -91,7 +97,7 @@ class Reasons(FakeBackend):
 
 
 def test_parallel_commit_message_has_new_file_lines(tmp_path):
-    root = make_project(tmp_path, one_task(2), dict(CFG, scheduling={"parallel": 2}))
+    root = make_project(tmp_path, scoped(one_task(2)), dict(CFG, scheduling={"parallel": 2}))
     orch = Orchestrator(root, backend=Reasons(), sleep=lambda s: None)
     assert orch.run() == "plan complete"
     log = git(root, "log", "--all", "--format=%B")
@@ -249,7 +255,7 @@ def test_missing_reason_retries_with_the_rule_in_the_next_prompt(tmp_path):
 
 
 def test_parallel_gate_checks_reasons_too(tmp_path):
-    root = make_project(tmp_path, one_task(2), dict(CFG, scheduling={"parallel": 2}, **ON))
+    root = make_project(tmp_path, scoped(one_task(2)), dict(CFG, scheduling={"parallel": 2}, **ON))
     be = FakeBackend()  # adds src/<task>.txt with no new_files
     orch = Orchestrator(root, backend=be, sleep=lambda s: None)
     orch.run()

@@ -28,7 +28,16 @@ class Together(FakeBackend):
         return super().run(req)
 
 
+def scoped(phases, scope=None):
+    """N12: tasks that may run together need a files_in_scope; each one gets its own file unless `scope` is given."""
+    for p in phases:
+        for t in p["tasks"]:
+            t.setdefault("files_in_scope", scope or [f"src/{t['id']}.txt"])
+    return phases
+
+
 def run(tmp_path, phases, fake, cfg=PAR):
+    phases = scoped(phases)
     root = make_project(tmp_path, phases, cfg)
     orch = Orchestrator(root, backend=fake, sleep=lambda s: None)
     return root, orch, orch.run()
@@ -61,7 +70,8 @@ class Clash(Together):
     def run(self, req):
         res = super().run(req)
         if "implement task" in req.prompt:
-            (Path(req.cwd) / "shared.txt").write_text(req.prompt.split("implement task ", 1)[1].split()[0])
+            (Path(req.cwd) / "tests").mkdir(exist_ok=True)
+            (Path(req.cwd) / "tests" / "shared.txt").write_text(req.prompt.split("implement task ", 1)[1].split()[0])
         return res
 
 
@@ -92,7 +102,7 @@ class Together2(Together):
 
 def test_merge_is_gated_on_the_merged_tree_and_a_clash_goes_back(tmp_path):
     fake = Together2(2)
-    root = make_project(tmp_path, independent(2), {**PAR, "commands": {"test": [CLASH_CMD]}})
+    root = make_project(tmp_path, scoped(independent(2)), {**PAR, "commands": {"test": [CLASH_CMD]}})
     orch = Orchestrator(root, backend=fake, sleep=lambda s: None)
     assert orch.run() == "plan complete"
     t2 = [c for c in fake.calls if c[0] == "P01-T02"]
@@ -102,7 +112,7 @@ def test_merge_is_gated_on_the_merged_tree_and_a_clash_goes_back(tmp_path):
 
 
 def test_a_red_batch_takes_the_last_task_off_main(tmp_path):
-    root = make_project(tmp_path, independent(2), {**PAR, "commands": {"test": [CLASH_CMD]}})
+    root = make_project(tmp_path, scoped(independent(2)), {**PAR, "commands": {"test": [CLASH_CMD]}})
     orch = Orchestrator(root, backend=Together2(2), sleep=lambda s: None)
     orch.run()
     t = orch.plan.task_by_id["P01-T02"]
@@ -122,11 +132,50 @@ def test_gate_failure_in_a_worktree_retries_serially(tmp_path):
     assert "failed verification" in fake.prompts[-1][1]
 
 
-def test_parallel_off_by_default(tmp_path):
+def test_parallel_on_by_default(tmp_path):
     fake = FakeBackend()
-    root = make_project(tmp_path, independent(3), {"audit": {"completion_audit": False}})
+    root = make_project(tmp_path, scoped(independent(3)), {"audit": {"completion_audit": False}})
     Orchestrator(root, backend=fake, sleep=lambda s: None).run()
-    assert "[autopilot] docs for" not in git(root, "log", "--format=%s")
+    assert "[autopilot] docs for" in git(root, "log", "--format=%s")
+
+
+def batch_of(tmp_path, scopes, meta=None):
+    """The ids parallel_batch picks for tasks with these scopes (a list of globs per task)."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    tasks = [{"id": f"P01-T0{i}", "title": f"t{i}", "risk": "low", "files_in_scope": s}
+             for i, s in enumerate(scopes, 1)]
+    root = make_project(tmp_path, [{"id": "P01", "title": "One", "tasks": tasks}], {"decide": {"enabled": False}})
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    orch.reload_plan()
+    for k, v in (meta or {}).items():
+        orch.state.set_meta(k, v)
+    return [t.id for t in orch.parallel_batch(orch.state.status_map())]
+
+
+def test_batch_takes_disjoint_scopes_only(tmp_path):
+    assert batch_of(tmp_path, [["a/*.py"], ["b/*.py"], ["c.py"]]) == ["P01-T01", "P01-T02", "P01-T03"]
+    assert batch_of(tmp_path / "x", [["a/*.py"], ["a/*.py"], ["c.py"]]) == []  # the second shares a file: first runs alone
+    assert batch_of(tmp_path / "y", [["a.py"], ["b.py"], ["a/*.py", "b.py"]]) == ["P01-T01", "P01-T02"]
+
+
+def test_batch_empty_scope_runs_alone(tmp_path):
+    assert batch_of(tmp_path, [["a.py"], ["b.py"], []]) == ["P01-T01", "P01-T02"]
+    assert batch_of(tmp_path / "x", [[], ["b.py"], ["c.py"]]) == []
+
+
+def test_batch_is_one_when_the_window_is_nearly_used(tmp_path):
+    import time
+    seen = {"five_hour": {"pct": 0.8, "reset": time.time() + 3600}}
+    assert batch_of(tmp_path, [["a.py"], ["b.py"]], {"window_seen": seen}) == []
+    seen["five_hour"]["pct"] = 0.5
+    assert batch_of(tmp_path / "x", [["a.py"], ["b.py"]], {"window_seen": seen}) == ["P01-T01", "P01-T02"]
+
+
+def test_shared_file_tasks_run_serial_end_to_end(tmp_path):
+    fake = FakeBackend()
+    root = make_project(tmp_path, scoped(independent(2), ["src/*.txt"]), {"audit": {"completion_audit": False}})
+    assert Orchestrator(root, backend=fake, sleep=lambda s: None).run() == "plan complete"
+    assert "(parallel)" not in git(root, "log", "--all", "--format=%B")
 
 
 # ---------------------------------------------------------------- LEARNINGS.md

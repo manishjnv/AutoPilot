@@ -134,6 +134,15 @@ STATE = {"task": "Code", "fixer": "Fix", "unstick": "Fix", "repair": "Fix", "ver
          "replan": "Plan", "decide": "Plan", "review": "Review", "research": "Plan", "onboard": "Plan", "triage": "Plan"}
 
 
+def _scopes_collide(a: list, b: list, tracked: list) -> bool:
+    """N12: do two `files_in_scope` lists share a file? Globs are expanded against the tracked files; a glob also
+    meets a literal pattern of the other list (a new file is not tracked yet), and equal patterns always collide."""
+    import fnmatch
+    hit = lambda pats: {f for f in tracked if any(fnmatch.fnmatch(f, g) for g in pats)}  # noqa: E731
+    return bool(set(a) & set(b) or hit(a) & hit(b)
+                or any(fnmatch.fnmatch(x, g) for x in a for g in b) or any(fnmatch.fnmatch(x, g) for x in b for g in a))
+
+
 class Stop(Exception):
     """Ends the run cleanly (budget, stop file, fatal condition)."""
 
@@ -1272,18 +1281,27 @@ class Orchestrator:
     def parallel_batch(self, view: dict) -> list:
         """Up to `scheduling.parallel` ready tasks that don't depend on each other, or [] (= run serially).
         Only plain first attempts: risky, research or decide tasks, corrective work and retries stay serial."""
-        n = int(self.cfg.get("scheduling.parallel", 1) or 1)
+        n = self.cfg.parallel_size()
         if self.max_sessions:
             n = min(n, self.max_sessions - self.sessions_this_run)
+        five = open_window(self.state, float(self.cfg.get("usage.window_hours", 5) or 5))
+        if five and 1 - five["pct"] < 0.25:  # N12: under 25 percent of the window is left: one task at a time
+            n = 1
         if n < 2 or self.main_red or self.cfg.get("git.mode", "direct") == "pr":  # PR mode merges one task at a time
             return []
-        view, picked = dict(view), []
+        view, picked, tracked = dict(view), [], None
         while len(picked) < n:
             t = self.plan.next_ready(view, self.cfg.get("scheduling.phase_dependency", "soft"))
             row = self.state.task(t.id) if t else None
             if not t or (row and row["attempts"]) or self.plan.phase_of(t).priority or t.research \
                     or t.needs_decision or RISKS.index(self.effective_risk(t)) > RISKS.index("medium"):
                 break
+            if not t.files_in_scope:  # no scope = touches everything: runs alone
+                break
+            if tracked is None:
+                tracked = self.git.run("ls-files").splitlines()
+            if any(_scopes_collide(t.files_in_scope, p.files_in_scope, tracked) for p in picked):
+                break  # shares a file with a task already picked: it runs after that one
             picked.append(t)
             view[t.id] = "running"  # its dependants are not ready yet, so they can't join the batch
         return picked if len(picked) > 1 else []
@@ -1301,15 +1319,22 @@ class Orchestrator:
         self.check_stop()
         self.window_gate("task", "")
         self._journal(current="parallel: " + ", ".join(t.id for t in tasks), state="Code", task="")
+        log.info("parallel: %s", ", ".join(t.id for t in tasks))
         base, config_before = self.git.ref(self.main), self.git.config_text()
         jobs, self.landed = [], []  # landed: (task, main before its merge) in merge order
         for t in tasks:
             path, branch = self._worktree_root() / t.id, f"autopilot/{t.id}"
             self.git.add_worktree(path, branch, self.main)
             if self.cfg.get("scheduling.worktree_setup", True) and self.cfg.commands("setup"):
+                t0 = time.monotonic()
                 for r in run_commands(self.cfg.commands("setup"), path, int(self.cfg.get("verify_timeout_sec", 1200))):
                     if r.rc != 0:
                         log.warning("setup in worktree %s failed: %s", t.id, r.cmd)
+                took = time.monotonic() - t0
+                log.info("parallel: setup in worktree %s took %.0f s", t.id, took)
+                if took > 60:
+                    log.info("parallel: setup is slow; share a package cache between worktrees "
+                             "(for example `npm ci --prefer-offline` or `uv sync --frozen`)")
             risk = self.effective_risk(t)
             model, phase = self.model_for(risk, 0), self.plan.phase_of(t)
             self.state.set_task(t.id, status="running", started_at=now())
@@ -1358,9 +1383,11 @@ class Orchestrator:
                 err = self._finish_parallel(t, phase, path, branch, model, res, base)
                 if err:  # back in the queue: the serial path retries it with this error
                     log.info("parallel task %s failed: %s", t.id, err[:300])
+                    log.info("parallel: %s not merged, back in the queue", t.id)
                     self.state.set_task(t.id, status="pending", last_error=err[-6000:])
                 else:
                     merged += 1
+                    log.info("parallel: merge %d, %s merged", merged, t.id)
             finally:
                 self.git.drop_worktree(path, branch)
         # O8: each merge was gated on top of main already; one full check at the end takes any red task off main

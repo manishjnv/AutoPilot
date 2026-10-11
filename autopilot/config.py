@@ -78,6 +78,13 @@ class Config:
             out.extend([val] if isinstance(val, str) else list(val))
         return [c for c in out if c and str(c).strip()]
 
+    def parallel_size(self) -> int:
+        """N12: `scheduling.parallel`; unset = 3 with a test command in direct git mode, else 1."""
+        v = self.get("scheduling.parallel")
+        if v is None:
+            return 3 if self.commands("test") and self.get("git.mode", "direct") == "direct" else 1
+        return max(1, int(v or 1))
+
     @property
     def agent_dir(self) -> Path:
         return self.root / AGENT_DIR
