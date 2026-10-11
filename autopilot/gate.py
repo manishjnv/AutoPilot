@@ -125,8 +125,9 @@ def scan_secrets(lines: list[str]) -> list[str]:
 
 
 SCOPE_FREE = [".agent/*", ".agent/**", "CHANGELOG.md", "README.md", "docs/**", "tests/**", "test/**"]  # O1 allowlist
-SCOPE_HINT = ('Add each file to the task scope with a reason in the report ("scope_additions": {"path": "why"}), '
-              "or leave it unchanged.")
+SCOPE_HINT = ('Add each file to the task scope with a reason in the report ("scope_additions": {"path": "why"}, '
+              "counted from attempt 2, at most 3), or leave it unchanged.")
+SCOPE_MAX_ADDS = 3
 
 
 def out_of_scope(files: list[str], scope: list[str], extra: list[str] | None = None) -> list[str]:
@@ -138,10 +139,20 @@ def out_of_scope(files: list[str], scope: list[str], extra: list[str] | None = N
     return [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
 
 
-def scope_additions(report) -> list[str]:
-    """O1: the report's `scope_additions` {"glob": "reason"}: only entries with a reason count."""
+def scope_additions(report, attempt: int = 1) -> tuple[list[str], list[str], list[str]]:
+    """O1: the report's `scope_additions` {"glob": "reason"}: only entries with a reason count, only from attempt 2
+    (the first try must stay in scope), at most SCOPE_MAX_ADDS. Returns (accepted globs, warnings, problems); every
+    accepted addition is a warning `scope added: <glob>: <reason>` that lands in the history file, PROOF.md and the
+    dashboard."""
     adds = (report or {}).get("scope_additions") if isinstance(report, dict) else None
-    return [str(k) for k, v in adds.items() if str(v or "").strip()] if isinstance(adds, dict) else []
+    pairs = [(str(k), str(v).strip()) for k, v in adds.items() if str(v or "").strip()] if isinstance(adds, dict) else []
+    if not pairs:
+        return [], [], []
+    if attempt < 2:
+        return [], [], [f"scope_additions count only from attempt 2: {[k for k, _ in pairs]}. Leave the file unchanged."]
+    if len(pairs) > SCOPE_MAX_ADDS:
+        return [], [], [f"scope_additions: {len(pairs)} given, at most {SCOPE_MAX_ADDS}. Keep the task in its scope."]
+    return [k for k, _ in pairs], [f"scope added: {k}: {v}" for k, v in pairs], []
 
 
 def changed_tests(cfg, cmd: str, files: list[str]) -> str:
@@ -327,8 +338,8 @@ def file_growth(cfg, git) -> list[str]:
     return out
 
 
-def task_gate(cfg, git, task, report=None) -> GateResult:
-    """Run on the task branch with the agent's changes staged."""
+def task_gate(cfg, git, task, report=None, attempt: int = 1) -> GateResult:
+    """Run on the task branch with the agent's changes staged. `attempt`: the try this diff comes from (O1)."""
     gate = GateResult(ok=True)
     files = git.staged_files()
     if not files and not task.allow_no_changes:
@@ -342,11 +353,13 @@ def task_gate(cfg, git, task, report=None) -> GateResult:
         gate.problems += missing_reasons(cfg, git, report, task)  # O3: task-declared files and dependencies
     if cfg.get("gate.file_growth"):  # O2: on in the template (new projects); a missing key = off
         gate.problems += file_growth(cfg, git)
-    outside = out_of_scope(files, task.files_in_scope, scope_additions(report))
-    if outside and cfg.get("gate.scope_fail", True):  # O1: a hard gate; `gate.scope_fail: false` keeps the old warning
-        gate.problems.append(f"outside files_in_scope: {outside}. {SCOPE_HINT}")
+    extra, added, bad = scope_additions(report, attempt)
+    outside = out_of_scope(files, task.files_in_scope, extra)
+    if (outside or bad) and cfg.get("gate.scope_fail", True):  # O1: a hard gate; `gate.scope_fail: false` = old warning
+        gate.problems += bad + ([f"outside files_in_scope: {outside}. {SCOPE_HINT}"] if outside else [])
     else:
         gate.warnings += [f"outside files_in_scope: {f}" for f in outside]
+        gate.warnings += added
     if not gate.problems:
         gate.results = run_commands(verify_commands(cfg, task.verify, files=files), cfg.root,
                                     int(cfg.get("verify_timeout_sec", 1200)), base_env=agent_env(cfg))

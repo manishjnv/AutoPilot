@@ -899,10 +899,10 @@ class Orchestrator:
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 self._journal(state="Test")
-                gate = task_gate(self.cfg, self.git, task, report=res.report)
+                gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts)
                 if not gate.ok and self.env_problem(gate.report()):  # a missing tool, not the agent's code
                     self.run_setup()
-                    gate = task_gate(self.cfg, self.git, task, report=res.report)  # the same work, after reinstalling the tools
+                    gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts)  # same work, tools reinstalled
                     if not gate.ok and self.env_problem(gate.report()) and not self.env_repair_tried:
                         report = gate.report()
                         self.git.discard()
