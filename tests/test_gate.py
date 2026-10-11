@@ -224,6 +224,10 @@ NEGATIVE = [
     "ghp_short",
     "hf_short",
     "AKIAshort",
+    # session 27: test data with the placeholder word inside the value itself passes (the hint promises this)
+    'AWS = "AKIAIOSFODNN7EXAMPLE"',
+    'GITHUB = "ghp_fakefakefakefakefakefake1234"',
+    'HEADER = "-----BEGIN RSA PRIVATE KEY-----"  # fake fixture header',
 ]
 
 

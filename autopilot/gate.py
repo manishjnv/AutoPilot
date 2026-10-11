@@ -43,7 +43,7 @@ PLACEHOLDER_RX = re.compile(r"(?i)example|placeholder|change_?me|dummy|fake|samp
 # G2: each finding says how to fix it. The retry reads these; no rule is weaker for it.
 SKIP_HINT = (" (skips are not allowed, `skipif` on a platform condition too: make the test run on this machine, "
              "or test the behavior another way and list the gap under followups)")
-FAKE_HINT = " (test data? use a value containing example, dummy or fake)"
+FAKE_HINT = " (test data? put example, dummy or fake inside the value itself, e.g. AKIAIOSFODNN7EXAMPLE, ghp_fakefake…)"
 # N7: the new-file rule; system.md repeats it word for word and the gate (P07-T02) quotes it in the retry
 # (only with `gate.new_file_reasons: true`)
 NEW_FILE_RULE = ("Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) "
@@ -115,10 +115,13 @@ def scan_secrets(lines: list[str]) -> list[str]:
     for line in lines:
         for rx, label in SECRET_PATTERNS:
             m = rx.search(line)
-            if m and not (label == "hardcoded credential" and PLACEHOLDER_RX.search(m.group(0))):
+            # test data: a placeholder word inside the matched value itself (AKIAIOSFODNN7EXAMPLE, ghp_fake…); a
+            # private-key header has no value, so the word may stand anywhere on its line. The hint says the same.
+            fake = PLACEHOLDER_RX.search(m.group(0)) or (label == "private key" and PLACEHOLDER_RX.search(line)) if m else None
+            if m and not fake:
                 # redacted: these messages reach logs, prompts and notifications
                 msg = f"possible {label} added: {line.replace(m.group(0), m.group(0)[:4] + '…').strip()[:80]}"
-                if label == "hardcoded credential":
+                if label == "hardcoded credential":  # a real-looking key gets no "just rename it" hint
                     msg, hint = msg + hint, ""
                 found.append(msg)
     return found
