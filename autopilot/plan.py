@@ -139,8 +139,8 @@ class Plan:
                 if not t.get("title"):
                     errors.append(f"{tid}: missing title")
                 status = str(t.get("status") or "").lower()
-                if status and status != "done":
-                    errors.append(f"{tid}: status {status!r} must be `done` (or leave the key out)")
+                if status and status not in ("done", "dropped"):  # N13: dropped = removed from the plan source, kept here
+                    errors.append(f"{tid}: status {status!r} must be `done` or `dropped` (or leave the key out)")
                 order += 1
                 tasks.append(Task(
                     id=tid, title=str(t.get("title", tid)), phase_id=pid, order=order,

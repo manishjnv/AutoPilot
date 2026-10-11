@@ -150,7 +150,22 @@ def cmd_onboard(args):
     new = sorted(untracked_files(root) - before)  # N1: no new document outside .agent/ and CLAUDE.md
     if new:
         print("WARN  onboarding created new files outside .agent/ and CLAUDE.md (kept, check them): " + ", ".join(new))
+    if args.plan_doc:  # N13: later runs read this file; a change in it reaches the plan with no command
+        remember_plan_source(root, Path(args.plan_doc))
     return cmd_validate(args)
+
+
+def remember_plan_source(root: Path, doc: Path):
+    """N13: `plan_source:` in plan.yaml names the plan document; .agent/plan_source.txt keeps the text last planned from."""
+    plan = root / AGENT_DIR / "plan.yaml"
+    try:
+        rel = doc.resolve().relative_to(root).as_posix()
+    except ValueError:
+        rel = str(doc.resolve())
+    text = plan.read_text(encoding="utf-8") if plan.exists() else ""
+    if text and not any(ln.startswith("plan_source:") for ln in text.splitlines()):
+        plan.write_text(text.rstrip("\n") + f"\nplan_source: {json.dumps(rel)}\n", encoding="utf-8")
+    (root / AGENT_DIR / "plan_source.txt").write_text(doc.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def untracked_files(root: Path) -> set:

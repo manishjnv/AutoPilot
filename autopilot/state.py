@@ -117,6 +117,9 @@ class State:
                     reopened.append(t.id)
                 elif t.status == "done" and row["status"] == "pending":  # N1: never touches running/blocked/skipped
                     self.set_task(t.id, status="done", note="done before Autopilot")
+                elif t.status == "dropped" and row["status"] == "pending":  # N13: removed from the plan source
+                    self.set_task(t.id, status="skipped", note="dropped")
+                    removed.append(t.id)
         for tid, row in existing.items():
             if tid not in plan.task_by_id and row["status"] == "pending":
                 self.set_task(tid, status="skipped", note="removed from plan")

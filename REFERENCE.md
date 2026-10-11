@@ -100,7 +100,9 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `logs/` | The log, the session logs, and the crash reports | No |
 | `STOP` | The stop flag from `autopilot stop` | No |
 
-**Task key `status` in `plan.yaml`:** `status: done` says the work exists already (in the code or the git log). When the task is new, or still pending, Autopilot records it as done with the note `done before Autopilot`. It never changes a task that is running, blocked, skipped or done. If you remove the key later, the task stays done. Any other value is an error that names the task.
+**Task key `status` in `plan.yaml`:** `status: done` says the work exists already (in the code or the git log). When the task is new, or still pending, Autopilot records it as done with the note `done before Autopilot`. It never changes a task that is running, blocked, skipped or done. If you remove the key later, the task stays done. `status: dropped` says the item left the plan document; Autopilot skips the task and keeps it in the file. Any other value is an error that names the task.
+
+**Plan source sync:** `plan_source: FILE` in `plan.yaml` names your plan document, and `onboard --plan-doc` writes it. At each start and at each phase close, Autopilot compares the file with the text it planned from. When the file changed, one replan session gets only the diff, adds new items as tasks, updates changed ones, and drops removed ones. It prints `Plan source changed: 2 new, 1 changed, 0 dropped.`, and an interactive start waits for Enter.
 
 **In `docs/` of your project:**
 

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import AGENT_DIR, decisions
 from .backends import SessionRequest, SessionResult, get_backend
-from .config import RISKS, Config
+from .config import RISKS, Config, load_yaml
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
 from .docs import Documenter, redact_secrets, research_path
@@ -380,6 +380,7 @@ class Orchestrator:
             self.intake(force=True)
             self.intake_answers()
             self.apply_answers()
+            self.sync_plan_source()
             crashed = self.state.recover_crashed()
             if crashed:
                 log.info("recovered crashed tasks: %s", crashed)
@@ -1753,6 +1754,7 @@ class Orchestrator:
         self._commit_main(f"[autopilot] close phase {phase.id} ({status})")
         self.notify.send("phase_done", f"{phase.id} {phase.title}: {status}. "
                                        f"{progress_line(self.plan, self.state.status_map())}. {note}")
+        self.sync_plan_source()  # N13: items added to the plan document meanwhile become tasks now
         if phase.priority:  # corrective phases don't count toward review cadence
             return
         closed = self.state.phases_closed()
@@ -1953,13 +1955,49 @@ class Orchestrator:
         self.state.set_meta("backlog_tried", items)  # a rejected import is tried again only once the backlog changes
         self.replan("backlog", backlog=items)
 
-    def replan(self, reason: str, backlog: list[str] | None = None) -> bool:
+    def sync_plan_source(self):
+        """N13: the plan document (`plan_source:` in plan.yaml) changed since the last look -> one replan session with
+        the diff only. Same text = no session, no cost."""
+        import difflib
+        import hashlib
+        import sys
+        try:
+            key = (load_yaml(self.ad / "plan.yaml") or {}).get("plan_source")
+        except Exception:  # noqa: BLE001  a broken plan.yaml is handled by reload_plan
+            return
+        src, snap = self.root / str(key or "."), self.ad / "plan_source.txt"
+        if not key or not src.is_file() or not self.cfg.get("replan.enabled"):
+            return
+        new = src.read_text(encoding="utf-8", errors="replace")
+        if not snap.exists():  # first look: remember the text, nothing to compare yet
+            snap.write_text(new, encoding="utf-8")
+            return
+        old, h = snap.read_text(encoding="utf-8"), hashlib.sha256(new.encode()).hexdigest()
+        if new == old or self.state.get_meta("source_tried") == h:  # a rejected sync is tried again only after another edit
+            return
+        self.state.set_meta("source_tried", h)
+        before = {t.id: (t.title, t.description) for t in self.plan.all_tasks()}
+        diff = "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), "old", "new"))[:30000]
+        if not self.replan("plan source", source_diff=diff):
+            log.warning("plan source changed, but the replan was rejected or failed; plan not changed")
+            return
+        snap.write_text(new, encoding="utf-8")
+        after = {t.id: t for t in self.plan.all_tasks()}
+        n_new = len(after.keys() - before.keys())
+        n_changed = sum(1 for i, v in before.items() if i in after and v != (after[i].title, after[i].description))
+        n_dropped = sum(1 for i in before if i not in after or after[i].status == "dropped")
+        line = f"Plan source changed: {n_new} new, {n_changed} changed, {n_dropped} dropped."
+        log.info(line)
+        if sys.stdin.isatty() and sys.stdout.isatty():  # an interactive start waits; a detached run just starts
+            input(line + " Press Enter to continue. ")
+
+    def replan(self, reason: str, backlog: list[str] | None = None, source_diff: str = "") -> bool:
         """Let a session rewrite the remaining plan + BRAIN.md; validated before it is accepted."""
         plan_path, brain_path = self.ad / "plan.yaml", self.ad / "BRAIN.md"
         before_plan = plan_path.read_text(encoding="utf-8")
         self.git.start_branch("autopilot/replan", self.main)
         try:
-            res = self.session("replan", self.ctx.replanner_prompt(backlog), self.cfg.get("models.replanner", "opus"))
+            res = self.session("replan", self.ctx.replanner_prompt(backlog, source_diff), self.cfg.get("models.replanner", "opus"))
             new_plan = plan_path.read_text(encoding="utf-8")
             new_brain = brain_path.read_text(encoding="utf-8") if brain_path.exists() else None
         finally:  # drop everything, then re-apply only the two allowed files on main

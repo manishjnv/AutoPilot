@@ -30,6 +30,12 @@ In `.agent/BRAIN.md`: update architecture/conventions to reflect what actually e
 ## New ideas from the backlog (docs/BACKLOG.md)
 {{backlog}}
 
+## Change of the plan source (unified diff of the plan document)
+{{source_diff}}
+If a diff is shown: each added item becomes a pending task (keep the id the document gives it, for example N8). Update the
+task of a changed item. Mark the task of a removed item `status: dropped`; never delete it. Never edit a running or done
+task. Keep every top-level key of `plan.yaml`, including `plan_source`.
+
 ## Final report (required)
 ```json
 {"summary": "...", "changed": ["task ids"], "added": ["task ids"], "removed": ["task ids"], "reopened": ["task ids"]}
