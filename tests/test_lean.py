@@ -1,4 +1,6 @@
 """O10: the lean profile: fewer sessions per task, changed-module tests, a token report that sums to the state total."""
+import yaml
+
 from autopilot.config import Config
 from autopilot.context import ContextBuilder
 from autopilot.gate import changed_tests, verify_commands
@@ -42,6 +44,12 @@ def test_full_keeps_the_old_counts(tmp_path):
     assert count(fake, "P01-T01") == 3 and count(fake, "unstick") == 1
     assert count(fake, "audit") == 1
     assert "Add or extend automated tests" in fake.prompts[0][1]
+
+
+def test_template_leaves_the_retry_count_to_the_profile(tmp_path):  # session 27: the template said 3 and beat lean
+    root = make_project(tmp_path, PLAN, {"profile": "lean"})
+    assert Config.load(root).get("retries.max_attempts_per_task") == 2
+    assert "max_attempts_per_task" not in (yaml.safe_load((root / ".agent/project.yaml").read_text()).get("retries") or {})
 
 
 def test_project_retry_setting_wins_under_lean(tmp_path):

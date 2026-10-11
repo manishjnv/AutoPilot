@@ -281,7 +281,9 @@ def missing_reasons(cfg, git, report, task=None) -> list[str]:
         paths = ", ".join(bare[:20]) + (f", and {len(bare) - 20} more" if len(bare) > 20 else "")
         out.append(f"new file without a reason: {paths}. {NEW_FILE_RULE}")  # the rule last: the retry keeps the tail
     changed = git.run("-c", "core.quotepath=false", "diff", "--cached", "--name-only").splitlines()
-    manifests = [p for p in changed if _match(p, MANIFESTS)]
+    # a manifest the task creates (new file with a reason, or declared) is the project's first one: no `new_deps` needed
+    manifests = [p for p in changed if _match(p, MANIFESTS)
+                 and not (p in added and (_norm(p) in reasons or _match(_norm(p), declared)))]
     deps = report.get("new_deps") if isinstance(report, dict) else None
     with_reason = [d for d in (deps if isinstance(deps, list) else []) if isinstance(d, dict)
                    and str(d.get("name") or "").strip() and str(d.get("reason") or "").strip()]

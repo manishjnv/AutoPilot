@@ -163,7 +163,7 @@ needs_you:                # what only the owner can decide goes here; everything
 
 retries:
   resume: true            # a retry on the same model continues the failed session (--resume): context and cache kept
-  max_attempts_per_task: 3
+  # max_attempts_per_task: 3  # unset = 3 under `profile: full`, 2 under `lean` (one retry, then park)
   max_fixer_attempts: 3
   rate_limit_backoff_sec: [60, 300, 900, 1800, 3600]
 
