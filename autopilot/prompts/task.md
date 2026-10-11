@@ -12,6 +12,7 @@ Risk tier: {{risk}}
 
 ### Files in scope
 {{scope}}
+The gate fails a change to any file outside this list (tests, docs, README and CHANGELOG are always allowed). When you must edit another file, name it in the report under `scope_additions` with a reason, or leave it unchanged.
 
 ### Docs to update
 {{docs}}
@@ -69,6 +70,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
   "decisions": ["decision — reason (only architecture/interface/convention choices later sessions must follow)"],
   "followups": ["work you noticed that is out of scope for this task"],
   "new_files": [{"path": "src/new_module.py", "reason": "why no existing file can own this content"}],
+  "scope_additions": {"src/other.py": "why this file outside the task scope had to change (omit when none)"},
   "rca": {"symptom": "...", "root_cause": "...", "fix": "file:line — what changed", "prevention": "the test or check that stops a repeat"},
   "blocker": "only when status is blocked"
 }

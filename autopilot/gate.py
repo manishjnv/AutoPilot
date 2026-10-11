@@ -123,11 +123,24 @@ def scan_secrets(lines: list[str]) -> list[str]:
     return found
 
 
-def out_of_scope(files: list[str], scope: list[str]) -> list[str]:
+SCOPE_FREE = [".agent/*", ".agent/**", "CHANGELOG.md", "README.md", "docs/**", "tests/**", "test/**"]  # O1 allowlist
+SCOPE_HINT = ('Add each file to the task scope with a reason in the report ("scope_additions": {"path": "why"}), '
+              "or leave it unchanged.")
+
+
+def out_of_scope(files: list[str], scope: list[str], extra: list[str] | None = None) -> list[str]:
+    """Changed files outside the task's `files_in_scope` globs. An empty scope means the whole repo (nothing is out).
+    `extra`: globs the session added with a reason (O1)."""
     if not scope:
         return []
-    allowed = scope + [".agent/*", ".agent/**", "CHANGELOG.md", "README.md", "docs/**"]
+    allowed = list(scope) + list(extra or []) + SCOPE_FREE
     return [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
+
+
+def scope_additions(report) -> list[str]:
+    """O1: the report's `scope_additions` {"glob": "reason"}: only entries with a reason count."""
+    adds = (report or {}).get("scope_additions") if isinstance(report, dict) else None
+    return [str(k) for k, v in adds.items() if str(v or "").strip()] if isinstance(adds, dict) else []
 
 
 def verify_commands(cfg, extra: list[str] | None = None, phase: bool = False) -> list[str]:
@@ -229,7 +242,11 @@ def task_gate(cfg, git, task, report=None) -> GateResult:
     gate.problems += scan_secrets(git.staged_added_lines())
     if report is not None and cfg.get("gate.new_file_reasons"):  # N7: P07-T02; None = old callers, no check
         gate.problems += missing_reasons(cfg, git, report)
-    gate.warnings += [f"outside files_in_scope: {f}" for f in out_of_scope(files, task.files_in_scope)]
+    outside = out_of_scope(files, task.files_in_scope, scope_additions(report))
+    if outside and cfg.get("gate.scope_fail", True):  # O1: a hard gate; `gate.scope_fail: false` keeps the old warning
+        gate.problems.append(f"outside files_in_scope: {outside}. {SCOPE_HINT}")
+    else:
+        gate.warnings += [f"outside files_in_scope: {f}" for f in outside]
     if not gate.problems:
         gate.results = run_commands(verify_commands(cfg, task.verify), cfg.root,
                                     int(cfg.get("verify_timeout_sec", 1200)), base_env=agent_env(cfg))

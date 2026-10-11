@@ -548,6 +548,10 @@ def cmd_validate(args):
         if weak:
             print(f"plan    WARN  {len(weak)} tasks without acceptance criteria: {', '.join(weak[:10])}"
                   f"{' …' if len(weak) > 10 else ''}")
+        wide = [t.id for t in tasks if not t.files_in_scope and not t.owner_only and t.status != "done"]
+        if wide:  # O1: an empty scope means the whole repo, so the task runs alone and nothing is gated
+            print(f"plan    WARN  {len(wide)} tasks without files_in_scope (whole repo, run alone): "
+                  f"{', '.join(wide[:10])}{' …' if len(wide) > 10 else ''}")
     except PlanError as e:
         ok = False
         for err in e.errors:

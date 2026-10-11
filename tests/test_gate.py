@@ -128,6 +128,24 @@ def test_task_gate_routes_findings(repo, allow):
     assert g.ok is allow
 
 
+def test_task_gate_fails_a_file_outside_scope_unless_declared(repo):  # O1
+    put(repo, "src/other.py", "x = 1\n")
+    put(repo, "lib/mine.py", "y = 1\n")
+    cfg = Config.load(repo)
+    cfg.data["commands"]["test"] = [f'"{sys.executable}" -c "pass"']
+    task = SimpleNamespace(allow_no_changes=False, allow_test_changes=True, files_in_scope=["lib/**"], verify=[])
+    g = task_gate(cfg, Git(repo), task, report={})
+    assert not g.ok and any("outside files_in_scope: ['src/other.py']" in m for m in g.problems)
+    g = task_gate(cfg, Git(repo), task, report={"scope_additions": {"src/other.py": "shared constant lives here"}})
+    assert g.ok and not any("outside" in m for m in g.problems)
+    task.files_in_scope = ["lib/**", "src/**"]
+    assert task_gate(cfg, Git(repo), task, report={}).ok
+    cfg.data["gate"] = {"scope_fail": False}
+    task.files_in_scope = ["lib/**"]
+    g = task_gate(cfg, Git(repo), task, report={})
+    assert g.ok and any("outside files_in_scope: src/other.py" in w for w in g.warnings)
+
+
 def _fake(*parts):
     return "".join(parts)
 
