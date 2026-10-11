@@ -26,6 +26,12 @@ Risk tier: {{risk}}
 
 {{research_block}}
 
+## Existing helpers (reuse before you write)
+Reuse or extend a listed helper before you write a new one. A new helper with the same job as a listed one is a defect.
+```
+{{helper_index}}
+```
+
 ## Previous session handoff
 {{handoff}}
 

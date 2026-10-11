@@ -11,6 +11,7 @@ import yaml
 
 from . import proc
 from .gate import verify_commands
+from .repomap import helper_index
 
 PROMPTS = Path(__file__).parent / "prompts"
 FIX_RULES = ("This is a corrective task. 1) Add a regression test that fails before your fix and passes after it. "
@@ -177,6 +178,7 @@ class ContextBuilder:
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
             git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
             adr_block=self.adr_block(task), research_block=self.research_block(task),
+            helper_index=helper_index(self.cfg.root) or "(none)",
         )
 
     def resume_prompt(self, task, attempt: int, last_error: str | None) -> str:
