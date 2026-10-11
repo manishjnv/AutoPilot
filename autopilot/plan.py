@@ -34,6 +34,7 @@ class Task:
     research: list[str] = field(default_factory=list)  # L3: topics to research before building
     reopen: bool = False
     owner_only: bool = False       # needs the owner (credentials, accounts): never run in the agent loop
+    status: str = ""               # N1: "done" = the work exists already (code or git log); sync_plan records it
 
 
 INFRA_TYPES = ("deploy", "cloudflare", "email", "custom")
@@ -137,6 +138,9 @@ class Plan:
                     errors.append(f"{tid}: risk {risk!r} not in {RISKS}")
                 if not t.get("title"):
                     errors.append(f"{tid}: missing title")
+                status = str(t.get("status") or "").lower()
+                if status and status != "done":
+                    errors.append(f"{tid}: status {status!r} must be `done` (or leave the key out)")
                 order += 1
                 tasks.append(Task(
                     id=tid, title=str(t.get("title", tid)), phase_id=pid, order=order,
@@ -152,6 +156,7 @@ class Plan:
                     research=[str(x) for x in _as_list(t.get("research"))],
                     reopen=bool(t.get("reopen", False)),
                     owner_only=bool(t.get("owner_only", False)),
+                    status=status,
                 ))
             infra = _infra(pid, p.get("infra"), errors)
             for t in tasks if infra.get("steps") else []:  # K: the decide session writes an ADR before the work
