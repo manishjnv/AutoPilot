@@ -56,6 +56,10 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `--no-page` | Does not start the status page |
 | `-v` | Shows more log lines |
 
+## Versions and releases
+
+`ap --version` prints the version and the short commit, or `installed` outside a git checkout. `python scripts/bump.py X.Y.Z` sets the version in `pyproject.toml`, the plugin and `autopilot/__init__.py`. It also moves the `CHANGELOG.md` Unreleased lines, sets `DEFAULT_REF` in both install scripts, then makes one commit and the tag `vX.Y.Z`. A push of that tag starts `release.yml`: it runs the tests, builds the wheel and attaches the wheel, the install scripts and `SHA256SUMS` to the GitHub release.
+
 ## Environment variables
 
 | Variable | Result |

@@ -1,5 +1,14 @@
 # Changelog
 
+Format: Keep a Changelog. One line per roadmap item, under Unreleased.
+Bump rule: patch = a fix, minor = a roadmap item, major = a `plan.yaml` or `project.yaml` format change (with a migration note).
+Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
+
+## [Unreleased]
+
+- P10 pull-back fixes: venv install, presets security note, context imports, copilot file rule, git discard lock retry, doctor package row, parked-task test.
+- J14: short questions, own fix first, repeated report is not stuck, a cut session keeps its diff.
+- N5.1: `scripts/bump.py`, this changelog, release workflow, install scripts pinned to a tag, `ap --version` with commit.
 - 2026-10-11 **P01-T01** plan.yaml `status: done` marks finished work — Added optional task key `status` (only `done`) to plan.py with validation naming the task id. sync_plan records done tasks as done (note 'done before Autopilot') when the row is new or pending, and ne
 - 2026-10-11 **P01-T02** Discovery pack for onboarding — Added discovery_pack(root, cfg) in autopilot/context.py: git log, document tree with plan-file heads, stack files and one capped test run (timeout from onboard.test_timeout_sec, default 300), all capp
 - 2026-10-11 **P01-T03** Onboarding prompt: four adopt rules and the pack — onboard.md now carries a {{discovery}} section and the four adopt rules; cmd_onboard builds discovery_pack and passes it to render, and after the session warns with the names of new untracked files ou
@@ -18,3 +27,11 @@
 - 2026-10-11 **P08-T01** `ap init --stack` keeps every block after `commands:` — Fixed the cmd_init commands-block regex in cli.py: removed the re.S flag, match one line with [^\n]*, and substitute through a lambda. Two regression tests in tests/test_presets.py cover the template 
 - 2026-10-11 **P08-T02** Config error lists all presets; an existing CLAUDE.md gets the `ap` lines — The command-backend config error now lists every name in backends.command.PRESETS, so kiro, cursor and aider appear. An existing CLAUDE.md with the old Autopilot heading but no `ap status` gets the tw
 - 2026-10-11 **P09-T01** Template turns the new-file guard on; old project.yaml stays off — The project.yaml template now sets gate.new_file_reasons to true, so `ap init` (with or without --stack) writes it on, with the reworded comment kept. config.defaults() is built from the template, so 
+
+## [0.2.0] - 2026-10-11
+
+- Section N self-build merged (N1 to N7).
+
+## [0.1.0]
+
+- First public version.

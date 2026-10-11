@@ -1337,6 +1337,17 @@ def pick_project() -> str | None:
     return str(chosen)
 
 
+def _version_line():
+    """Version plus short commit (N5.1); 'installed' outside a git checkout."""
+    import subprocess
+    try:
+        sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).parent,
+                             capture_output=True, text=True, timeout=5).stdout.strip() or "installed"
+    except Exception:
+        sha = "installed"
+    return f"{__version__} ({sha})"
+
+
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
@@ -1348,6 +1359,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="ap" if called == "ap" else "autopilot",
                                  description="Autonomous plan-driven development with Claude Code. "
                                              "`ap` is the short name of `autopilot`.")
+    if argv[:1] == ["--version"]:  # N5.1: git only runs here, never on a normal command
+        print(f"{called or 'autopilot'} {_version_line()}")
+        return 0
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd")
 
