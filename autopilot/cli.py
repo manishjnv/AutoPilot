@@ -83,7 +83,7 @@ def cmd_init(args):
 
 def cmd_onboard(args):
     from .backends import SessionRequest, get_backend
-    from .context import render
+    from .context import discovery_pack, render
 
     root = Path(args.path).resolve()
     if not (root / AGENT_DIR / "project.yaml").exists():
@@ -94,7 +94,8 @@ def cmd_onboard(args):
         "(no plan document — derive a sensible plan from the repository and README)"
     if len(plan_doc) > 150_000:
         plan_doc = plan_doc[:150_000] + "\n…(truncated)…"
-    prompt = render("onboard.md", plan_doc=plan_doc)
+    prompt = render("onboard.md", plan_doc=plan_doc, discovery=discovery_pack(root, cfg))  # N1: read before write
+    before = untracked_files(root)
     system = (Path(__file__).parent / "prompts" / "system.md").read_text(encoding="utf-8")
     system += "\nFor THIS onboarding session you ARE allowed to edit the .agent files listed in the assignment."
     backend = get_backend(cfg)
@@ -106,7 +107,23 @@ def cmd_onboard(args):
                                      effort=cfg.get("models.effort.onboard", ""), label="onboarding",
                                      log_path=str(root / AGENT_DIR / "logs" / "onboard.log")))
     print(res.report.get("summary") or res.text[-1500:] or res.error)
+    new = sorted(untracked_files(root) - before)  # N1: no new document outside .agent/ and CLAUDE.md
+    if new:
+        print("WARN  onboarding created new files outside .agent/ and CLAUDE.md (kept, check them): " + ", ".join(new))
     return cmd_validate(args)
+
+
+def untracked_files(root: Path) -> set:
+    """N1: untracked files (git status) outside .agent/ and CLAUDE.md; empty when this is not a git repository."""
+    from .proc import run_proc
+    try:
+        p = run_proc(["git", "status", "--porcelain", "-uall"], cwd=str(root), timeout=60)
+    except (OSError, ValueError):
+        return set()
+    if p.rc != 0:
+        return set()
+    files = {ln[3:].strip().strip('"') for ln in p.stdout.splitlines() if ln.startswith("??")}
+    return {f for f in files if not f.startswith(AGENT_DIR + "/") and f != "CLAUDE.md"}
 
 
 def plan_journal(root: Path, **kw):
