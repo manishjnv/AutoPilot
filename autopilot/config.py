@@ -34,7 +34,9 @@ def load_yaml(path: Path) -> dict:
 
 
 def defaults() -> dict:
-    return load_yaml(TEMPLATES / "agent" / "project.yaml")
+    d = load_yaml(TEMPLATES / "agent" / "project.yaml")
+    d.setdefault("agent", {}).setdefault("backend", "claude_cli")  # N3: the template leaves it unset (preflight detects)
+    return d
 
 
 class Config:

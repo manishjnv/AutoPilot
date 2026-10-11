@@ -232,6 +232,10 @@ def preflight(cfg) -> bool:
     """Before quickstart or a run: fix the machine where possible (PATH, the claude CLI), then make sure the agent CLI
     can start. False = it can't, and the reason is printed."""
     from .doctor import FAIL, autofix, check_claude, check_path
+    if cfg is not None and not runner_set(cfg.root):
+        if not pick_runner(cfg.root):
+            return False
+        cfg = Config.load(cfg.root)
     cli = cfg is None or cfg.get("agent.backend", "claude_cli") == "claude_cli"  # no project yet (H5): the default
     rows = [check_path()] + (check_claude(cfg) if cli else [])
     for line in autofix(rows):
@@ -286,6 +290,66 @@ def remember_setup(proj_path: Path, cmds: list[str]) -> None:
     if n:
         proj_path.write_text(new, encoding="utf-8")
         print(f"setup saved in commands.setup of {proj_path.name}")
+
+
+def runner_set(root: Path) -> bool:
+    """N3: does the project's own project.yaml choose the agent CLI? Read raw: Config merges the claude_cli default.
+    An unusual `agent:` value (not a mapping) counts as set, so the file is left alone."""
+    path = Path(root) / AGENT_DIR / "project.yaml"
+    try:
+        agent = (load_yaml(path) if path.exists() else {}).get("agent") or {}
+    except (yaml.YAMLError, AttributeError):
+        return True  # a file preflight cannot read is never edited; validate reports it
+    return not isinstance(agent, dict) or any(agent.get(k) for k in ("backend", "command", "preset"))
+
+
+def pick_runner(root: Path) -> bool:
+    """N3: no runner set -> write the first installed, logged-in agent CLI on PATH. False = none (install hint printed).
+    A claude that is installed but logged out stays the default with no write, so the H2 login offer still runs."""
+    from .backends.claude_cli import ClaudeCLIBackend
+    from .doctor import INSTALL, RUNNERS, detect_runner
+    if os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN"):
+        return True  # an explicit claude binary is a choice: keep the claude_cli default
+    choice = detect_runner()
+    if choice:
+        if not remember_runner(Path(root) / AGENT_DIR / "project.yaml", choice):
+            return False
+        print(f"runner: {next(b for b, be, *_ in RUNNERS if be == choice)} (found on PATH)")
+        return True
+    if shutil.which(ClaudeCLIBackend.resolve_binary()):
+        return True
+    print(f"FAIL  no agent CLI found. Install Claude Code with: {INSTALL['native'][1]}\n"
+          f"      supported: {', '.join(b for b, *_ in RUNNERS)}")
+    return False
+
+
+def remember_runner(proj_path: Path, choice: str) -> bool:
+    """N3: write agent.backend (and agent.preset) as a text edit after the `agent:` line, so comments stay. The new
+    text is parsed first: when it would not give exactly the wanted values, nothing is written."""
+    import re
+    want = {"backend": "claude_cli"} if choice == "claude_cli" else {"backend": "command", "preset": choice}
+    text = proj_path.read_text(encoding="utf-8") if proj_path.exists() else ""
+    m = re.search(r"(?m)^agent:[ \t]*(?:#.*)?$", text)
+    if m:
+        nxt = re.search(r"(?m)^([ \t]+)\S", text[m.end():])
+        ind = nxt.group(1) if nxt else "  "
+        new = text[:m.end()] + "".join(f"\n{ind}{k}: {v}" for k, v in want.items()) + text[m.end():]
+    else:
+        sep = "" if not text or text.endswith("\n") else "\n"
+        new = text + sep + "agent:" + "".join(f"\n  {k}: {v}" for k, v in want.items()) + "\n"
+    try:
+        old_d, new_d = (yaml.safe_load(text) or {}), (yaml.safe_load(new) or {})
+        old_a = old_d.get("agent") or {}
+        ok = (isinstance(new_d.get("agent"), dict) and new_d["agent"] == {**old_a, **want}
+              and {k: v for k, v in new_d.items() if k != "agent"} == {k: v for k, v in old_d.items() if k != "agent"})
+    except (yaml.YAMLError, AttributeError, TypeError):
+        ok = False
+    if not ok:
+        print("FAIL  set agent.backend in .agent/project.yaml (see REFERENCE.md)")
+        return False
+    proj_path.parent.mkdir(parents=True, exist_ok=True)
+    proj_path.write_text(new, encoding="utf-8")
+    return True
 
 
 def login_now() -> bool:

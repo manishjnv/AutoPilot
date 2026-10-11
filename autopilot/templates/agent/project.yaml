@@ -47,7 +47,7 @@ gate:
     - "phpunit.xml*"
 
 agent:
-  backend: claude_cli     # claude_cli | command
+  # backend: claude_cli   # claude_cli | command; unset = preflight writes the first agent CLI it finds on PATH (N3)
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
   # preset: codex          # backend=command without a command: codex | gemini | opencode | kiro | cursor | aider (ready-made invocations)
   # model_map: {haiku: <small model>, sonnet: <main model>, opus: <largest model>}   # ladder names -> CLI models;
