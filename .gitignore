@@ -12,3 +12,13 @@ docs/
 
 # local-only: projects that Autopilot built in test runs (each has its own git repository)
 sampleProject/
+
+# Autopilot runtime (not committed)
+.agent/state.db
+.agent/state.db-*
+.agent/logs/
+.agent/run.lock
+.agent/STOP
+.agent/REPORT.md
+.agent/run.json
+.agent/approvals/
