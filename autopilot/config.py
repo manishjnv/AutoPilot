@@ -36,7 +36,9 @@ def load_yaml(path: Path) -> dict:
 def defaults() -> dict:
     d = load_yaml(TEMPLATES / "agent" / "project.yaml")
     d.setdefault("agent", {}).setdefault("backend", "claude_cli")  # N3: the template leaves it unset (preflight detects)
+    d["profile"] = "full"  # O10: lean in the template (new projects) only; a missing key = full
     d.setdefault("gate", {})["new_file_reasons"] = False  # N7: on in the template (new projects) only; a missing key = off
+    d["gate"]["file_growth"] = False  # O2: same rule: the template turns it on, an old project.yaml keeps it off
     return d
 
 
@@ -52,7 +54,14 @@ class Config:
         root = Path(root).resolve()
         path = root / AGENT_DIR / "project.yaml"
         user = load_yaml(path) if path.exists() else {}
-        return cls(root, deep_merge(defaults(), user))
+        cfg = cls(root, deep_merge(defaults(), user))
+        if cfg.lean and "max_attempts_per_task" not in (user.get("retries") or {}):
+            cfg.data["retries"]["max_attempts_per_task"] = 2  # O10: one retry under lean, unless the project sets it
+        return cfg
+
+    @property
+    def lean(self) -> bool:
+        return self.get("profile", "full") == "lean"
 
     def get(self, dotted: str, default: Any = None) -> Any:
         cur: Any = self.data
@@ -68,6 +77,13 @@ class Config:
             val = self.get(f"commands.{g}", []) or []
             out.extend([val] if isinstance(val, str) else list(val))
         return [c for c in out if c and str(c).strip()]
+
+    def parallel_size(self) -> int:
+        """N12: `scheduling.parallel`; unset = 3 with a test command in direct git mode, else 1."""
+        v = self.get("scheduling.parallel")
+        if v is None:
+            return 3 if self.commands("test") and self.get("git.mode", "direct") == "direct" else 1
+        return max(1, int(v or 1))
 
     @property
     def agent_dir(self) -> Path:

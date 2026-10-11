@@ -1,5 +1,6 @@
 """`autopilot doctor`: environment checks before a run (read-only, no agent session)."""
 import json
+from pathlib import Path
 
 import yaml
 
@@ -109,3 +110,25 @@ def test_user_deny_rules_and_hooks_get_a_warning_with_counts_only(tmp_path, monk
 
 def test_no_state_db_means_no_claude_config_row(tmp_path):
     assert "claude config" not in by_name(checks(project(tmp_path)))
+
+
+def test_package_row_shows_version_and_path_and_warns_when_shadowed(tmp_path, monkeypatch):
+    import autopilot
+    from autopilot.doctor import package_line
+    cfg = project(tmp_path)
+    level, detail = by_name(checks(cfg))["autopilot"]
+    assert level == OK and autopilot.__version__ in detail and Path(autopilot.__file__).parent.name in detail
+    monkeypatch.setattr(autopilot, "__file__", str(tmp_path / "autopilot" / "__init__.py"))
+    level, detail = by_name(checks(cfg))["autopilot"]
+    assert level == WARN and "the project's own autopilot/ folder is imported, not the installed Autopilot" in detail
+    assert str(tmp_path / "autopilot") in package_line()
+
+
+def test_run_log_starts_with_the_package_path(tmp_path, caplog):
+    import logging
+    from test_autopilot import FakeBackend, make_project, phases_basic
+    from test_orchestrator import orch_for
+    from autopilot.doctor import package_line
+    with caplog.at_level(logging.INFO, logger="autopilot"):
+        orch_for(make_project(tmp_path, phases_basic()), FakeBackend()).run()
+    assert caplog.records[0].getMessage() == package_line()

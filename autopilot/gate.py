@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 import os
 import re
 import time
@@ -123,15 +124,54 @@ def scan_secrets(lines: list[str]) -> list[str]:
     return found
 
 
-def out_of_scope(files: list[str], scope: list[str]) -> list[str]:
+SCOPE_FREE = [".agent/*", ".agent/**", "CHANGELOG.md", "README.md", "docs/**", "tests/**", "test/**"]  # O1 allowlist
+SCOPE_HINT = ('Add each file to the task scope with a reason in the report ("scope_additions": {"path": "why"}), '
+              "or leave it unchanged.")
+
+
+def out_of_scope(files: list[str], scope: list[str], extra: list[str] | None = None) -> list[str]:
+    """Changed files outside the task's `files_in_scope` globs. An empty scope means the whole repo (nothing is out).
+    `extra`: globs the session added with a reason (O1)."""
     if not scope:
         return []
-    allowed = scope + [".agent/*", ".agent/**", "CHANGELOG.md", "README.md", "docs/**"]
+    allowed = list(scope) + list(extra or []) + SCOPE_FREE
     return [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
 
 
-def verify_commands(cfg, extra: list[str] | None = None, phase: bool = False) -> list[str]:
-    cmds = cfg.commands("build", "lint", "typecheck", "test") + list(extra or [])
+def scope_additions(report) -> list[str]:
+    """O1: the report's `scope_additions` {"glob": "reason"}: only entries with a reason count."""
+    adds = (report or {}).get("scope_additions") if isinstance(report, dict) else None
+    return [str(k) for k, v in adds.items() if str(v or "").strip()] if isinstance(adds, dict) else []
+
+
+def changed_tests(cfg, cmd: str, files: list[str]) -> str:
+    """O10: the test command narrowed to the changed modules; the full command when nothing maps. pytest: by path
+    (`tests/test_<module>.py` when it exists, else the test files in the diff); vitest: `related`; go: changed dirs."""
+    tests = cfg.get("gate.test_globs") or TEST_GLOBS
+    if "pytest" in cmd:
+        paths = []
+        for f in files:
+            stem = f.rsplit("/", 1)[-1].removesuffix(".py")
+            mapped = f"tests/test_{stem}.py"
+            if f.endswith(".py") and _match(f, tests):
+                paths.append(f)
+            elif f.endswith(".py") and (cfg.root / mapped).exists():
+                paths.append(mapped)
+        return f"{cmd} {' '.join(dict.fromkeys(paths))}" if paths else cmd
+    code = [f for f in files if re.search(r"\.(?:[cm]?[jt]sx?)$", f) and not _match(f, tests)]
+    if "vitest" in cmd and code:
+        return re.sub(r"vitest(\s+run)?", f"vitest related {' '.join(code)} --run", cmd, count=1)
+    dirs = {f.rsplit("/", 1)[0] if "/" in f else "" for f in files if f.endswith(".go")}
+    if "go test" in cmd and dirs and "" not in dirs:
+        return cmd.replace("./...", " ".join(f"./{d}/..." for d in sorted(dirs)))
+    return cmd
+
+
+def verify_commands(cfg, extra: list[str] | None = None, phase: bool = False, files: list[str] | None = None) -> list[str]:
+    tests = cfg.commands("test")
+    if files is not None and cfg.lean and not phase:  # O10: per task only the changed modules; phase close runs it all
+        tests = [changed_tests(cfg, c, files) for c in tests]
+    cmds = cfg.commands("build", "lint", "typecheck") + tests + list(extra or [])
     if phase:
         cmds += cfg.commands("phase_verify")
     return cmds
@@ -202,18 +242,89 @@ def _norm(path) -> str:
     return str(path).replace("\\", "/").strip().removeprefix("./")
 
 
-def missing_reasons(cfg, git, report) -> list[str]:
-    """N7: files added in the staged diff (test files, .agent/ and renames excepted) need a `new_files` reason."""
+MANIFESTS = ["package.json", "pyproject.toml", "requirements*.txt", "go.mod", "Cargo.toml", "Gemfile", "pom.xml",
+             "build.gradle*"]  # O3: a change here is a new dependency unless declared
+DEP_RULE = ("A new dependency needs a reason: the task lists it under `new_deps`, or the report lists each one with "
+            "its reason in the field `new_deps`.")
+DOC_GLOBS = ["docs/**", "LICENSE*"]  # a root NOTES2.md still needs a reason (N7: no second notes file)
+CODE_EXT = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".go", ".rs", ".java", ".kt", ".rb", ".php", ".cs",
+            ".c", ".cc", ".cpp", ".h", ".hpp", ".swift", ".scala", ".sh", ".ps1", ".sql", ".vue", ".svelte")
+GROWTH_LINES, GROWTH_PCT = 400, 25  # O2: a file may not grow past 400 lines or 25 percent in one task, the larger
+
+
+def missing_reasons(cfg, git, report, task=None) -> list[str]:
+    """N7: files added in the staged diff (test files, .agent/ and renames excepted) need a `new_files` reason.
+    O3: files the task declares under `new_files` pass; a manifest change needs `new_deps` on the task or in the report."""
     tests = cfg.get("gate.test_globs") or TEST_GLOBS
     added = git.run("-c", "core.quotepath=false", "diff", "--cached", "--name-only", "--diff-filter=A", "-M").splitlines()
     entries = report.get("new_files") if isinstance(report, dict) else None
     reasons = {_norm(e["path"]) for e in (entries if isinstance(entries, list) else [])
                if isinstance(e, dict) and str(e.get("path") or "").strip() and str(e.get("reason") or "").strip()}
-    bare = [p for p in added if p and not _match(p, tests) and not p.startswith(".agent/") and p not in reasons]
-    if not bare:
-        return []
-    paths = ", ".join(bare[:20]) + (f", and {len(bare) - 20} more" if len(bare) > 20 else "")
-    return [f"new file without a reason: {paths}. {NEW_FILE_RULE}"]  # the rule last: the retry keeps the tail
+    declared = [_norm(p) for p in (getattr(task, "new_files", None) or [])]
+    bare = [p for p in added if p and not _match(p, tests) and not _match(p, DOC_GLOBS) and not p.startswith(".agent/")
+            and p not in reasons and not _match(p, declared)]
+    out = []
+    if bare:
+        paths = ", ".join(bare[:20]) + (f", and {len(bare) - 20} more" if len(bare) > 20 else "")
+        out.append(f"new file without a reason: {paths}. {NEW_FILE_RULE}")  # the rule last: the retry keeps the tail
+    changed = git.run("-c", "core.quotepath=false", "diff", "--cached", "--name-only").splitlines()
+    manifests = [p for p in changed if _match(p, MANIFESTS)]
+    deps = report.get("new_deps") if isinstance(report, dict) else None
+    with_reason = [d for d in (deps if isinstance(deps, list) else []) if isinstance(d, dict)
+                   and str(d.get("name") or "").strip() and str(d.get("reason") or "").strip()]
+    if manifests and not (getattr(task, "new_deps", None) or with_reason):
+        out.append(f"dependency manifest changed without a declared dependency: {', '.join(manifests)}. {DEP_RULE}")
+    return out
+
+
+def _count_lines(path: Path) -> int:
+    try:
+        with open(path, "rb") as fh:
+            return sum(1 for _ in fh)
+    except OSError:
+        return 0
+
+
+def write_baseline(root) -> int:
+    """O2: `.agent/quality_baseline.json` = line count per code file on day one; only growth past it (and the budget)
+    fails later. Returns the number of files recorded."""
+    root = Path(root)
+    skip = {".git", ".agent", "node_modules", ".venv", "venv", "env", "dist", "build", "__pycache__", "docs"}
+    counts = {}
+    for p in root.rglob("*"):
+        if any(part in skip for part in p.relative_to(root).parts) or not p.is_file() or p.suffix not in CODE_EXT:
+            continue
+        rel = p.relative_to(root).as_posix()
+        if not _match(rel, TEST_GLOBS):
+            counts[rel] = _count_lines(p)
+    out = root / ".agent" / "quality_baseline.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(counts, indent=0, sort_keys=True) + "\n", encoding="utf-8")
+    return len(counts)
+
+
+def file_growth(cfg, git) -> list[str]:
+    """O2: a changed code file may not grow past max(400 lines, +25 percent, 125 percent of its baseline) in one task."""
+    tests = cfg.get("gate.test_globs") or TEST_GLOBS
+    try:
+        base = json.loads((cfg.root / ".agent" / "quality_baseline.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        base = {}
+    out = []
+    for line in git.run("-c", "core.quotepath=false", "diff", "--cached", "--numstat").splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3 or not parts[0].isdigit():
+            continue
+        plus, minus, path = int(parts[0]), int(parts[1]), parts[2]
+        if plus <= minus or not path.endswith(CODE_EXT) or _match(path, tests):
+            continue
+        new = _count_lines(cfg.root / path)
+        old = new - plus + minus
+        # under 400 lines: the cap is 400; over it (on day one or now): 25 percent more in one task
+        limit = max([GROWTH_LINES] + [n * (100 + GROWTH_PCT) // 100 for n in (old, int(base.get(path, 0))) if n > GROWTH_LINES])
+        if new > limit:
+            out.append(f"file grew past the budget: {path} {old} -> {new} lines (limit {limit}). Split, do not grow.")
+    return out
 
 
 def task_gate(cfg, git, task, report=None) -> GateResult:
@@ -228,10 +339,16 @@ def task_gate(cfg, git, task, report=None) -> GateResult:
     (gate.warnings if task.allow_test_changes else gate.problems).extend(test_tamper(cfg, git, task.allow_test_changes))
     gate.problems += scan_secrets(git.staged_added_lines())
     if report is not None and cfg.get("gate.new_file_reasons"):  # N7: P07-T02; None = old callers, no check
-        gate.problems += missing_reasons(cfg, git, report)
-    gate.warnings += [f"outside files_in_scope: {f}" for f in out_of_scope(files, task.files_in_scope)]
+        gate.problems += missing_reasons(cfg, git, report, task)  # O3: task-declared files and dependencies
+    if cfg.get("gate.file_growth"):  # O2: on in the template (new projects); a missing key = off
+        gate.problems += file_growth(cfg, git)
+    outside = out_of_scope(files, task.files_in_scope, scope_additions(report))
+    if outside and cfg.get("gate.scope_fail", True):  # O1: a hard gate; `gate.scope_fail: false` keeps the old warning
+        gate.problems.append(f"outside files_in_scope: {outside}. {SCOPE_HINT}")
+    else:
+        gate.warnings += [f"outside files_in_scope: {f}" for f in outside]
     if not gate.problems:
-        gate.results = run_commands(verify_commands(cfg, task.verify), cfg.root,
+        gate.results = run_commands(verify_commands(cfg, task.verify, files=files), cfg.root,
                                     int(cfg.get("verify_timeout_sec", 1200)), base_env=agent_env(cfg))
     gate.ok = not gate.problems and all(r.rc == 0 for r in gate.results)
     return gate

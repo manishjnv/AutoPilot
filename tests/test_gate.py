@@ -128,6 +128,52 @@ def test_task_gate_routes_findings(repo, allow):
     assert g.ok is allow
 
 
+def test_task_gate_fails_a_file_outside_scope_unless_declared(repo):  # O1
+    put(repo, "src/other.py", "x = 1\n")
+    put(repo, "lib/mine.py", "y = 1\n")
+    cfg = Config.load(repo)
+    cfg.data["commands"]["test"] = [f'"{sys.executable}" -c "pass"']
+    task = SimpleNamespace(allow_no_changes=False, allow_test_changes=True, files_in_scope=["lib/**"], verify=[])
+    g = task_gate(cfg, Git(repo), task, report={})
+    assert not g.ok and any("outside files_in_scope: ['src/other.py']" in m for m in g.problems)
+    g = task_gate(cfg, Git(repo), task, report={"scope_additions": {"src/other.py": "shared constant lives here"}})
+    assert g.ok and not any("outside" in m for m in g.problems)
+    task.files_in_scope = ["lib/**", "src/**"]
+    assert task_gate(cfg, Git(repo), task, report={}).ok
+    cfg.data["gate"] = {"scope_fail": False}
+    task.files_in_scope = ["lib/**"]
+    g = task_gate(cfg, Git(repo), task, report={})
+    assert g.ok and any("outside files_in_scope: src/other.py" in w for w in g.warnings)
+
+
+def test_file_growth_budget_with_a_baseline(repo):  # O2
+    import json
+
+    from autopilot.gate import file_growth, write_baseline
+    put(repo, "src/big.py", "x = 1\n" * 390)
+    put(repo, "src/old.py", "y = 1\n" * 500)
+    sh(repo, "add", "-A"), sh(repo, "commit", "-qm", "base")
+    assert write_baseline(repo) >= 2
+    base = json.loads((repo / ".agent" / "quality_baseline.json").read_text())
+    assert base["src/big.py"] == 390 and base["src/old.py"] == 500 and "tests/test_x.py" not in base
+    cfg = Config.load(repo)
+    put(repo, "src/big.py", "x = 1\n" * 420)  # 390 -> 420: past 400 and the file was under the budget before
+    sh(repo, "add", "-A")
+    grew = file_growth(cfg, Git(repo))
+    assert len(grew) == 1 and grew[0].startswith("file grew past the budget: src/big.py 390 -> 420 lines (limit 400)")
+    put(repo, "src/big.py", "x = 1\n" * 390)
+    put(repo, "src/old.py", "y = 1\n" * 500 + "z = 2\n")  # 500 -> 501: within 25 percent of its baseline
+    sh(repo, "add", "-A")
+    assert file_growth(cfg, Git(repo)) == []
+    put(repo, "src/old.py", "y = 1\n" * 700)  # 500 -> 700: past 25 percent in one task
+    sh(repo, "add", "-A")
+    assert len(file_growth(cfg, Git(repo))) == 1
+    cfg.data["gate"]["file_growth"] = True
+    cfg.data["commands"]["test"] = [f'"{sys.executable}" -c "pass"']
+    task = SimpleNamespace(allow_no_changes=False, allow_test_changes=False, files_in_scope=[], verify=[])
+    assert not task_gate(cfg, Git(repo), task).ok
+
+
 def _fake(*parts):
     return "".join(parts)
 

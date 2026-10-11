@@ -109,7 +109,7 @@ def test_page_title_and_first_line_are_the_status_line(serve, tmp_path):
                                                 "attempt": 1, "max_attempts": 3, "git": "OK", "build": "OK"}))
     body = get(serve())[1]
     assert "<title>ON │ Code │ Task 0/3 0% │ Ph 0/2 │ Blk 0</title>" in body  # the tab shows it even in the background
-    assert "Writes the code." in body and 'aria-current="true"' in body and "<span>Task 1/3</span>" in body  # J9
+    assert 'aria-current="true"' in body and "<span>Task 1/3</span>" in body  # J9 (J13 row 14: the state word lives in the title)
 
 
 def test_a_second_run_or_plain_autopilot_follows_the_active_run(tmp_path, monkeypatch, capsys):

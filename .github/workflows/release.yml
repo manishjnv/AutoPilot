@@ -1,0 +1,30 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev]" build
+      - name: Git identity (tests create git repos)
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.com
+      - run: python -m pytest -q
+      - run: python -m build
+      - name: Release notes and checksums
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v h="## [$v]" 'index($0,h)==1{f=1;next} /^## \[/{f=0} f' CHANGELOG.md > notes.md
+          sha256sum install.ps1 install.sh > SHA256SUMS
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* install.ps1 install.sh SHA256SUMS --title "$GITHUB_REF_NAME" --notes-file notes.md

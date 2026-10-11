@@ -18,7 +18,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot quickstart --idea "text"` | Claude writes `PLAN.md` from your idea first. The text can also be a file |
 | `autopilot quickstart --plan-doc FILE` | Makes the tasks from a different plan file |
 | `autopilot quickstart -C myapp --idea "text" --run` | Makes the folder `myapp`, writes the plan, makes the tasks, checks your computer, and starts the run |
-| `autopilot init [--stack X]` | Makes `.agent/` only. `quickstart` does this for you. It also adds one short Autopilot block (`ap status`, `ap next`, `ap start`; no plan files, change the plan with `ap change`) to `CLAUDE.md` and to the rule file of each IDE it finds: `.cursor/` gets `.cursor/rules/autopilot.mdc`, `.kiro/` gets `.kiro/steering/autopilot.md`, `.vscode/` gets `.github/copilot-instructions.md`, and `GEMINI.md` and `AGENTS.md` get the block at the end. The block has begin and end marker comments. A second `init` finds the marker and writes nothing. Your own text is never changed |
+| `autopilot init [--stack X]` | Makes `.agent/` only. `quickstart` does this for you. It also adds one short Autopilot block (`ap status`, `ap next`, `ap start`; no plan files, change the plan with `ap change`) to `CLAUDE.md` and to the rule file of each IDE it finds: `.cursor/` gets `.cursor/rules/autopilot.mdc`, `.kiro/` gets `.kiro/steering/autopilot.md`, `.vscode/` together with an existing `.github/` gets `.github/copilot-instructions.md` (`.vscode/` alone creates nothing), and `GEMINI.md` and `AGENTS.md` get the block at the end. The block has begin and end marker comments. A second `init` finds the marker and writes nothing. Your own text is never changed |
 | `autopilot onboard [--plan-doc FILE]` | One session writes `BRAIN.md`, the commands and `plan.yaml`. With no file, it reads the repository. The session gets a discovery pack (git log, documents, stack files, one test run) and four rules: read first, mark existing work `status: done`, link documents, keep file names. New files outside `.agent/` and `CLAUDE.md` are named in a warning |
 | `autopilot validate` | Checks `project.yaml` and `plan.yaml` for errors |
 | `autopilot doctor [--fix]` | Checks the Claude CLI and its login, git, `gh`, the sandbox tools, the alerts, the settings, and project dependencies that are not installed (a `WARN` with the install command). A missing login is a `FAIL`. `--fix` repairs what needs no person |
@@ -29,11 +29,12 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot watch` | Follows a run live. A large terminal window shows a dashboard. It has panels for the project, the tasks, the live output, the progress, the usage, the files, and the issues. A small window shows the scrolling view with a status panel at the bottom. Ctrl+C stops the watch, not the run |
 | `autopilot watch --scroll` | Shows the scrolling view in plain words, also in a large window |
 | `autopilot watch --detail` | Shows each technical log line as it is |
+| `autopilot mcp` | Runs an MCP server on `stdin` and `stdout`. Its tools are `ap_status`, `ap_next`, `ap_start`, `ap_stop` and `ap_answer`. Each tool runs the `ap` command of the same name and returns its text. `init` adds the server to `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kilocode/mcp.json` and `.junie/mcp/mcp.json` when they exist |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
 | `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
 | `autopilot serve [--port 8765]` | Starts the status page without a run. The page shows the same dashboard as the terminal, and the full report below it |
-| `autopilot answer` | Lists the open questions with their suggestions. In a terminal, it asks for each answer (an empty line skips one). With no terminal, it prints the usage and exits with a non-zero code |
+| `autopilot answer` | Lists the open questions with their suggestions. In a terminal, it asks for a choice for each one. Type `1` or press Enter to use the suggested fix. Type `2` to skip the task. Type `3` to write your own words. With no terminal, it prints the usage and exits with a non-zero code |
 | `autopilot answer D-003 "text"` | Answers a question from `docs/NEEDS-YOU.md`. Works while a run is active |
 | `autopilot change "text"` | Changes the plan in plain words. It costs one replan session. It asks `1 start, 2 stop`, then `1 keep, 2 undo`. `--yes` asks nothing. During a run, the idea goes to `docs/BACKLOG.md`. Done tasks never change |
 | `autopilot hint T1 "text"` | Gives advice to the next session of a task. Works while a run is active |
@@ -43,6 +44,8 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot stop` | Stops the run before its next session |
 | `autopilot resume` | Removes the stop flag. It does not start a run |
 | `autopilot review --kind periodic\|completion\|replan` | Starts an audit or a replan now |
+| `autopilot audit` | Starts the completion audit now |
+| `autopilot report --tokens` | Shows the tokens and the cost of each step type |
 
 **Options of `autopilot run`:**
 
@@ -54,6 +57,10 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `--no-browser` | Starts the status page, but does not open the browser |
 | `--no-page` | Does not start the status page |
 | `-v` | Shows more log lines |
+
+## Versions and releases
+
+`ap --version` prints the version and the short commit, or `installed` outside a git checkout. `python scripts/bump.py X.Y.Z` sets the version in `pyproject.toml`, the plugin and `autopilot/__init__.py`. It also moves the `CHANGELOG.md` Unreleased lines, sets `DEFAULT_REF` in both install scripts, then makes one commit and the tag `vX.Y.Z`. A push of that tag starts `release.yml`: it runs the tests, builds the wheel and attaches the wheel, the install scripts and `SHA256SUMS` to the GitHub release.
 
 ## Environment variables
 
@@ -95,7 +102,9 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `logs/` | The log, the session logs, and the crash reports | No |
 | `STOP` | The stop flag from `autopilot stop` | No |
 
-**Task key `status` in `plan.yaml`:** `status: done` says the work exists already (in the code or the git log). When the task is new, or still pending, Autopilot records it as done with the note `done before Autopilot`. It never changes a task that is running, blocked, skipped or done. If you remove the key later, the task stays done. Any other value is an error that names the task.
+**Task key `status` in `plan.yaml`:** `status: done` says the work exists already (in the code or the git log). When the task is new, or still pending, Autopilot records it as done with the note `done before Autopilot`. It never changes a task that is running, blocked, skipped or done. If you remove the key later, the task stays done. `status: dropped` says the item left the plan document; Autopilot skips the task and keeps it in the file. Any other value is an error that names the task.
+
+**Plan source sync:** `plan_source: FILE` in `plan.yaml` names your plan document, and `onboard --plan-doc` writes it. At each start and at each phase close, Autopilot compares the file with the text it planned from. When the file changed, one replan session gets only the diff, adds new items as tasks, updates changed ones, and drops removed ones. It prints `Plan source changed: 2 new, 1 changed, 0 dropped.`, and an interactive start waits for Enter.
 
 **In `docs/` of your project:**
 
@@ -124,6 +133,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
 | `budget_usd` | Cost limits | `per_session` (8), `per_task` (20), `per_phase` (150), `daily` (200), `total` (5000) |
+| `profile` | How much checking each task gets | `lean` (new projects) or `full` (a missing key) |
 | `retries` | Attempts | `max_attempts_per_task` (3), `resume` (true) |
 | `unstick` | The diagnosis of a blocked task | `enabled` (true), `after_attempts` (2) |
 | `decide` | Design choices before risky tasks | `enabled` (true), `risks` (high, critical) |
@@ -131,7 +141,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `research` | Web research for a task | `enabled` (true), `dir` (docs/research) |
 | `functional` | The feature check at the end of each phase | `enabled` (true), `init` |
 | `escalate` | An early move to a stronger model | `on_timeout`, `max_diff_lines` (300), `load_bearing` |
-| `scheduling` | The order and parallel work | `phase_dependency` (soft), `parallel` (1) |
+| `scheduling` | The order and parallel work | `phase_dependency` (soft), `parallel` (3 with a test command in direct mode, else 1). Tasks run in parallel by default. Two tasks that share a file never run together. A task with an empty `files_in_scope` runs alone. |
 | `git` | Push and pull | `push` (false), `pull` (true), `mode` (direct or pr) |
 | `intake` | Fix tasks from GitHub | `enabled` (false), `label` (autopilot), `poll_minutes` (30) |
 | `deploy` | Staging and production | `cmd`, `health_url`, `rollback_cmd` |
@@ -150,6 +160,12 @@ Runner detection: when the project's own `.agent/project.yaml` sets no `agent.ba
 writes it: `claude`, `kiro-cli`, `cursor-agent`, `codex`, `gemini`, `aider`. It prints `runner: <name> (found on
 PATH)`. For `claude` it writes `backend: claude_cli`; for a different CLI, `backend: command` and the preset. When it
 finds no CLI, it prints the install command of Claude Code and stops. A value that you set is never changed.
+
+Runner login: before the first session, preflight checks that the configured runner is logged in with its own subscription (`claude auth status`, `codex login status`, `cursor-agent status`, `kiro-cli whoami`), with a 20 second limit and no prompt. A failed check prints the one login command (for example `codex login`) and stops. Autopilot never opens a browser and never reads a credential file. Runners that need an API key (`gemini`, `aider`, `opencode`) are not supported.
+
+Python setup: preflight never runs a bare `pip install` on the system Python. When a `requirements*.txt` file has no
+environment, preflight runs `python -m venv .venv`, then installs with the `.venv` Python. An active environment
+(`VIRTUAL_ENV`) or a project environment (`.venv`, `venv`, `env`) is used as is. `commands.setup` stores these commands.
 
 Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
 `agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor` and `aider` presets).
@@ -172,6 +188,15 @@ committer. Your git settings do not change.
 
 Autopilot supports these stacks: python, node, go, rust, java, docker, static, and generic. Each project type works
 when you put its build and test commands in `commands`.
+
+### Lean profile
+
+Set `profile` to `lean` or `full` in `.agent/project.yaml`; new projects start with `lean`.
+Under `lean`, a task writes one smoke test for each criterion, and the task gate runs only the tests of the changed modules.
+`lean` allows one retry, then parks the task in "Questions for you"; it also turns off the periodic and the completion audit, and the phase check runs no variations.
+`lean` cuts `BRAIN.md` to 6000 characters and the decisions to 2000, and `autopilot audit` runs the audit on demand.
+`autopilot report --tokens` shows the tokens and the cost of each step type; the total equals the state total.
+The trade-off: a regression shows at phase close, not for each task, and the merged-result gate keeps `main` green.
 
 ## Gate guards
 

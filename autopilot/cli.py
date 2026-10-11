@@ -58,6 +58,9 @@ def cmd_init(args):
         preset = load_yaml(TEMPLATES / "presets" / f"{stack}.yaml")
         name = args.name or (proj.get("name") if proj.get("name") not in (None, "my-project") else root.name)
         commands = {**(proj.get("commands") or {}), **preset.get("commands", {})}
+        if stack == "python" and not shutil.which("ruff"):  # O2: one linter, decided here, never `ruff || flake8`
+            commands["lint"] = ["python -m flake8 ."] if shutil.which("flake8") else []
+            print("lint:    " + (commands["lint"][0] if commands["lint"] else "none (install ruff for a lint gate)"))
         cmd_block = yaml.safe_dump({"commands": commands}, sort_keys=False, width=200).rstrip() + "\n"
         text = proj_path.read_text(encoding="utf-8")
         text = re.sub(r"(?m)^name:.*$", f"name: {name}", text, count=1)
@@ -83,6 +86,11 @@ def cmd_init(args):
         with open(cm, "a", encoding="utf-8") as fh:
             fh.write(("" if t.endswith("\n") or not t else "\n") + "\n".join(lines) + "\n")
     write_ide_rules(root)  # N6
+    from .mcp import register  # N9
+    register(root)
+    from .gate import write_baseline  # O2: file sizes on day one, so only new growth fails the gate
+    if not (ad / "quality_baseline.json").exists():
+        print(f"create   {AGENT_DIR}/quality_baseline.json ({write_baseline(root)} files)")
     print(f"\nstack: {stack}")
     if not getattr(args, "quiet", False):  # quickstart does these steps itself
         print("next:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
@@ -100,7 +108,7 @@ def write_ide_rules(root):
         targets.append((root / ".cursor" / "rules" / "autopilot.mdc", "---\ndescription: Autopilot project rules\nalwaysApply: true\n---\n"))
     if (root / ".kiro").is_dir():
         targets.append((root / ".kiro" / "steering" / "autopilot.md", "---\ninclusion: always\n---\n"))
-    if (root / ".vscode").is_dir():
+    if (root / ".vscode").is_dir() and (root / ".github").is_dir():  # P10-T06: VS Code alone is not Copilot
         targets.append((root / ".github" / "copilot-instructions.md", ""))
     for name in ("GEMINI.md", "AGENTS.md"):
         if (root / name).is_file():
@@ -148,7 +156,22 @@ def cmd_onboard(args):
     new = sorted(untracked_files(root) - before)  # N1: no new document outside .agent/ and CLAUDE.md
     if new:
         print("WARN  onboarding created new files outside .agent/ and CLAUDE.md (kept, check them): " + ", ".join(new))
+    if args.plan_doc:  # N13: later runs read this file; a change in it reaches the plan with no command
+        remember_plan_source(root, Path(args.plan_doc))
     return cmd_validate(args)
+
+
+def remember_plan_source(root: Path, doc: Path):
+    """N13: `plan_source:` in plan.yaml names the plan document; .agent/plan_source.txt keeps the text last planned from."""
+    plan = root / AGENT_DIR / "plan.yaml"
+    try:
+        rel = doc.resolve().relative_to(root).as_posix()
+    except ValueError:
+        rel = str(doc.resolve())
+    text = plan.read_text(encoding="utf-8") if plan.exists() else ""
+    if text and not any(ln.startswith("plan_source:") for ln in text.splitlines()):
+        plan.write_text(text.rstrip("\n") + f"\nplan_source: {json.dumps(rel)}\n", encoding="utf-8")
+    (root / AGENT_DIR / "plan_source.txt").write_text(doc.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def untracked_files(root: Path) -> set:
@@ -269,7 +292,7 @@ def write_plan(root: Path, idea: str, budget: str) -> Path | None:
 def preflight(cfg) -> bool:
     """Before quickstart or a run: fix the machine where possible (PATH, the claude CLI), then make sure the agent CLI
     can start. False = it can't, and the reason is printed."""
-    from .doctor import FAIL, autofix, check_claude, check_path
+    from .doctor import FAIL, autofix, check_claude, check_path, check_runner_login
     if cfg is not None and not runner_set(cfg.root):
         if not pick_runner(cfg.root):
             return False
@@ -285,6 +308,11 @@ def preflight(cfg) -> bool:
         if bad:
             print(f"FAIL  {bad[0][1]}: {bad[0][2]}")
             return False
+    elif cfg is not None:  # N10: the other runner's own subscription login, before the first session
+        level, name, detail = check_runner_login(cfg)
+        print(f"{level:<5} {name}: {detail}")
+        if level == FAIL:
+            return False
     return install_deps(cfg) if cfg is not None else True
 
 
@@ -299,10 +327,14 @@ def install_deps(cfg) -> bool:
     for m in miss:
         tool = m["tool"]
         if not (shutil.which(tool) or (tool == "python" and (shutil.which("python") or shutil.which("python3")))):
+            from .rights import install_system_tool  # N8: through the rights the installer took; never a question
+            if install_system_tool(tool, system_tool_hint(tool)):
+                print(f"ok    {tool} installed")
+                continue
             print(f"FAIL  {tool} is not installed. Install it with: {system_tool_hint(tool)}")
             return False
     setup = cfg.commands("setup")
-    cmds = setup or list(dict.fromkeys(m["command"] for m in miss))
+    cmds = setup or list(dict.fromkeys(c for m in miss for c in venv_commands(cfg.root, m["command"])))
     note = logging.getLogger("autopilot.preflight")
     for cmd in cmds:
         print(f"setup {cmd}")
@@ -315,6 +347,21 @@ def install_deps(cfg) -> bool:
     if not setup:
         remember_setup(cfg.root / AGENT_DIR / "project.yaml", cmds)
     return True
+
+
+def venv_commands(root, cmd: str) -> list[str]:
+    """A bare `pip install ...` never runs on the system Python: use the active venv, a project venv, or make .venv."""
+    if not cmd.startswith("pip install "):
+        return [cmd]
+    pip = f"-m pip {cmd[4:]}"
+    py = "python" if shutil.which("python") else "python3"
+    if os.environ.get("VIRTUAL_ENV"):
+        return [f"{py} {pip}"]
+    sub = "Scripts\\python.exe" if os.name == "nt" else "bin/python"
+    for n in (".venv", "venv", "env"):
+        if (Path(root) / n / "pyvenv.cfg").is_file():
+            return [f"{n}\\{sub} {pip}" if os.name == "nt" else f"{n}/{sub} {pip}"]
+    return [f"{py} -m venv .venv", f".venv\\{sub} {pip}" if os.name == "nt" else f".venv/{sub} {pip}"]
 
 
 def remember_setup(proj_path: Path, cmds: list[str]) -> None:
@@ -531,6 +578,10 @@ def cmd_validate(args):
         if weak:
             print(f"plan    WARN  {len(weak)} tasks without acceptance criteria: {', '.join(weak[:10])}"
                   f"{' …' if len(weak) > 10 else ''}")
+        wide = [t.id for t in tasks if not t.files_in_scope and not t.owner_only and t.status != "done"]
+        if wide:  # O1: an empty scope means the whole repo, so the task runs alone and nothing is gated
+            print(f"plan    WARN  {len(wide)} tasks without files_in_scope (whole repo, run alone): "
+                  f"{', '.join(wide[:10])}{' …' if len(wide) > 10 else ''}")
     except PlanError as e:
         ok = False
         for err in e.errors:
@@ -752,6 +803,23 @@ def watch_end(root: Path, run: dict, color: bool, hold: bool):
             pass
 
 
+def restarting(root: Path, wait: float = 90, sleep=None, clock=None) -> bool:
+    """J14.9: a run that ended `interrupted` may be restarting itself after a crash. True when run.json turns
+    `running` again within `wait` seconds."""
+    import time
+
+    from .report import run_journal
+    sleep, clock = sleep or time.sleep, clock or time.monotonic
+    if run_journal(root).get("outcome") != "interrupted":
+        return False
+    end = clock() + wait
+    while clock() < end:
+        sleep(1)
+        if run_journal(root).get("status") == "running":
+            return True
+    return False
+
+
 def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
     """J9: the full-window dashboard (dash_term.frame) on the terminal's second screen, drawn again each second.
     Returns None when this terminal cannot show it (too small, no plan yet): the caller uses the scrolling view.
@@ -797,6 +865,8 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
                 pass
             out.flush()
             done = done + 1 if run_journal(root).get("status") == "finished" else 0
+            if done >= 3 and restarting(root):
+                done = 0
             if done >= 3:
                 ended = True
                 break
@@ -917,6 +987,9 @@ def cmd_watch(args):
                 asked[0], drawn[0] = True, None  # the line in work stays as it is; the notice goes below it
                 print(paint("You asked for a stop. The build stops after the current session.", "yellow", color),
                       flush=True)
+            if run.get("status") == "finished" and quiet >= 3 and restarting(root):
+                quiet = 0
+                continue
             if run.get("status") == "finished" and quiet >= 3:
                 if simple:
                     show("", final=True)
@@ -1129,10 +1202,16 @@ def cmd_answer(args):
     if not _tty():
         print(f"usage: {usage}")
         return 1
+    from .decisions import CHOICES, SKIP
+    print(f"Choices: {CHOICES}")
     for r in rows:
-        text = _ask(f"Your answer for {r['id']} (Enter = no answer now): ")
-        if text is None:
+        sug = " ".join(str(r["suggestion"] or "").split())
+        pick = _ask(f"{r['id']} choice (Enter = 1{': ' + sug if sug else ''}): ")
+        if pick is None:
             break
+        pick = pick.strip()
+        text = sug if pick in ("", "1") else SKIP if pick == "2" else \
+            (_ask(f"Your answer for {r['id']}: ") or "") if pick == "3" else pick  # other text = your own words
         if text:
             _store_answer(state, r["id"], text)
     return 0
@@ -1234,6 +1313,23 @@ def cmd_approve(args):
     return 0
 
 
+def cmd_uninstall(args):
+    """N8: `ap uninstall --rights` removes the scheduled task / the sudoers file the installer created."""
+    from .rights import remove_rights
+    if not getattr(args, "rights", False):
+        print("ap uninstall --rights   removes the rights the installer took (scheduled task / sudoers file)\n"
+              "uv tool uninstall dev-autopilot   removes Autopilot itself")
+        return 0
+    for line in remove_rights():
+        print(line)
+    return 0
+
+
+def cmd_mcp(args):
+    from .mcp import serve
+    serve(Path(args.path).resolve())
+
+
 def cmd_stop(args):
     p = Path(args.path).resolve() / AGENT_DIR / "STOP"
     p.write_text("stop requested\n")
@@ -1264,7 +1360,13 @@ def cmd_review(args):
     orch.write_report()
 
 
-NEW_PROJECT = ("init", "onboard", "quickstart")  # these make a project: with no -C they use this folder
+def cmd_report(args):
+    from .report import build_report, tokens_report
+    cfg, plan, state = _open_state(Path(args.path).resolve())
+    print(tokens_report(state) if args.tokens else build_report(cfg, plan, state))
+
+
+NEW_PROJECT = ("init", "onboard", "quickstart", "mcp")  # these make a project: with no -C they use this folder
 
 
 def _recent_file() -> Path:
@@ -1315,6 +1417,17 @@ def pick_project() -> str | None:
     return str(chosen)
 
 
+def _version_line():
+    """Version plus short commit (N5.1); 'installed' outside a git checkout."""
+    import subprocess
+    try:
+        sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).parent,
+                             capture_output=True, text=True, timeout=5).stdout.strip() or "installed"
+    except Exception:
+        sha = "installed"
+    return f"{__version__} ({sha})"
+
+
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
@@ -1326,6 +1439,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="ap" if called == "ap" else "autopilot",
                                  description="Autonomous plan-driven development with Claude Code. "
                                              "`ap` is the short name of `autopilot`.")
+    if argv[:1] == ["--version"]:  # N5.1: git only runs here, never on a normal command
+        print(f"{called or 'autopilot'} {_version_line()}")
+        return 0
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd")
 
@@ -1380,8 +1496,15 @@ def main(argv=None):
     p.add_argument("task_id"); p.add_argument("text")
     p = add("skip", cmd_skip, "skip task(s)"); p.add_argument("task_ids", nargs="+")
     p = add("approve", cmd_approve, "deploy an approved phase to prod"); p.add_argument("phase")
+    add("mcp", cmd_mcp, "MCP server on stdin/stdout for IDE chats: ap_status, ap_next, ap_start, ap_stop, ap_answer")
+    p = add("uninstall", cmd_uninstall, "--rights: remove the scheduled task / sudoers file the installer created")
+    p.add_argument("--rights", action="store_true")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
+    p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
+    p.add_argument("--tokens", action="store_true", help="tokens and cost per step: build, retry, review, verify, audit, ...")
+    p = add("audit", cmd_review, "run the completion audit now (the lean profile never runs it by itself)")
+    p.set_defaults(kind="completion")
     p = add("review", cmd_review, "run an audit / completion audit / replan now")
     p.add_argument("--kind", choices=["periodic", "completion", "replan"], default="periodic")
     p.add_argument("-v", "--verbose", action="store_true")

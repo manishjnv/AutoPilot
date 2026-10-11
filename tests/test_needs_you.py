@@ -99,6 +99,22 @@ def test_owner_decision_parks_task_and_run_continues(tmp_path):
     assert "D-001 · P01-T01 a · DONE" in (root / "docs" / "NEEDS-YOU.md").read_text(encoding="utf-8")
 
 
+def test_open_question_does_not_stop_other_ready_work(tmp_path):
+    phases = [{"id": "P01", "title": "One", "tasks": [
+        {"id": "P01-T01", "title": "a", "risk": "low", "acceptance_criteria": ["x"]},
+        {"id": "P01-T02", "title": "b", "risk": "low"},
+        {"id": "P01-T03", "title": "c", "risk": "low"}]}]
+    root = make_project(tmp_path, phases, {"needs_you": {"wait": False}})
+    fake = FakeBackend(behaviours={"P01-T01": ["blocked"]}, unsticks={"P01-T01": OWNER})
+    sleeps = []
+    orch = orch_for(root, fake, sleep=sleeps.append)
+    assert orch.run().startswith("stalled: waiting on 1 decisions")
+    st = orch.state.status_map()
+    assert st["P01-T01"] == "blocked" and st["P01-T02"] == "done" and st["P01-T03"] == "done"
+    assert orch.state.decision("D-001")["status"] == "OPEN"
+    assert sleeps == []                                                     # never waited for the owner
+
+
 def test_answer_without_arguments(tmp_path, monkeypatch, capsys):
     (tmp_path / "a").mkdir()
     empty = make_project(tmp_path / "a", phases_basic())
@@ -112,12 +128,29 @@ def test_answer_without_arguments(tmp_path, monkeypatch, capsys):
     assert cli_main(["answer", "-C", str(root), "D-001"]) == 1               # id only, no terminal: usage
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    lines = iter(["", "use X"])
+    lines = iter(["use X"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(lines))
-    assert cli_main(["answer", "-C", str(root)]) == 0                       # terminal: empty line skips, nothing stored
-    assert orch.state.decision("D-001")["status"] == "OPEN"
     assert cli_main(["answer", "-C", str(root), "D-001"]) == 0              # id only: asks for that one answer
     assert orch.state.decision("D-001")["answer"] == "use X"
+
+
+def test_a_question_is_short_and_enter_picks_choice_1(tmp_path, monkeypatch):
+    root, _, orch, _ = parked_run(tmp_path)
+    block = (root / "docs" / "NEEDS-YOU.md").read_text(encoding="utf-8").split("## D-001")[1].strip().splitlines()
+    block = [x for x in block if x.strip()]
+    assert len(block) < 12 and any("1 = do that (Enter)" in x and ".agent/logs/" in x for x in block)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    assert cli_main(["answer", "-C", str(root)]) == 0
+    assert orch.state.decision("D-001")["answer"] == "Stripe"               # Enter = the suggested fix
+    for pick, want in (("2", "skip this task"), ("3", "own words")):
+        (tmp_path / pick).mkdir()
+        r2, _, o2, _ = parked_run(tmp_path / pick)
+        lines = iter([pick, "own words"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(lines))
+        assert cli_main(["answer", "-C", str(r2)]) == 0
+        assert o2.state.decision("D-001")["answer"] == want
 
 
 def test_answer_written_in_file_is_applied(tmp_path):
@@ -231,3 +264,27 @@ def test_a_question_is_in_simple_words():
     one = explain({"checked": "", "suggestion": "Use Stripe", "blocks": "[]", "question": "Which one?", "why": "x"})
     assert one == ["- **The problem:** x", "- **The question:** Which one?",
                    "- **Suggestion from the agent:** Use Stripe", "- **What waits:** No task waits."]
+
+
+# ---------------------------------------------------------------- J14.6 own fix, J14.8 LEARNINGS
+def test_diagnosis_retry_on_model_runs_one_attempt_before_the_question(tmp_path):
+    root = make_project(tmp_path, phases_basic()[:1])
+    owner = dict(OWNER, suggestion="retry on opus, and call the final report once")
+    fake = FakeBackend(behaviours={"P01-T01": ["blocked", "ok"]}, unsticks={"P01-T01": owner})
+    orch = orch_for(root, fake)
+    orch.run()
+    models = [m for t, m in fake.calls if t == "P01-T01"]
+    assert len(models) == 2 and "opus" in models[1] and "opus" not in models[0]
+    assert "one short final report" in [p for t, p in fake.prompts if t == "P01-T01"][1]
+    assert orch.state.status_map()["P01-T01"] == "done" and not orch.state.decisions()
+    assert any("own fix: model opus" in m for m in events(orch, "own_fix"))
+    learn = (root / ".agent" / "LEARNINGS.md").read_text(encoding="utf-8")
+    assert learn.count("start such tasks on opus") == 1
+    task = next(t for t in orch.plan.all_tasks() if t.id == "P01-T01")
+    orch.docs.learning(task, orch._lesson(task, models[0], "", models[1], "x"), once=True)  # same facts again
+    assert (root / ".agent" / "LEARNINGS.md").read_text(encoding="utf-8").count("start such tasks on opus") == 1
+
+
+def test_diagnosis_without_an_applicable_fix_asks_as_before(tmp_path):
+    root, fake, orch, outcome = parked_run(tmp_path)  # suggestion "Stripe": nothing to apply
+    assert [t for t, _ in fake.calls].count("P01-T01") == 1 and orch.state.decision("D-001")["status"] == "OPEN"

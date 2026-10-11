@@ -1,17 +1,31 @@
 """Context packs: the small, fresh bundle every session starts from (instead of a long-lived chat)."""
 from __future__ import annotations
 
+import json
 import os
 import re
+import secrets
 from pathlib import Path
 
 import yaml
 
 from . import proc
+from .gate import verify_commands
+from .repomap import helper_index
 
 PROMPTS = Path(__file__).parent / "prompts"
+TEST_RULE = {False: "Add or extend automated tests that prove each acceptance criterion.",
+             True: ("Write one smoke test per acceptance criterion: the smallest test that fails when the feature breaks. "
+                    "No coverage target and no edge-case suites unless the task text asks for them.")}  # O10
+VARIATION_STEP = {False: ("3. When a journey works as written, try to break that feature once: one variation that a real user "
+                          "can meet (other\n   input, an edge case, a real-environment condition). "
+                          "One variation for each feature, no more."),
+                  True: "3. Do not try variations: one journey for each feature, run once."}  # O10
 FIX_RULES = ("This is a corrective task. 1) Add a regression test that fails before your fix and passes after it. "
              "2) Include `rca` (symptom, root_cause, fix, prevention) in your final report.")
+
+
+TAMPER_COUNT_RX = re.compile(r"test count dropped in (\S+): (\d+) -> \d+")
 
 
 def render(name: str, **vars) -> str:
@@ -74,10 +88,10 @@ class ContextBuilder:
         self.ad = cfg.agent_dir
 
     def brain(self) -> str:
-        return read_capped(self.ad / "BRAIN.md", 12000)
+        return read_capped(self.ad / "BRAIN.md", 6000 if self.cfg.lean else 12000)
 
     def decisions(self) -> str:
-        return read_capped(self.ad / "DECISIONS.md", 6000, tail=True)
+        return read_capped(self.ad / "DECISIONS.md", 2000 if self.cfg.lean else 6000, tail=True)
 
     def handoff(self) -> str:
         return read_capped(self.ad / "HANDOFF.md", 3000)
@@ -86,11 +100,9 @@ class ContextBuilder:
         return read_capped(self.ad / "FOLLOWUPS.md", 5000, tail=True)
 
     def verify_cmds(self, extra=None) -> str:
-        from .gate import verify_commands
         return bullets([f"`{c}`" for c in verify_commands(self.cfg, extra)], "(no commands configured)")
 
     def owner_answers(self, task_id: str) -> str:
-        import json
         rows = [d for d in self.state.decisions("APPLIED") if task_id in json.loads(d["blocks"] or "[]")]
         out = bullets([f"{d['id']}: {d['question']} → {d['answer']}" for d in reversed(rows)])
         hints = self.hints(task_id)
@@ -128,7 +140,8 @@ class ContextBuilder:
         init = self.cfg.get("functional.init", "")
         return render("verify.md", phase_id=phase.id, phase_title=phase.title,
                       features="\n".join(f"- `{f['id']}` {f['title']}: {f['journey']}" for f in features),
-                      init=f"Run `{init}`." if init else "Work it out from the project brain, the README and the files.")
+                      init=f"Run `{init}`." if init else "Work it out from the project brain, the README and the files.",
+                      once="" if self.cfg.lean else ", then one variation", variation=VARIATION_STEP[self.cfg.lean])
 
     def research_prompt(self, task, topic: str) -> str:
         return render("research.md", topic=topic, task_id=task.id, task_title=task.title,
@@ -136,14 +149,13 @@ class ContextBuilder:
                       acceptance=bullets(task.acceptance_criteria))
 
     def triage_prompt(self, number, title: str, body: str) -> str:
-        import secrets
         tag = f"UNTRUSTED-{secrets.token_hex(6)}"  # unguessable, so the issue text can't fake the end of its block
         return render("triage.md", number=number, tag=tag, title=" ".join(str(title).split())[:200],
                       body=str(body or "(empty)")[:6000])
 
     def research_block(self, task) -> str:
         """The research notes for the task's topics: summaries written by a research session, never raw web text."""
-        from .docs import research_path
+        from .docs import research_path  # local: import cycle with docs
         notes = [read_capped(research_path(self.cfg, t), 4000, default="") for t in task.research]
         notes = [n for n in notes if n]
         head = "## Research for this task (summaries; use them, don't re-search)\n"
@@ -161,6 +173,9 @@ class ContextBuilder:
         retry = ""
         if attempt > 1 and last_error:
             retry = render("retry.md", attempt=attempt - 1, errors=last_error[-6000:])
+            # J14.4: a tamper failure becomes one instruction with the real file and count
+            keep = [f"Keep all {m[1]} tests in {m[0]}. Add, do not remove." for m in TAMPER_COUNT_RX.findall(last_error)]
+            retry += "".join(f"\n**{k}**\n" for k in keep)
         return render(
             "task.md", task_id=task.id, task_title=task.title, phase_id=phase.id, phase_title=phase.title,
             phase_goal=phase.goal, risk=task.risk,
@@ -171,6 +186,7 @@ class ContextBuilder:
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
             git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
             adr_block=self.adr_block(task), research_block=self.research_block(task),
+            helper_index=helper_index(self.cfg.root) or "(none)", test_rule=TEST_RULE[self.cfg.lean],
         )
 
     def resume_prompt(self, task, attempt: int, last_error: str | None) -> str:
@@ -190,11 +206,12 @@ class ContextBuilder:
         return render("auditor.md", audit_kind=kind, plan_status=plan_status(self.plan, self.state),
                       decisions=self.decisions(), followups=self.followups(), completion_check=completion, max_new=max_new)
 
-    def replanner_prompt(self, backlog: list[str] | None = None) -> str:
+    def replanner_prompt(self, backlog: list[str] | None = None, source_diff: str = "") -> str:
         blocked = [f"{r['id']}: {(r['last_error'] or '')[:500]}" for r in self.state.tasks("blocked")]
         return render("replanner.md", plan_status=plan_status(self.plan, self.state, include_criteria=False),
                       blocked=bullets(blocked), decisions=self.decisions(), followups=self.followups(),
-                      backlog=bullets([i[:500] for i in backlog or []][:30]))
+                      backlog=bullets([i[:500] for i in backlog or []][:30]),
+                      source_diff=source_diff or "(none)")
 
     def system_append(self) -> str:
         """The rules plus the project context every session needs. U7: byte-identical for every session until

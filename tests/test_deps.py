@@ -133,6 +133,40 @@ def test_preflight_installs_and_remembers_the_standard_command(tmp_path, monkeyp
     assert len(calls.read_text(encoding="utf-8").splitlines()) == 1
 
 
+def test_pip_install_goes_through_a_venv(tmp_path, monkeypatch):
+    import os
+    from autopilot.cli import venv_commands
+    cmd = "pip install -r requirements.txt"
+    got = venv_commands(tmp_path, cmd)
+    assert len(got) == 2 and got[0].endswith("-m venv .venv") and "pip install -r" in got[1]
+    assert got[1].startswith(".venv") and cmd not in got
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venv" / "pyvenv.cfg").write_text("", encoding="utf-8")
+    got = venv_commands(tmp_path, cmd)
+    assert len(got) == 1 and got[0].startswith(".venv") and "venv .venv" not in got[0]
+    (tmp_path / ".venv" / "pyvenv.cfg").unlink()
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "active"))
+    got = venv_commands(tmp_path, cmd)
+    assert len(got) == 1 and "-m pip install -r requirements.txt" in got[0] and not got[0].startswith(".venv")
+    assert venv_commands(tmp_path, "npm ci") == ["npm ci"]
+
+
+def test_preflight_remembers_the_venv_commands(tmp_path, monkeypatch):
+    from autopilot.cli import preflight
+    cfg, p, calls = node_project(tmp_path, monkeypatch)
+    (tmp_path / "package-lock.json").unlink()
+    (tmp_path / "requirements.txt").write_text("", encoding="utf-8")
+    import types
+    ran = []
+    monkeypatch.setattr("autopilot.gate.run_commands",
+                        lambda cmds, *a: ran.extend(cmds) or [types.SimpleNamespace(rc=0, output="")])
+    assert preflight(cfg) is True
+    from autopilot.config import Config
+    setup = Config.load(tmp_path).commands("setup")
+    assert ran == setup
+    assert "-m venv .venv" in setup[0] and len(setup) == 2 and not any(c.startswith("pip ") for c in setup)
+
+
 def test_preflight_runs_commands_setup_when_set(tmp_path, monkeypatch):
     from autopilot.cli import preflight
     cfg, p, calls = node_project(tmp_path, monkeypatch, setup="npm install --no-audit")

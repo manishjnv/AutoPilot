@@ -51,7 +51,7 @@ tr[aria-current=true]{background:var(--hl)}
 .l{display:flex;gap:var(--s3)}
 .l time{color:var(--muted);flex:none;min-width:5ch}
 .l span{min-width:0;overflow-wrap:anywhere}
-.l.heading span{font-weight:700}.l.goal span{color:var(--muted)}.l.good span{color:var(--good)}
+.l.heading span{font-weight:700}.l.goal span,.l.wait span{color:var(--muted)}.l .took{margin-left:auto;color:var(--muted)}.l.good span{color:var(--good)}
 .l.bad span{color:var(--bad)}.l.note span{color:var(--warn)}.l.blank{height:var(--s2)}
 .num{color:var(--count);font-weight:600}.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
 .next{margin-top:var(--s4)}.next ul{margin:0;padding-left:var(--s4)}.next li{padding:var(--row) 0}
@@ -102,7 +102,7 @@ def _sec(i: str, title: str, body: str) -> str:
     return f'<section id="{i}" aria-labelledby="{i}-h"><h2 id="{i}-h">{e(title)}</h2>{body}</section>'
 
 
-def _tasks(tasks) -> str:
+def _tasks(tasks, other: str = "") -> str:
     rows = []
     for t in tasks:
         st = t.get("status") or "pending"
@@ -110,8 +110,12 @@ def _tasks(tasks) -> str:
         cur = ' aria-current="true"' if st == "running" else ""
         rows.append(f'<tr{cur}><td>{e(str(t.get("n", "")))}</td><td>{e(str(t.get("title", "")))}</td>'
                     f'<td class="st {e(st if st in WORDS else "pending")}">{sym} {word}</td>'
-                    f'<td>{e(str(t.get("time", "")))}</td><td>{e(str(t.get("detail", "")))}</td></tr>')
-    head = "".join(f"<th scope=col>{h}</th>" for h in ("#", "Task", "Status", "Time", "Detail"))
+                    f'<td>{e(str(t.get("time", "")))}</td><td>{e(str(t.get("risk") or "—"))}</td>'
+                    f'<td>{e(str(t.get("tries") if t.get("tries") not in (None, "") else "—"))}</td>'
+                    f'<td>{e(str(t.get("detail", "")))}</td></tr>')
+    if other:  # J13/15: tasks + this row = Elapsed
+        rows.append(f'<tr><td></td><td>Other: decide, research, docs, audit, waits</td><td></td><td>{e(other)}</td><td></td><td></td><td></td></tr>')
+    head = "".join(f"<th scope=col>{h}</th>" for h in ("#", "Task", "Status", "Time", "Risk", "Tries", "Detail"))
     return f'<div class="box" data-keep tabindex="0"><table><thead><tr>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
 
 
@@ -121,8 +125,9 @@ def _live(rows) -> str:
     out = []
     for r in rows:
         k = r.get("kind") or "step"
-        k = k if k in ("heading", "goal", "step", "good", "bad", "note", "blank") else "step"
-        out.append(f'<div class="l {k}"><time>{e(str(r.get("at", "")))}</time><span>{e(str(r.get("text", "")))}</span></div>'
+        k = k if k in ("heading", "goal", "step", "good", "bad", "note", "blank", "wait") else "step"
+        out.append(f'<div class="l {k}"><time>{e(str(r.get("at", "")))}</time><span>{e(str(r.get("text", "")))}</span>'
+                   + (f'<span class="took">{e(str(r["took"]))}</span>' if r.get("took") else "") + "</div>"
                    if k != "blank" else '<div class="l blank"></div>')
     return f'<div class="box" id="out" data-keep tabindex="0">{"".join(out)}</div>'
 
@@ -148,13 +153,27 @@ def _group(title: str, body: str) -> str:
     return f"<h3>{e(title)}</h3>{body}" if body else ""
 
 
-def _project(p: dict, total: int, sz) -> str:
+def _asof(a) -> str:
+    """J13/11: how old the data is; yellow with 'stale' over 30 s; a stopped run says when; no source is a dash."""
+    if not a:
+        return ""
+    if a.get("stopped"):
+        return f'<p class="z">stopped {e(str(a["stopped"]))}</p>'
+    age = a.get("age")
+    if not isinstance(age, (int, float)):
+        return '<p class="z">data —</p>'
+    t = f"{int(age)}s" if age < 60 else f"{int(age) // 60}m"
+    return f'<p class="w">data {t} old stale</p>' if age > 30 else f'<p class="z">data {t} old</p>'
+
+
+def _project(p: dict, total: int, sz, asof=None) -> str:
     tone = p.get("tone") if p.get("tone") in ("good", "wait", "bad") else ""
     st = e(str(p.get("status") or ""))
     status = (f'<div class="row"><span class="z">Status</span><strong class="t-{tone}">{st}</strong></div>' if tone
               else _dl([("Status", p.get("status"))]))
-    out = (_dl([("Branch", p.get("branch"))]) + status + f'<p>{e(str(p.get("state_words") or ""))}</p>'
-           + _dl([("Start", p.get("started")), ("Elapsed", p.get("elapsed")), ("Time left", p.get("eta"))]))
+    out = (_asof(asof) + _dl([("Branch", p.get("branch"))]) + status  # 'Time left' lives in the bar
+           + ("" if p.get("status") == "running" else f'<p>{e(str(p.get("state_words") or ""))}</p>')  # not "Writes the code."
+           + _dl([("Start", p.get("started")), ("Elapsed", p.get("elapsed"))]))
     if _i(p.get("stale_min")) > 0:
         c = {"warn": "w", "bad": "bad"}.get(p.get("stale"), "z")
         out += f'<p class="{c}">No change for {_i(p.get("stale_min"))} min.</p>'
@@ -168,16 +187,19 @@ def _project(p: dict, total: int, sz) -> str:
         c = "z" if a < 2 else "w" if a == 2 else "bad"
         body += f'<p class="{c}">Try {a}{f" of {m}" if m else ""}</p>'
     if nw.get("n"):
-        body += _dl([("Time", nw.get("time"))])
+        body += _dl([("Task time", nw.get("time"))])
     body += _dl([("Model", nw.get("model"))])
     out += _group("Now", body if nw else "")
     out += _group("Next", f'<p>{e(str(p["next"]))}</p>' if p.get("next") else "")
+    out += _group("Agent", _dl([(k, p.get(f) or "—") for k, f in (("Runner", "runner"), ("Login", "login"),
+                                                                  ("Resets", "resets"), ("Error", "last_error"))]))
     if sz:
         rows = [("Code", f'{_i(sz.get("code")):,} lines'),
                 ("Tests", f'{_i(sz.get("tests")):,} lines, {_i(sz.get("test_count")):,} tests'),
                 ("Docs", f'{_i(sz.get("docs")):,} lines')]
         if sz.get("run_lines") is not None:
-            rows.append(("This run", f'+{_i(sz["run_lines"]):,} lines, {_i(sz.get("run_files")):,} files'))
+            rows.append(("This run", f'+{_i(sz["run_lines"]):,} lines'))
+            rows.append(("", f'{_i(sz.get("run_files")):,} files'))
         out += _group("Size", _dl(rows))
     if p.get("last_commit"):
         age = f' <span class="z">{e(str(p["last_commit_age"]))} ago</span>' if p.get("last_commit_age") else ""
@@ -190,14 +212,13 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     tasks, health, files = data.get("tasks") or [], data.get("health") or {}, data.get("files")
     done, total, pct = _i(g.get("done")), _i(g.get("total")), _i(g.get("pct"))
     eta, active = p.get("eta") or "", _i(g.get("active"))
-    proj = _project(p, total, data.get("size"))
+    proj = _project(p, total, data.get("size"), data.get("asof"))
 
     prog = (f'<div class="big">{pct}%</div>{_bar(pct / 100, "Progress")}'
             f'<div class="row"><span>{done} done · {_i(g.get("working"))} working</span></div>'
             f'<div class="row"><span><span class="{"bad" if _i(g.get("blocked")) > 0 else ""}">{_i(g.get("blocked"))} blocked</span>'
             f' · {_i(g.get("waiting"))} waiting</span></div>'
-            f'<div class="row"><span>{_i(g.get("phases_done"))} of {_i(g.get("phases_total"))} phases</span></div>'
-            + (f'<div class="row"><span>Time left</span><span class="num">{e(str(eta))}</span></div>' if eta else ""))
+            f'<div class="row"><span>{_i(g.get("phases_done"))} of {_i(g.get("phases_total"))} phases</span></div>')
 
     bars = ""
     for k, lab in (("five", "5-hour window"), ("week", "Week"), ("context", "Context")):
@@ -210,13 +231,17 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
                      f'<span>{e(str(m.get("tokens_text", "")))} <span class="num">{round(_v(m.get("share")) * 100)}%</span></span></div>'
                      f'{_bar(m.get("share"), str(m.get("name", "")))}' for m in u.get("models") or [])
     usage = (bars + f'<div class="row"><span>Tokens</span><strong>{e(str(u.get("tokens_text") or "0"))}</strong></div>'
-             + models + f'<div class="row"><span>Cost</span><strong>${float(u.get("cost") or 0):.2f}</strong></div>')
+             + models + f'<div class="row"><span>Cost</span><strong>${float(u.get("cost") or 0):.2f}</strong></div>'
+             + f'<div class="row"><span>Rate</span><span>{e(str(u.get("rate") or "—"))}</span></div>')
 
     bw = data.get("blocked_why") or {}
     issues = _count("Blocked tasks", g.get("blocked"), "bad")
     if bw:
         issues += f'<div class="bad">{e(str(bw.get("id", "")))}: {e(str(bw.get("why", "")))}</div>'
     issues += _count("Questions for you", g.get("questions"), "w") + _count("Gate warnings", g.get("warnings"), "w")
+    issues += "".join(f'<div class="w">{e(str(x.get("id", "")))} {e(str(x.get("why", "")))}</div>'
+                      for x in (g.get("warned_why") or [])[:3])
+    issues += _count("Retries", g.get("retries"), "w")
     for lab, k in (("Git", "git"), ("Checks", "checks")):
         if health.get(k):
             issues += (f'<div class="row"><span>{lab}</span><span class="{"good" if health[k] == "OK" else "bad"}">'
@@ -232,10 +257,12 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     # three columns on a wide window; on a narrow one the columns dissolve and the `order` of each panel decides
     right = [_sec("progress", "Progress", prog), _sec("usage", "Usage", usage)]
     if files is not None:
-        right.append(_sec("files", "Files", fv("added", "good") + fv("modified", "") + fv("deleted", "bad")))
+        more = (fv("plus", "good").replace(">Plus<", ">Lines +<") + fv("minus", "bad").replace(">Minus<", ">Lines -<")
+                + fv("tests", "").replace(">Tests<", ">Tests +<")) if files.get("plus") is not None else ""
+        right.append(_sec("files", "Files", fv("added", "good") + fv("modified", "") + fv("deleted", "bad") + more))
     right.append(_sec("issues", "Issues", issues))
     cols = ([_sec("project", "Project", proj)],
-            [_sec("tasks", "Tasks", _tasks(tasks)), _sec("live", "Live output", _live(data.get("live") or []))], right)
+            [_sec("tasks", "Tasks", _tasks(tasks, str(p.get("other") or ""))), _sec("live", "Live output", _live(data.get("live") or []))], right)
     cells = [f'<div class="col">{"".join(c)}</div>' for c in cols]
 
     need, needs = data.get("needs_you") or [], ""
@@ -251,12 +278,14 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     nxt = f'<section class="next" aria-labelledby="next-h"><h2 id="next-h">What you can do next</h2><ul>{nxt}</ul></section>' if nxt else ""
 
     nb = _i(g.get("blocked"))
-    bar = (f'<footer><span>{e(str(p.get("name") or ""))}</span><span class="m">{e(str(p.get("branch") or ""))}</span>'
+    five = u.get("five")
+    bar = (f'<footer><span>{e(str(p.get("name") or ""))}</span>'
            + (f"<span>Task {active}/{total}</span>" if active > 0 else f"<span>Done {done}/{total}</span>")
            + f'<span>{_bar(pct / 100, "Progress")}{pct}%</span>'
-           + (f"<span>Left {e(str(eta))}</span>" if eta else "")
+           + (f"<span>Left{':' if str(eta).startswith('after') else ''} {e(str(eta))}</span>" if eta else "")
            + f'<span class="{"bad" if nb else "z"}">Blocked {nb}</span><span>Tok {e(str(u.get("tokens_text") or "0"))}</span>'
-           f'<span>${float(u.get("cost") or 0):.2f}</span></footer>')
+           f'<span>${float(u.get("cost") or 0):.2f}</span>'
+           + (f"<span>5h {round(float(five) * 100)}%</span>" if isinstance(five, (int, float)) else "") + "</footer>")
 
     rep = f"<details><summary>Full report</summary><pre>{e(report_md)}</pre></details>" if report_md else ""
     ms = int(refresh) * 1000

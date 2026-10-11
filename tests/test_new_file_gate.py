@@ -35,6 +35,12 @@ def one_task(n=1):
                                                      for i in range(1, n + 1)]}]
 
 
+def scoped(phases):  # N12: tasks run together only with a files_in_scope each
+    for t in phases[0]["tasks"]:
+        t["files_in_scope"] = [f"src/{t['id']}.txt"]
+    return phases
+
+
 def test_rule_is_in_system_prompt_and_task_prompt_asks_for_new_files():
     assert "\n" not in NEW_FILE_RULE and "new_files" in NEW_FILE_RULE
     assert f"- {NEW_FILE_RULE}\n" in (PROMPTS / "system.md").read_text(encoding="utf-8")  # no drift from the gate
@@ -91,7 +97,7 @@ class Reasons(FakeBackend):
 
 
 def test_parallel_commit_message_has_new_file_lines(tmp_path):
-    root = make_project(tmp_path, one_task(2), dict(CFG, scheduling={"parallel": 2}))
+    root = make_project(tmp_path, scoped(one_task(2)), dict(CFG, scheduling={"parallel": 2}))
     orch = Orchestrator(root, backend=Reasons(), sleep=lambda s: None)
     assert orch.run() == "plan complete"
     log = git(root, "log", "--all", "--format=%B")
@@ -147,6 +153,28 @@ def test_new_file_with_reason_passes(tmp_path):
     put(tmp_path, "NOTES2.md", "notes\n")
     g = gate(cfg, {"status": "done", "summary": "add notes", "new_files": [{"path": "NOTES2.md", "reason": NOTES_REASON}]})
     assert g.ok and g.problems == [] and g.results and g.results[0].rc == 0
+
+
+def test_task_declared_new_file_passes_without_a_report_reason(tmp_path):  # O3
+    cfg = gate_repo(tmp_path)
+    put(tmp_path, "src/utils2.py", "def u():\n    return 2\n")
+    assert not gate(cfg, {"status": "done", "summary": "helper"}).ok
+    task = SimpleNamespace(allow_no_changes=False, allow_test_changes=False, files_in_scope=[], verify=[],
+                           new_files=["src/utils2.py"], new_deps=[])
+    assert task_gate(cfg, Git(cfg.root), task, report={"status": "done", "summary": "helper"}).ok
+
+
+def test_dependency_manifest_change_needs_a_declared_dependency(tmp_path):  # O3
+    cfg = gate_repo(tmp_path)
+    put(tmp_path, "package.json", '{"dependencies": {"left-pad": "1.0.0"}}\n')
+    sh(tmp_path, "add", "-A"), sh(tmp_path, "commit", "-qm", "manifest")
+    put(tmp_path, "package.json", '{"dependencies": {"left-pad": "1.0.0", "lodash": "4.0.0"}}\n')
+    g = gate(cfg, {"status": "done", "summary": "add lodash"})
+    assert not g.ok and any("dependency manifest changed without a declared dependency: package.json" in p for p in g.problems)
+    assert gate(cfg, {"status": "done", "summary": "x", "new_deps": [{"name": "lodash", "reason": "deep merge"}]}).ok
+    task = SimpleNamespace(allow_no_changes=False, allow_test_changes=False, files_in_scope=[], verify=[],
+                           new_files=[], new_deps=["lodash"])
+    assert task_gate(cfg, Git(cfg.root), task, report={"status": "done", "summary": "x"}).ok
 
 
 def test_test_file_agent_file_and_rename_need_no_reason(tmp_path):
@@ -227,7 +255,7 @@ def test_missing_reason_retries_with_the_rule_in_the_next_prompt(tmp_path):
 
 
 def test_parallel_gate_checks_reasons_too(tmp_path):
-    root = make_project(tmp_path, one_task(2), dict(CFG, scheduling={"parallel": 2}, **ON))
+    root = make_project(tmp_path, scoped(one_task(2)), dict(CFG, scheduling={"parallel": 2}, **ON))
     be = FakeBackend()  # adds src/<task>.txt with no new_files
     orch = Orchestrator(root, backend=be, sleep=lambda s: None)
     orch.run()

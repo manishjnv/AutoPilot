@@ -115,6 +115,23 @@ def test_stuck_watch_needs_consecutive_repeats():
     assert all(off(tool_line(command="ls")) == "" for _ in range(10))
 
 
+def test_repeated_final_report_is_not_stuck(tmp_path, monkeypatch):
+    assert all(stuck_watch(4)(tool_line("StructuredOutput", status="done")) == "" for _ in range(6))
+    line = tool_line("StructuredOutput", status="done")
+    body = ("print(json.dumps({'type': 'system', 'session_id': 'sx'}), flush=True)\n"
+            f"for _ in range(4): print({line!r}, flush=True)\n"
+            "print(json.dumps({'type': 'result', 'result': '', 'session_id': 'sx', "
+            "'structured_output': {'status': 'done', 'summary': 'x'}}), flush=True)\n")
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, body))
+    res = ClaudeCLIBackend(Config.load(tmp_path)).run(SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path)))
+    assert res.ok and not res.stuck and res.report.get("status") == "done"
+
+
+def test_system_prompt_asks_for_one_final_report():
+    from autopilot.context import PROMPTS
+    assert "Call the final report once, at the end." in (PROMPTS / "system.md").read_text(encoding="utf-8")
+
+
 def test_result_event_is_the_last_result_line():
     raw = "\n".join([json.dumps({"type": "system", "subtype": "init", "session_id": "s9"}), tool_line(command="ls"),
                      json.dumps({"type": "result", "result": "fine", "session_id": "s9"}), "trailing noise"])
@@ -219,3 +236,48 @@ def test_turn_limit_is_a_clear_failure(tmp_path, monkeypatch):
     res = ClaudeCLIBackend(Config.load(tmp_path)).run(SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path)))
     assert not res.ok and res.error.startswith("error_max_turns") and res.cost == 1.5 and res.num_turns == 200
     assert "session_id" not in res.text  # the event stream never leaks into text / error
+
+
+# ---------- P10-T07: git discard survives a Windows file lock ----------
+class _P:
+    def __init__(self, rc=0, err=""):
+        self.returncode, self.stderr, self.stdout = rc, err, ""
+
+
+def _fake_git(tmp_path, monkeypatch, fail):
+    """Git whose _git returns fail(args, n) -> _P; records every call."""
+    from autopilot.gitops import Git
+    g, calls = Git(tmp_path), []
+    monkeypatch.setattr(g, "_git", lambda args: calls.append(list(args)) or fail(list(args), len(calls)))
+    return g, calls
+
+
+def test_discard_retries_once_on_lock(tmp_path, monkeypatch, caplog):
+    hard = []
+
+    def fail(a, n):
+        if "--hard" in a:
+            hard.append(a)
+            return _P(1, "error: unable to unlink '.agent/plan.yaml': Permission denied") if len(hard) == 1 else _P()
+        return _P()
+    g, _ = _fake_git(tmp_path, monkeypatch, fail)
+    with caplog.at_level("WARNING", logger="autopilot"):
+        g.discard(sleep=lambda s: None)
+    assert len(hard) == 2 and len([r for r in caplog.records if "retry" in r.message]) == 1
+
+
+def test_discard_falls_back_after_three_locks(tmp_path, monkeypatch):
+    def fail(a, n):
+        return _P(1, "Unlink of file '.agent/plan.yaml' failed") if "--hard" in a else _P()
+    g, calls = _fake_git(tmp_path, monkeypatch, fail)
+    g.discard(sleep=lambda s: None)
+    assert sum("--hard" in c for c in calls) == 3
+    assert any(":(exclude).agent" in c for c in calls) and any("-e" in c and ".agent" in c for c in calls)
+
+
+def test_discard_other_git_error_raises(tmp_path, monkeypatch):
+    import pytest
+    from autopilot.gitops import GitError
+    g, _ = _fake_git(tmp_path, monkeypatch, lambda a, n: _P(128, "fatal: not a git repository"))
+    with pytest.raises(GitError):
+        g.discard(sleep=lambda s: None)

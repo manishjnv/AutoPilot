@@ -20,9 +20,10 @@ documents in the pack (PLAN.md, ROADMAP, TODO, notes).
    Keep every other key as is.
 4. `.agent/plan.yaml`: convert the plan document into phases and tasks following the existing schema:
    - every task small enough for ONE session (~1-3 files of real logic), with a clear title and description
-   - 2-5 testable acceptance_criteria per task, files_in_scope globs, risk tier
+   - 2-5 testable acceptance_criteria per task, files_in_scope globs (required: the real files or folders the task edits; the gate fails any other file; an empty list means the whole repository and the task runs alone), risk tier
      (critical/high for auth, payments, tenant isolation, crypto, data migrations)
    - explicit depends_on only where order inside a phase matters
+   - contract task: when two or more tasks in one phase touch the same module, type or API, write one small task first (interfaces, types, stubs, the shared helper's signature). Make the others depends_on it. Keep its files out of the other tasks' files_in_scope. Two tasks that share a file get a depends_on edge, so they never run in parallel.
    - stable ids: P01-T01, P01-T02, ...
    - keep the author's phase structure and intent; do not invent unrelated features
 5. Validate your YAML mentally: unique ids, only known dependency ids, no cycles.

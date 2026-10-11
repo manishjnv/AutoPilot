@@ -59,7 +59,7 @@ def check_login(binary: str, version: tuple, cfg, timeout: float = 30) -> tuple[
 
 # N3: agent CLIs in the order preflight tries them -> (binary, backend choice, read-only status argv or None,
 # documented key variables). A key variable counts first: no process to start. Never a `login` argument here.
-LOGIN_TIMEOUT = 10
+LOGIN_TIMEOUT = 20  # N10
 RUNNERS = (
     ("claude", "claude_cli", None, OTHER_AUTH),
     ("kiro-cli", "kiro", ("whoami",), ("KIRO_API_KEY",)),
@@ -72,6 +72,33 @@ RUNNERS = (
 # exit codes of the status commands are not documented: a logged-out CLI may still exit 0
 LOGGED_OUT = re.compile(r"not (logged|signed) in|not authenticated|unauthenticated|logged out|no (active )?"
                         r"(session|credentials)|please (log|sign) ?in", re.I)
+# N10: owner rule 2026-10-11, subscription login only. The one interactive login command per runner (never run by
+# Autopilot: it prints the line and stops), and the runners whose only login is an API key (not supported).
+LOGIN_CMD = {"claude_cli": "claude auth login", "codex": "codex login", "cursor": "cursor-agent login",
+             "kiro": "kiro-cli login", "copilot": "gh auth login"}
+NO_SUBSCRIPTION = ("gemini", "aider", "opencode", "amp", "qwen", "goose")
+
+
+def check_runner_login(cfg, env=None) -> tuple[str, str, str]:
+    """N10: the configured runner (a `command` preset) is logged in with its own subscription; stdin closed, CI=1,
+    LOGIN_TIMEOUT. FAIL names the one login command. No credential file is read, written or copied."""
+    preset = str(cfg.get("agent.preset") or "")
+    if cfg.get("agent.command") or not preset:
+        return OK, "runner login", "custom command: not checked"
+    if preset in NO_SUBSCRIPTION:
+        return (WARN, "runner login",
+                f"`{preset}` needs an API key, not supported (subscription runners: {', '.join(LOGIN_CMD)})")
+    row = next((r for r in RUNNERS if r[1] == preset), None)
+    if row is None:
+        return WARN, "runner login", f"no login check for preset `{preset}`"
+    binary, _, status, keys = row
+    env = dict(os.environ if env is None else env)
+    exe = shutil.which(binary, path=next((v for k, v in env.items() if k.upper() == "PATH"), None))
+    if not exe:
+        return FAIL, "runner login", f"`{binary}` is not on PATH"
+    if _logged_in(exe, binary, status, keys, env):
+        return OK, "runner login", f"{binary} logged in"
+    return FAIL, "runner login", f"{binary} is not logged in: run `{LOGIN_CMD.get(preset, binary + ' login')}`, then start again"
 
 
 def _logged_in(path: str, binary: str, status: tuple | None, keys: tuple, env: dict) -> bool:
@@ -84,7 +111,7 @@ def _logged_in(path: str, binary: str, status: tuple | None, keys: tuple, env: d
     if not status:
         return False
     try:
-        p = run_proc([path, *status], env=dict(env), timeout=LOGIN_TIMEOUT)
+        p = run_proc([path, *status], env={**env, "CI": "1"}, timeout=LOGIN_TIMEOUT)  # N10: no prompt, no browser
     except OSError:
         return False
     return p.rc == 0 and not p.timed_out and not LOGGED_OUT.search(p.stdout + p.stderr)
@@ -383,9 +410,24 @@ def check_deps(cfg: Config) -> tuple[str, str, str] | None:
     return (WARN, "dependencies", "not installed; run " + "; ".join(parts))
 
 
+def package_line() -> str:
+    """Which Autopilot is imported: version and package path (shared by `ap doctor` and the run log)."""
+    from . import __file__ as init_file, __version__
+    return f"Autopilot {__version__} from {Path(init_file).resolve().parent}"
+
+
+def check_package(root) -> tuple[str, str, str]:
+    """WARN when the project's own autopilot/ folder is imported instead of the installed package."""
+    line = package_line()
+    pkg = Path(line.split(" from ", 1)[1])
+    if Path(root).resolve() in pkg.parents:
+        return (WARN, "autopilot", line + ": the project's own autopilot/ folder is imported, not the installed Autopilot")
+    return (OK, "autopilot", line)
+
+
 def checks(cfg: Config) -> list[tuple[str, str, str]]:
     """(level, name, detail) per check. FAIL = the run would break; WARN = it runs, but something is missing."""
-    out = [check_path()]
+    out = [check_path(), check_package(cfg.root)]
     if cfg.get("agent.backend", "claude_cli") == "claude_cli":
         out += check_claude(cfg)
         out += [g for g in [check_user_guards(cfg)] if g]
@@ -398,6 +440,8 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
 
     rc, txt = _run(["git", "--version"])
     out.append((OK if rc == 0 else FAIL, "git", txt.splitlines()[0] if rc == 0 and txt else "not found on PATH"))
+    from .rights import describe
+    out.append((OK, "rights", describe()))  # N8: what the installer took and how to undo it
     if cfg.get("git.push"):
         rc, url = _run(["git", "remote", "get-url", "origin"], cwd=cfg.root)
         out.append((OK if rc == 0 else FAIL, "git remote", url if rc == 0 else "git.push is on but there is no origin"))

@@ -69,7 +69,7 @@ Two real projects, each a CLI built from a plan:
 | Agent time | 2.2 hours, 38 sessions | 1.4 hours, 42 sessions |
 | Cost at API prices | $17.13 | $19.01 |
 
-Both runs used a subscription. The envguard audits found 8 real bugs, and Autopilot fixed all of them.
+Both runs used a subscription. The envguard audits found 8 real bugs, and Autopilot fixed all of them. envguard: private repository, numbers from the run log.
 
 ## Install
 
@@ -105,6 +105,8 @@ your IDE or terminal.
   uses the one that is installed and logged in. To choose one, set `agent.backend` in `.agent/project.yaml`.
 - **Not supported:** Replit has no CLI that Autopilot can call. The Kiro and Cursor chat panels have none either.
   Use the `kiro-cli` or `cursor-agent` CLI instead.
+- **Approve-all presets:** `kiro` (`--trust-all-tools`), `cursor` (`--force`) and `gemini` (`yolo`) approve every tool,
+  not only the worktree. They never ran live. See [SECURITY.md](SECURITY.md).
 - **Where you watch:** run `ap watch` in the terminal of your IDE, or open the status page in your browser.
 
 **After the run:** the code is on `main`. Also read `CHANGELOG.md`, `docs/RCA.md` and `docs/NEEDS-YOU.md`.

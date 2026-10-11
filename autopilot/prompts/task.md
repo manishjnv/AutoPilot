@@ -12,6 +12,7 @@ Risk tier: {{risk}}
 
 ### Files in scope
 {{scope}}
+The gate fails a change to any file outside this list (tests, docs, README and CHANGELOG are always allowed). When you must edit another file, name it in the report under `scope_additions` with a reason, or leave it unchanged.
 
 ### Docs to update
 {{docs}}
@@ -25,6 +26,12 @@ Risk tier: {{risk}}
 {{adr_block}}
 
 {{research_block}}
+
+## Existing helpers (reuse before you write)
+Reuse or extend a listed helper before you write a new one. A new helper with the same job as a listed one is a defect.
+```
+{{helper_index}}
+```
 
 ## Previous session handoff
 {{handoff}}
@@ -44,7 +51,7 @@ Risk tier: {{risk}}
 ## How to work
 1. Read the relevant existing code first. Follow the existing conventions in BRAIN.md.
 2. Implement the task completely — no stubs, TODOs or placeholder logic for anything in the acceptance criteria.
-3. Add or extend automated tests that prove each acceptance criterion.
+3. {{test_rule}}
 4. Run the project's checks yourself and fix failures before finishing:
 {{verify_cmds}}
 5. Update documentation touched by this change (README, API docs, docstrings, the docs listed above).
@@ -63,6 +70,8 @@ Risk tier: {{risk}}
   "decisions": ["decision — reason (only architecture/interface/convention choices later sessions must follow)"],
   "followups": ["work you noticed that is out of scope for this task"],
   "new_files": [{"path": "src/new_module.py", "reason": "why no existing file can own this content"}],
+  "scope_additions": {"src/other.py": "why this file outside the task scope had to change (omit when none)"},
+  "new_deps": [{"name": "package", "reason": "why no installed dependency does this (omit when none)"}],
   "rca": {"symptom": "...", "root_cause": "...", "fix": "file:line — what changed", "prevention": "the test or check that stops a repeat"},
   "blocker": "only when status is blocked"
 }

@@ -220,3 +220,12 @@ def test_report_next_action_names_the_oldest_open_decision(tmp_path):
     orch.run()
     report = (root / ".agent" / "REPORT.md").read_text(encoding="utf-8")
     assert "- Next action: answer D-001 in docs/NEEDS-YOU.md" in report and "- Open decisions: 2" in report
+
+
+def test_retry_prompt_quotes_the_tamper_rule_as_one_instruction(tmp_path):
+    root = make_project(tmp_path, phases_basic(), NO_AUDIT)
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    orch.reload_plan()
+    task = orch.plan.task_by_id["P01-T01"]
+    prompt = orch.ctx.task_prompt(task, 2, "gate: test count dropped in tests/test_adopt.py: 12 -> 2")
+    assert "Keep all 12 tests in tests/test_adopt.py. Add, do not remove." in prompt

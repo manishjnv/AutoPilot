@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import AGENT_DIR, decisions
 from .backends import SessionRequest, SessionResult, get_backend
-from .config import RISKS, Config
+from .config import RISKS, Config, load_yaml
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
 from .docs import Documenter, redact_secrets, research_path
@@ -54,6 +54,8 @@ def run_supervised(root, make=None, sleep=time.sleep, max_restarts: int = 10) ->
         except (KeyboardInterrupt, SystemExit):
             raise
         except Exception as exc:  # noqa: BLE001 — that is the point: any crash
+            if orch:  # J14.9: run.json says finished only when the process exits; ap watch stays through the restart
+                orch._journal(status="running", outcome="", state="Heal", current="restarts after a crash")
             state = orch.state if orch else State(Path(root) / AGENT_DIR / "state.db")
             task = str(state.get_meta("current_task", "") or "")
             sig, path = _crash_report(Path(root), exc, task)
@@ -102,6 +104,17 @@ def model_rank(model: str) -> int:
     return next((i for i, name in enumerate(MODEL_ORDER) if name in m), 1)
 
 
+def own_fix(suggestion: str) -> tuple[str, str, str]:
+    """J14.6: a fix the diagnosis names that Autopilot can apply alone -> (model, prompt line, label); none = ("","","")."""
+    t = str(suggestion or "")
+    m = re.search(r"(?:retry on|model:)\s*(haiku|sonnet|opus)\b", t, re.I)
+    line = re.search(r"(?:prompt line|instruction):\s*(.+)", t, re.I)
+    short = re.search(r"shorter summary|call the final report once", t, re.I)
+    text = line.group(1).strip() if line else ("Write one short final report and call it once." if short else "")
+    model = m.group(1).lower() if m else ""
+    return model, text, " + ".join(x for x in (f"model {model}" if model else "", f"prompt line: {text}" if text else "") if x)
+
+
 def _one_line(x) -> str: return " ".join(str(x or "").split())
 
 
@@ -119,6 +132,15 @@ def new_file_lines(report: dict) -> str:
 # G8: the word the status line shows for each kind of session
 STATE = {"task": "Code", "fixer": "Fix", "unstick": "Fix", "repair": "Fix", "verify": "Review", "audit": "Review",
          "replan": "Plan", "decide": "Plan", "review": "Review", "research": "Plan", "onboard": "Plan", "triage": "Plan"}
+
+
+def _scopes_collide(a: list, b: list, tracked: list) -> bool:
+    """N12: do two `files_in_scope` lists share a file? Globs are expanded against the tracked files; a glob also
+    meets a literal pattern of the other list (a new file is not tracked yet), and equal patterns always collide."""
+    import fnmatch
+    hit = lambda pats: {f for f in tracked if any(fnmatch.fnmatch(f, g) for g in pats)}  # noqa: E731
+    return bool(set(a) & set(b) or hit(a) & hit(b)
+                or any(fnmatch.fnmatch(x, g) for x in a for g in b) or any(fnmatch.fnmatch(x, g) for x in b for g in a))
 
 
 class Stop(Exception):
@@ -332,6 +354,8 @@ class Orchestrator:
         return "\n".join(x for x in (token_footer(self.state, self.first_session), window_line(self.state)) if x)
 
     def _run(self) -> str:
+        from .doctor import package_line
+        log.info(package_line())
         self.heal_config()
         blocking = self.cfg.blocking_errors()
         if blocking:
@@ -365,6 +389,7 @@ class Orchestrator:
             self.intake(force=True)
             self.intake_answers()
             self.apply_answers()
+            self.sync_plan_source()
             crashed = self.state.recover_crashed()
             if crashed:
                 log.info("recovered crashed tasks: %s", crashed)
@@ -480,7 +505,7 @@ class Orchestrator:
                 return f"stalled: {len(pending)} tasks wait on skipped or blocked work"
 
             # plan exhausted -> is the app actually complete?
-            if not self.cfg.get("audit.enabled") or not self.cfg.get("audit.completion_audit"):
+            if not self.cfg.get("audit.enabled") or not self.cfg.get("audit.completion_audit") or self.cfg.lean:
                 return "plan complete"
             rounds = self.state.get_meta("completion_rounds", 0)
             if rounds >= int(self.cfg.get("audit.max_completion_rounds", 2)):
@@ -827,6 +852,9 @@ class Orchestrator:
         chain, chain_model = None, ""  # the last failed attempt's session, resumable by the next attempt
         risk = self.effective_risk(task)
         floor = model_rank(row["model"]) if attempts and row["model"] else -1  # U6: never route down
+        own_model, own_used, fail_model, fail_why = "", "", "", ""  # J14.6 own fix; J14.8 facts of the last failure
+        if floor >= 0 and self.state.get_meta(f"stepup:{task.id}", False):  # J14.5: the last attempt was cut or looped
+            floor += 1
 
         while attempts < max_attempts:
             per_task = float(self.cfg.get("budget_usd.per_task", 0) or 0)
@@ -838,7 +866,8 @@ class Orchestrator:
                 self.state.set_task(task.id, status="pending")
                 raise Stop(f"phase {phase.id} budget ${per_phase} reached")
 
-            model = self.model_for(risk, attempts, floor)
+            model = own_model or self.model_for(risk, attempts, floor)
+            own_model = ""
             effort = self.cfg.get(f"models.effort.{risk}", "")
             base = self.git.start_branch(branch, self.main)
             res = None
@@ -859,8 +888,11 @@ class Orchestrator:
             self.state.set_task(task.id, attempts=attempts, model=model)
             self.git.normalize_after_session(branch, base)
             agent_blocked = False
+            cut = bool((res.timed_out or res.stuck) and self.git.staged_files())  # J14.3: a cut session keeps its diff
+            if cut:
+                log.info("task %s: session cut (%s); its diff is gated first", task.id, res.error[:120])
 
-            if not res.ok:
+            if not res.ok and not cut:
                 last_error = f"agent session failed ({model}): {res.error}"
             elif str(res.report.get("status", "done")).lower() == "blocked":
                 agent_blocked = True
@@ -887,7 +919,8 @@ class Orchestrator:
                     last_error = problem
                 elif gate.ok:
                     try:
-                        self._complete_task(task, phase, res, model, attempts, gate, branch, prior_error=last_error)
+                        self._complete_task(task, phase, res, model, attempts, gate, branch, prior_error=last_error,
+                                            lesson=self._lesson(task, fail_model, fail_why, model, own_used))
                         return True
                     except GitError as exc:
                         last_error = f"merge failed: {exc}"
@@ -895,18 +928,26 @@ class Orchestrator:
                         self.git.checkout_main(self.main)
                 else:
                     last_error = gate.report()
+                    if cut:  # the diff and the gate text become the retry input; nothing is thrown away
+                        last_error = (f"session cut ({res.error[:200]}); its diff failed the gate:\n{gate.report()}\n\n"
+                                      f"Diff of the cut session (start from it, do not rewrite):\n"
+                                      f"{self.git.run('diff', '--cached', check=False)[:8000]}")
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
             chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
             why = self.escalation(res)
+            fail_model, fail_why = model, why
             floor = max(floor, model_rank(model) + (1 if why else 0))
+            self.state.set_meta(f"stepup:{task.id}", bool(why))  # survives a restart; a plain test failure clears it
             if why:
                 log.info("task %s escalates to a stronger model: %s", task.id, why)
             self.git.discard()
             fail_err = last_error or ""
-            if (self.cfg.get("unstick.enabled", True) and not self.state.get_meta(f"unstick:{task.id}", False)
+            if (self.cfg.get("unstick.enabled", True) and not self.cfg.lean  # O10: lean = one retry, then park
+                    and not self.state.get_meta(f"unstick:{task.id}", False)
                     and (agent_blocked or res.stuck or attempts >= int(self.cfg.get("unstick.after_attempts", 2)))):
                 kind, text, rep = self.unstick(task, phase, fail_err)
-                if kind == "owner":
+                fix_model, fix_line, fix_label = own_fix(rep.get("suggestion")) if kind != "skip" else ("", "", "")
+                if kind == "owner" and not fix_label:
                     self._park(task, branch, attempts, fail_err)
                     self.needs_you("task", f"{task.id} {task.title}", str(rep.get("question") or self.GENERIC_QUESTION),
                                    task_id=task.id, checked=str(rep.get("checked") or text),
@@ -917,6 +958,11 @@ class Orchestrator:
                     max_attempts = attempts + 1
                     label = "DIAGNOSIS" if kind == "technical" else "DECISION"
                     last_error = f"{fail_err}\n\n{label} from a separate review session (apply it):\n{text}"
+                    if fix_label:  # J14.6: apply the named fix as this one extra attempt; ask only if it fails too
+                        own_model, own_used = fix_model, fix_label
+                        last_error += f"\n\nEXTRA INSTRUCTION: {fix_line}" if fix_line else ""
+                        log.info("task %s own fix: %s", task.id, fix_label)
+                        self.state.event("own_fix", f"{task.id}: own fix: {fix_label}")
 
         self._park(task, branch, attempts, last_error or "")
         if extra:
@@ -947,7 +993,7 @@ class Orchestrator:
 
     def review(self, task, phase, branch: str, base: str) -> str:
         """risk: critical only: one read-only Opus session reviews the gated diff before the merge. A finding is a failed
-        attempt (error text); a pass or no usable verdict is "" (a broken reviewer never parks every critical task)."""
+        attempt (error text); a pass is "". No verdict after one retry also fails the attempt, never a merge."""
         if not self.cfg.get("review.enabled", True) or task.risk != "critical":
             return ""
         if not self.git.staged_files():  # the work is staged after the gate
@@ -956,26 +1002,30 @@ class Orchestrator:
         self.git.run("commit", "-q", "--no-verify", "-m", f"[autopilot] review snapshot {task.id}")
         sha = self.git.head()
         diff = self.git.run("diff", "--no-color", "--no-ext-diff", "--no-textconv", base, sha, check=False)
-        while True:
-            try:
-                res = self.session("review", self.ctx.review_prompt(task, diff), self.cfg.get("models.review", "opus"),
-                                   task_id=task.id, phase=phase.id, read_only=True,
-                                   effort=self.cfg.get("review.effort", "high"))
-            finally:  # read-only: drop what it touched (even its git moves), keep the work on the snapshot
-                self.git.run("checkout", "-q", "-f", "-B", branch, sha)
-                self.git.run("clean", "-q", "-ffd")  # -ff: also nested repos it made (git init / clone)
-            if not res.rate_limited:  # session() already waited out the limit
+        for _try in range(2):  # a missing verdict = one retry of the review session
+            while True:
+                try:
+                    res = self.session("review", self.ctx.review_prompt(task, diff), self.cfg.get("models.review", "opus"),
+                                       task_id=task.id, phase=phase.id, read_only=True,
+                                       effort=self.cfg.get("review.effort", "high"))
+                finally:  # read-only: drop what it touched (even its git moves), keep the work on the snapshot
+                    self.git.run("checkout", "-q", "-f", "-B", branch, sha)
+                    self.git.run("clean", "-q", "-ffd")  # -ff: also nested repos it made (git init / clone)
+                if not res.rate_limited:  # session() already waited out the limit
+                    break
+            rep = res.report if res.ok and isinstance(res.report, dict) else {}
+            verdict = str(rep.get("verdict", "")).lower()
+            if verdict in ("pass", "fail"):
                 break
+            log.warning("review session for %s gave no verdict: %s", task.id, (res.error or "")[:200])
         self.git.run("reset", "-q", "--soft", base)  # the work back as uncommitted staged changes
-        rep = res.report if res.ok and isinstance(res.report, dict) else {}
-        verdict = str(rep.get("verdict", "")).lower()
         if verdict == "fail":
             findings = [str(f) for f in (rep.get("findings") or []) if str(f).strip()]
             return ("REVIEW of the critical task found problems (fix them):\n"
                     + ("\n".join(f"- {f}" for f in findings) or str(rep.get("summary") or "no details")))
-        if verdict != "pass":  # ponytail: no verdict = merge without review
-            log.warning("review session for %s gave no verdict: %s", task.id, (res.error or "")[:200])
-            self.state.event("review", f"{task.id}: no verdict, merged without review")
+        if verdict != "pass":
+            self.state.event("review", f"{task.id}: no verdict after a retry, task failed")
+            return "REVIEW gave no verdict (no JSON report with a verdict) after a retry; the change is not merged."
         return ""
 
     GENERIC_QUESTION = "The agent could not complete this task. How must it continue?"
@@ -1167,12 +1217,23 @@ class Orchestrator:
             self.main_red = False
             self.notify.send("main_fixed", "checks on main pass again")
 
-    def _complete_task(self, task, phase, res, model, attempt, gate: GateResult, branch, prior_error: str = ""):
+    @staticmethod
+    def _lesson(task, fail_model: str, fail_why: str, model: str, own_used: str) -> str:
+        """J14.8: the pattern behind a step-up or an own fix that worked, as one LEARNINGS line ('' = no such success)."""
+        if not fail_model or model == fail_model or not (fail_why or own_used):
+            return ""
+        kind = "writes tests" if any("test" in f.lower() for f in task.files_in_scope) else "changes code"
+        return f"{fail_model} failed ({fail_why or 'own fix needed'}) on a task that {kind}; start such tasks on {model}."
+
+    def _complete_task(self, task, phase, res, model, attempt, gate: GateResult, branch, prior_error: str = "",
+                       lesson: str = ""):
         self._journal(state="Commit")
         if attempt > 1:  # it failed before: keep what fixed it for every later session (LEARNINGS.md)
             first = next((l.strip() for l in (prior_error or "").splitlines() if l.strip()), "an earlier error")
             self.docs.learning(task, str(res.report.get("learning") or "").strip()
                                or f"failed first with: {first[:150]}; passed on attempt {attempt} with {model}")
+        if lesson:
+            self.docs.learning(task, lesson, once=True)
         files = self.git.staged_files()
         status = dict(self.state.status_map(), **{task.id: "done"})
         nxt = self.plan.next_ready(status, self.cfg.get("scheduling.phase_dependency", "soft"))
@@ -1220,18 +1281,27 @@ class Orchestrator:
     def parallel_batch(self, view: dict) -> list:
         """Up to `scheduling.parallel` ready tasks that don't depend on each other, or [] (= run serially).
         Only plain first attempts: risky, research or decide tasks, corrective work and retries stay serial."""
-        n = int(self.cfg.get("scheduling.parallel", 1) or 1)
+        n = self.cfg.parallel_size()
         if self.max_sessions:
             n = min(n, self.max_sessions - self.sessions_this_run)
+        five = open_window(self.state, float(self.cfg.get("usage.window_hours", 5) or 5))
+        if five and 1 - five["pct"] < 0.25:  # N12: under 25 percent of the window is left: one task at a time
+            n = 1
         if n < 2 or self.main_red or self.cfg.get("git.mode", "direct") == "pr":  # PR mode merges one task at a time
             return []
-        view, picked = dict(view), []
+        view, picked, tracked = dict(view), [], None
         while len(picked) < n:
             t = self.plan.next_ready(view, self.cfg.get("scheduling.phase_dependency", "soft"))
             row = self.state.task(t.id) if t else None
             if not t or (row and row["attempts"]) or self.plan.phase_of(t).priority or t.research \
                     or t.needs_decision or RISKS.index(self.effective_risk(t)) > RISKS.index("medium"):
                 break
+            if not t.files_in_scope:  # no scope = touches everything: runs alone
+                break
+            if tracked is None:
+                tracked = self.git.run("ls-files").splitlines()
+            if any(_scopes_collide(t.files_in_scope, p.files_in_scope, tracked) for p in picked):
+                break  # shares a file with a task already picked: it runs after that one
             picked.append(t)
             view[t.id] = "running"  # its dependants are not ready yet, so they can't join the batch
         return picked if len(picked) > 1 else []
@@ -1249,15 +1319,22 @@ class Orchestrator:
         self.check_stop()
         self.window_gate("task", "")
         self._journal(current="parallel: " + ", ".join(t.id for t in tasks), state="Code", task="")
+        log.info("parallel: %s", ", ".join(t.id for t in tasks))
         base, config_before = self.git.ref(self.main), self.git.config_text()
-        jobs = []
+        jobs, self.landed = [], []  # landed: (task, main before its merge) in merge order
         for t in tasks:
             path, branch = self._worktree_root() / t.id, f"autopilot/{t.id}"
             self.git.add_worktree(path, branch, self.main)
             if self.cfg.get("scheduling.worktree_setup", True) and self.cfg.commands("setup"):
+                t0 = time.monotonic()
                 for r in run_commands(self.cfg.commands("setup"), path, int(self.cfg.get("verify_timeout_sec", 1200))):
                     if r.rc != 0:
                         log.warning("setup in worktree %s failed: %s", t.id, r.cmd)
+                took = time.monotonic() - t0
+                log.info("parallel: setup in worktree %s took %.0f s", t.id, took)
+                if took > 60:
+                    log.info("parallel: setup is slow; share a package cache between worktrees "
+                             "(for example `npm ci --prefer-offline` or `uv sync --frozen`)")
             risk = self.effective_risk(t)
             model, phase = self.model_for(risk, 0), self.plan.phase_of(t)
             self.state.set_task(t.id, status="running", started_at=now())
@@ -1306,14 +1383,17 @@ class Orchestrator:
                 err = self._finish_parallel(t, phase, path, branch, model, res, base)
                 if err:  # back in the queue: the serial path retries it with this error
                     log.info("parallel task %s failed: %s", t.id, err[:300])
+                    log.info("parallel: %s not merged, back in the queue", t.id)
                     self.state.set_task(t.id, status="pending", last_error=err[-6000:])
                 else:
                     merged += 1
+                    log.info("parallel: merge %d, %s merged", merged, t.id)
             finally:
                 self.git.drop_worktree(path, branch)
-        # each gate saw only its own change: changes that pass alone can still break together, so check main once
-        if merged > 1 and not self.ensure_main_green():
+        # O8: each merge was gated on top of main already; one full check at the end takes any red task off main
+        if merged > 1 and not self._revert_red_batch() and not self.ensure_main_green():
             self.start_main_red()
+        self._push()
         if limited:
             self.backoff(limited)
 
@@ -1331,20 +1411,51 @@ class Orchestrator:
         files, summary = wt.staged_files(), str(res.report.get("summary", "")).strip()
         wt.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}{new_file_lines(res.report)}\n\n"
                       f"model: {model}, attempt 1 (parallel)")
+        # O8: merge into a temporary branch cut from the current main, gate that merged tree, then fast-forward main
+        tmp, tpath = f"autopilot/merge-{task.id}", Path(str(path) + "-merge")
+        before = self.git.head()
         try:
-            sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
-        except GitError as exc:
-            return f"merge conflict with work merged in parallel; redo it on top of the current main: {exc}"
+            self.git.add_worktree(tpath, tmp, self.main)
+            try:
+                Git(tpath).run("merge", "-q", "--no-ff", "-m", f"[autopilot] merge {task.id}: {task.title}", branch)
+            except GitError as exc:
+                Git(tpath).run("merge", "--abort", check=False)
+                return f"merge conflict with work merged in parallel; redo it on top of the current main: {exc}"
+            merged = main_gate(Config(tpath, self.cfg.data))
+            if not merged.ok:
+                return ("the checks fail on the merged result (this change on top of the current main); redo it on "
+                        "top of the current main:\n" + merged.report())
+            self.git.checkout_main(self.main)
+            self.git.run("merge", "-q", "--ff-only", tmp)
+            sha = self.git.head()
+        finally:
+            self.git.drop_worktree(tpath, tmp)
+        self.landed.append((task, before))
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
         nxt = self.plan.next_ready(self.state.status_map(), self.cfg.get("scheduling.phase_dependency", "soft"))
         self.docs.task_done(task, phase, res.report, model=model, attempt=1, cost=self.state.cost(task_id=task.id),
                             gate_warnings=gate.warnings, files=files, next_task=nxt.id if nxt else None)
         self.docs.status(self.plan, self.state.status_map())
         self.git.commit_all(f"[autopilot] docs for {task.id}: {task.title}")
-        self._push()
         self._quality(task, model)
         log.info("task %s done in parallel (%s)", task.id, model)
         return ""
+
+    def _revert_red_batch(self) -> bool:
+        """O8: while the checks on main fail, take the last task of the batch off main (main goes back to before its
+        merge), put it back in the queue with the failing output, and check again. True = main is green."""
+        while True:
+            gate = main_gate(self.cfg)
+            if gate.ok:
+                return True
+            if not self.landed:
+                return False
+            task, before = self.landed.pop()
+            self.git.reset_hard(before)
+            self.state.set_task(task.id, status="pending", commit_sha=None, finished_at=None,
+                                last_error=("merged with the other tasks of the batch, the checks on main failed; "
+                                            "redo it on top of the current main:\n" + gate.report())[-6000:])
+            log.info("parallel: %s taken off main, the checks failed with it", task.id)
 
     # ------------------------------------------------------------------ P4: PR mode
     def _gh(self, *args: str, check: bool = True, timeout: float = 120):
@@ -1703,12 +1814,13 @@ class Orchestrator:
         self._commit_main(f"[autopilot] close phase {phase.id} ({status})")
         self.notify.send("phase_done", f"{phase.id} {phase.title}: {status}. "
                                        f"{progress_line(self.plan, self.state.status_map())}. {note}")
+        self.sync_plan_source(wait=False)  # N13: items added to the plan document meanwhile become tasks now
         if phase.priority:  # corrective phases don't count toward review cadence
             return
         closed = self.state.phases_closed()
         audit_n = int(self.cfg.get("audit.every_n_phases", 0) or 0)
         replan_n = int(self.cfg.get("replan.every_n_phases", 0) or 0)
-        if self.cfg.get("audit.enabled") and audit_n and closed % audit_n == 0:
+        if self.cfg.get("audit.enabled") and audit_n and closed % audit_n == 0 and not self.cfg.lean:
             self.audit("periodic", phase.id)
         if self.cfg.get("replan.enabled") and replan_n and closed % replan_n == 0:
             self.replan(f"after {phase.id}")
@@ -1903,13 +2015,49 @@ class Orchestrator:
         self.state.set_meta("backlog_tried", items)  # a rejected import is tried again only once the backlog changes
         self.replan("backlog", backlog=items)
 
-    def replan(self, reason: str, backlog: list[str] | None = None) -> bool:
+    def sync_plan_source(self, wait: bool = True):
+        """N13: the plan document (`plan_source:` in plan.yaml) changed since the last look -> one replan session with
+        the diff only. Same text = no session, no cost. `wait`: an interactive start waits for Enter (never mid-run)."""
+        import difflib
+        import hashlib
+        import sys
+        try:
+            key = (load_yaml(self.ad / "plan.yaml") or {}).get("plan_source")
+        except Exception:  # noqa: BLE001  a broken plan.yaml is handled by reload_plan
+            return
+        src, snap = self.root / str(key or "."), self.ad / "plan_source.txt"
+        if not key or not src.is_file() or not self.cfg.get("replan.enabled"):
+            return
+        new = src.read_text(encoding="utf-8", errors="replace")
+        if not snap.exists():  # first look: remember the text, nothing to compare yet
+            snap.write_text(new, encoding="utf-8")
+            return
+        old, h = snap.read_text(encoding="utf-8"), hashlib.sha256(new.encode()).hexdigest()
+        if new == old or self.state.get_meta("source_tried") == h:  # a rejected sync is tried again only after another edit
+            return
+        self.state.set_meta("source_tried", h)
+        before = {t.id: (t.title, t.description) for t in self.plan.all_tasks()}
+        diff = "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), "old", "new"))[:30000]
+        if not self.replan("plan source", source_diff=diff):
+            log.warning("plan source changed, but the replan was rejected or failed; plan not changed")
+            return
+        snap.write_text(new, encoding="utf-8")
+        after = {t.id: t for t in self.plan.all_tasks()}
+        n_new = len(after.keys() - before.keys())
+        n_changed = sum(1 for i, v in before.items() if i in after and v != (after[i].title, after[i].description))
+        n_dropped = sum(1 for i in before if i not in after or after[i].status == "dropped")
+        line = f"Plan source changed: {n_new} new, {n_changed} changed, {n_dropped} dropped."
+        log.info(line)
+        if wait and sys.stdin.isatty() and sys.stdout.isatty():  # an interactive start waits; a detached run just starts
+            input(line + " Press Enter to continue. ")
+
+    def replan(self, reason: str, backlog: list[str] | None = None, source_diff: str = "") -> bool:
         """Let a session rewrite the remaining plan + BRAIN.md; validated before it is accepted."""
         plan_path, brain_path = self.ad / "plan.yaml", self.ad / "BRAIN.md"
         before_plan = plan_path.read_text(encoding="utf-8")
         self.git.start_branch("autopilot/replan", self.main)
         try:
-            res = self.session("replan", self.ctx.replanner_prompt(backlog), self.cfg.get("models.replanner", "opus"))
+            res = self.session("replan", self.ctx.replanner_prompt(backlog, source_diff), self.cfg.get("models.replanner", "opus"))
             new_plan = plan_path.read_text(encoding="utf-8")
             new_brain = brain_path.read_text(encoding="utf-8") if brain_path.exists() else None
         finally:  # drop everything, then re-apply only the two allowed files on main

@@ -4,6 +4,8 @@
 name: my-project
 stack: generic            # python | node | go | rust | java | static | docker | generic (set by `autopilot init`)
 main_branch: main
+profile: lean             # O10: lean = one smoke test per criterion, changed-module tests per task (full suite at phase close),
+                          # one retry, no periodic/completion audit (run `ap audit`), smaller prompt. full = every check, every audit
 
 # Commands the orchestrator runs itself. The agent's own "done" is never trusted.
 commands:
@@ -46,7 +48,11 @@ gate:
     - "karma.conf.*"
     - "phpunit.xml*"
   new_file_reasons: true # N7: on in new projects; a project.yaml without this key has it off. A file added by a task (test files and .agent/ excepted) needs a reason in the
-                          # report field `new_files`, else the gate fails and the retry quotes the rule
+                          # report field `new_files`, else the gate fails and the retry quotes the rule. O3: the task may declare
+                          # `new_files` and `new_deps`; a dependency manifest change without a declared dependency fails
+  file_growth: true       # O2: a code file may not grow past 400 lines or 25 percent in one task (whichever is larger),
+                          # measured against `.agent/quality_baseline.json` from `autopilot init`; the retry says "split, do not grow"
+  scope_fail: true        # O1: a changed file outside the task's files_in_scope fails the gate (false = warn only)
 
 agent:
   # backend: claude_cli   # claude_cli | command; unset = preflight writes the first agent CLI it finds on PATH (N3)
@@ -181,8 +187,8 @@ budget_usd:
 scheduling:
   phase_dependency: soft  # soft = blocked tasks don't hold later phases; strict = they do
   max_sessions_per_run: 0 # 0 = unlimited
-  parallel: 1             # >1 = run up to N independent low/medium first attempts at once, each in a git worktree
-                          # (uses the usage window N times faster; helps wall time, not cost)
+  # parallel: 3           # unset = 3 with a test command in direct git mode, else 1; tasks that share a file run serial
+                          # (up to N independent low/medium first attempts at once, each in a git worktree)
   worktree_setup: true    # run commands.setup in each new worktree (deps like node_modules aren't shared)
   worktree_dir: ""        # where worktrees live; empty = <temp>/autopilot-worktrees (always outside the repo)
 

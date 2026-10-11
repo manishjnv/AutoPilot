@@ -3,11 +3,14 @@ Hundreds of sessions run back-to-back; nobody is watching and nobody will answer
 Rules:
 - Never ask questions or wait for input. Decide yourself using the brief, BRAIN.md, DECISIONS.md and best practice, and record the decision.
 - Report `status: blocked` with a precise `blocker` only when the owner is truly needed (credentials, a paid account, a legal or business decision). The orchestrator then researches or asks the owner and keeps building other features.
+- Reuse before you write: check the "Existing helpers" index in the assignment. A new helper that duplicates a listed one is a defect.
 - Stay inside the scope of your assignment. Do not start other tasks.
 - Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) needs a reason: list each one with its reason in the report field `new_files`.
+- A new dependency (any change to package.json, pyproject.toml, requirements*.txt, go.mod, Cargo.toml) needs a reason too: list it in the report field `new_deps`. A file may not grow past 400 lines or 25 percent in one task: split it instead.
 - Do NOT run git commit, git push, git checkout, git reset or git rebase. The orchestrator owns git.
 - Do NOT edit .agent/plan.yaml, .agent/project.yaml or .agent/state.db unless your assignment explicitly says so.
 - Never hardcode secrets; read them from environment variables and document the variable names.
 - The orchestrator runs the checks itself after your session. It fails the task if a test was deleted, skipped, emptied or weakened, or if test settings or CI files were edited. Never add skip or focus markers (`skip`, `xit`, `.only`, `@Disabled`, `#[ignore]`). This includes `skipif` on a platform condition. If this machine cannot run a test (the operating system, a missing binary), test the behavior another way and list the gap under followups. Never use a constant or always-false guard to get a failing test through: report the failure instead.
 - The same checks fail anything that looks like a real credential, in tests too. Test data must be a made-up value containing `example`, `dummy` or `fake`; never reuse a real value from the environment, `.env` files or anywhere else.
 - Your final message MUST end with the JSON report block described in the assignment.
+- Call the final report once, at the end. If it returns an error, fix the field it names; do not resend the same report.

@@ -379,6 +379,18 @@ shows the effect of a prompt change.
 
 7. Write the two results in the change note of the prompt change.
 
+## Use Autopilot from your IDE chat
+
+1. Run `ap init` in the project folder.
+2. `ap init` adds the `autopilot` server to each of these files that exists: `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kilocode/mcp.json` and `.junie/mcp/mcp.json`. It keeps your other servers.
+3. For `~/.gemini/settings.json`, `~/.kiro/settings/mcp.json`, `~/.codeium/windsurf/mcp_config.json` and `claude_desktop_config.json`, add this line under `mcpServers` yourself:
+
+   ```json
+   "autopilot": {"command": "ap", "args": ["mcp"]}
+   ```
+
+4. Ask your IDE chat for the status of the build. The chat calls `ap_status`.
+
 ## Start from inside Claude Code
 
 You can start a build from a Claude Code chat in the terminal, in VS Code, or in the desktop app. The build uses

@@ -80,7 +80,8 @@ def test_digest_and_report_say_what_is_not_verified(tmp_path):
     plan = [{"id": "P01", "title": "One", "features": ["GET /items lists items"], "tasks": [
         {"id": "P01-T01", "title": "a", "risk": "low", "files_in_scope": ["lib/**"]},  # the fake agent writes in src/
         {"id": "P01-T02", "title": "b", "risk": "low"}]}]
-    root = make_project(tmp_path, plan, {**BASE, "functional": {"enabled": False}})  # no check: the feature stays open
+    root = make_project(tmp_path, plan, {**BASE, "functional": {"enabled": False},  # no check: the feature stays open
+                                         "gate": {"scope_fail": False}})  # O1 off: the scope miss stays a warning here
     orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
     orch.run()
     line = "Not verified: 1 task merged with gate warnings, 1 feature not checked."

@@ -236,6 +236,22 @@ def status_line(cfg, plan, state, run: dict, width: int | None = None) -> str:
     return line
 
 
+def tokens_by_step(state) -> list[tuple[str, int, float]]:
+    """O10: (step, tokens, cost) from the sessions table: a task session is a build (attempt 1) or a retry; every other
+    kind keeps its name. The tokens sum to the state total."""
+    q = ("SELECT CASE WHEN kind = 'task' THEN CASE WHEN attempt > 1 THEN 'retry' ELSE 'build' END ELSE kind END k, "
+         "SUM(tokens_in + tokens_out + tokens_cache_read + tokens_cache_write) t, SUM(cost) c FROM sessions GROUP BY k")
+    return sorted(((r["k"], int(r["t"] or 0), float(r["c"] or 0)) for r in state.db.execute(q)), key=lambda x: -x[1])
+
+
+def tokens_report(state) -> str:
+    rows = tokens_by_step(state)
+    total, cost = sum(t for _, t, _ in rows), sum(c for _, _, c in rows)
+    out = ["| Step | Tokens | Share | Cost |", "|---|---|---|---|"]
+    out += [f"| {k} | {_n(t)} | {round(100 * t / total) if total else 0}% | ${c:.2f} |" for k, t, c in rows]
+    return "\n".join(out + [f"| total | {_n(total)} | 100% | ${cost:.2f} |"])
+
+
 def _tokens_section(state) -> list[str]:
     total, models, kinds, verif = _shares(state, 0)
     if not total:
