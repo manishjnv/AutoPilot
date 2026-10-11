@@ -11,3 +11,8 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [P02-T02] install_deps(cfg) in cli.py runs after the agent CLI check; standard commands are de-duplicated, run one by one, and written to commands.setup as a JSON-style list by remember_setup (regex text edit, comments kept) — same approach as cmd_init
 - [2026-10-11] [P02-T02] When commands.setup is set it is run as is and never rewritten
 - [2026-10-11] [P03-T01] ADR: A: _MODEL_OPT per preset + {prompt_file} placeholder for aider; kiro on stdin only; cursor with _ASK + stdin → docs/adr/0001-presets-for-kiro-cursor-and-aider-a-model-option-f.md
+- [2026-10-11] [P03-T01] aider preset uses --message-file {prompt_file} (temp file outside the worktree, removed after the run) because aider has no stdin prompt and /dev/stdin fails on Windows; model option is --model for kiro/cursor/aider (_MODEL_OPT; aider -m = --message), -m for the others
+- [2026-10-11] [P03-T01] cursor preset relies on undocumented stdin plus short _ASK; kiro preset has no positional argument (a positional argument disables stdin)
+- [2026-10-11] [P03-T01] aider preset uses --message-file {prompt_file}; CommandBackend writes a temp file (system temp dir) only when the template contains {prompt_file}, still pipes stdin, and deletes the file afterwards — aider has no stdin prompt and /dev/stdin fails on Windows
+- [2026-10-11] [P03-T01] model option is --model for kiro/cursor/aider via _MODEL_OPT, -m for the others — aider -m means --message
+- [2026-10-11] [P03-T01] kiro preset has no positional _ASK (a positional argument disables stdin); cursor keeps _ASK + undocumented stdin

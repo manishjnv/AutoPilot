@@ -11,3 +11,7 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P02-T01] Run the full pytest suite and the WSL script
 - [P02-T02] Bug in cmd_init: the regex `(?ms)^commands:\n(?:[ \t]+.*\n)*` has re.S so `.*\n` eats the rest of project.yaml; after `ap init --stack X` everything after the commands block (agent:, scheduling:, ...) is lost
 - [P02-T02] Run the full pytest suite and wsltest_self.sh (the script path was not found from Git Bash)
+- [P03-T01] config.py:95 error text still lists only codex, gemini, opencode
+- [P03-T01] HOWTO.md:329 and README.md:123 name only the old presets
+- [P03-T01] Live check of kiro-cli, cursor-agent and aider; especially whether cursor-agent reads stdin (fallback: _ASK pointing to {prompt_file})
+- [P03-T01] wsltest_self.sh needs MSYS_NO_PATHCONV=1 when run from Git Bash
