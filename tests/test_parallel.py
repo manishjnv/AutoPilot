@@ -157,7 +157,9 @@ def batch_of(tmp_path, scopes, meta=None, risks=None):
 
 def test_batch_takes_disjoint_scopes_only(tmp_path):
     assert batch_of(tmp_path, [["a/*.py"], ["b/*.py"], ["c.py"]]) == ["P01-T01", "P01-T02", "P01-T03"]
-    assert batch_of(tmp_path / "x", [["a/*.py"], ["a/*.py"], ["c.py"]]) == []  # the second shares a file: first runs alone
+    # session 28: the second shares a file and waits; the third is disjoint and joins (the run found the old `break`)
+    assert batch_of(tmp_path / "x", [["a/*.py"], ["a/*.py"], ["c.py"]]) == ["P01-T01", "P01-T03"]
+    assert batch_of(tmp_path / "z", [["a/*.py"], ["a/*.py"]]) == []  # only two ready and they share: serial
     assert batch_of(tmp_path / "y", [["a.py"], ["b.py"], ["a/*.py", "b.py"]]) == ["P01-T01", "P01-T02"]
 
 

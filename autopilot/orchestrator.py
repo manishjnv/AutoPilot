@@ -1304,7 +1304,8 @@ class Orchestrator:
             if tracked is None:
                 tracked = self.git.run("ls-files").splitlines()
             if any(_scopes_collide(t.files_in_scope, p.files_in_scope, tracked) for p in picked):
-                break  # shares a file with a task already picked: it runs after that one
+                view[t.id] = "hold"  # shares a file with a picked task: it runs after the batch; keep looking
+                continue
             picked.append(t)
             view[t.id] = "running"  # its dependants are not ready yet, so they can't join the batch
         return picked if len(picked) > 1 else []
