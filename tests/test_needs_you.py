@@ -278,6 +278,11 @@ def test_diagnosis_retry_on_model_runs_one_attempt_before_the_question(tmp_path)
     assert "one short final report" in [p for t, p in fake.prompts if t == "P01-T01"][1]
     assert orch.state.status_map()["P01-T01"] == "done" and not orch.state.decisions()
     assert any("own fix: model opus" in m for m in events(orch, "own_fix"))
+    learn = (root / ".agent" / "LEARNINGS.md").read_text(encoding="utf-8")
+    assert learn.count("start such tasks on opus") == 1
+    task = next(t for t in orch.plan.all_tasks() if t.id == "P01-T01")
+    orch.docs.learning(task, orch._lesson(task, models[0], "", models[1], "x"), once=True)  # same facts again
+    assert (root / ".agent" / "LEARNINGS.md").read_text(encoding="utf-8").count("start such tasks on opus") == 1
 
 
 def test_diagnosis_without_an_applicable_fix_asks_as_before(tmp_path):

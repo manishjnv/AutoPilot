@@ -154,9 +154,12 @@ class Documenter:
             f"### Consequences\n{bullets(rep.get('consequences'))}\n", encoding="utf-8")
         return path.relative_to(self.root)
 
-    def learning(self, task, text: str):
+    def learning(self, task, text: str, once: bool = False):
         """One line in .agent/LEARNINGS.md: what fixed a task that failed first. Every later session reads it."""
         line = " ".join(str(text).split())[:300]
+        f = self.ad / "LEARNINGS.md"
+        if once and f.exists() and line in f.read_text(encoding="utf-8"):
+            return
         _append(self.ad / "LEARNINGS.md", f"- [{today()}] [{task.id}] {line}\n",
                 "# Learnings\n\nWhat fixed tasks that failed first. Written by the orchestrator; read by every session.\n\n")
 

@@ -842,7 +842,7 @@ class Orchestrator:
         chain, chain_model = None, ""  # the last failed attempt's session, resumable by the next attempt
         risk = self.effective_risk(task)
         floor = model_rank(row["model"]) if attempts and row["model"] else -1  # U6: never route down
-        own_model, own_used = "", ""  # J14.6 own fix
+        own_model, own_used, fail_model, fail_why = "", "", "", ""  # J14.6 own fix; J14.8 facts of the last failure
         if floor >= 0 and self.state.get_meta(f"stepup:{task.id}", False):  # J14.5: the last attempt was cut or looped
             floor += 1
 
@@ -909,7 +909,8 @@ class Orchestrator:
                     last_error = problem
                 elif gate.ok:
                     try:
-                        self._complete_task(task, phase, res, model, attempts, gate, branch, prior_error=last_error)
+                        self._complete_task(task, phase, res, model, attempts, gate, branch, prior_error=last_error,
+                                            lesson=self._lesson(task, fail_model, fail_why, model, own_used))
                         return True
                     except GitError as exc:
                         last_error = f"merge failed: {exc}"
@@ -924,6 +925,7 @@ class Orchestrator:
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
             chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
             why = self.escalation(res)
+            fail_model, fail_why = model, why
             floor = max(floor, model_rank(model) + (1 if why else 0))
             self.state.set_meta(f"stepup:{task.id}", bool(why))  # survives a restart; a plain test failure clears it
             if why:
@@ -1200,12 +1202,23 @@ class Orchestrator:
             self.main_red = False
             self.notify.send("main_fixed", "checks on main pass again")
 
-    def _complete_task(self, task, phase, res, model, attempt, gate: GateResult, branch, prior_error: str = ""):
+    @staticmethod
+    def _lesson(task, fail_model: str, fail_why: str, model: str, own_used: str) -> str:
+        """J14.8: the pattern behind a step-up or an own fix that worked, as one LEARNINGS line ('' = no such success)."""
+        if not fail_model or model == fail_model or not (fail_why or own_used):
+            return ""
+        kind = "writes tests" if any("test" in f.lower() for f in task.files_in_scope) else "changes code"
+        return f"{fail_model} failed ({fail_why or 'own fix needed'}) on a task that {kind}; start such tasks on {model}."
+
+    def _complete_task(self, task, phase, res, model, attempt, gate: GateResult, branch, prior_error: str = "",
+                       lesson: str = ""):
         self._journal(state="Commit")
         if attempt > 1:  # it failed before: keep what fixed it for every later session (LEARNINGS.md)
             first = next((l.strip() for l in (prior_error or "").splitlines() if l.strip()), "an earlier error")
             self.docs.learning(task, str(res.report.get("learning") or "").strip()
                                or f"failed first with: {first[:150]}; passed on attempt {attempt} with {model}")
+        if lesson:
+            self.docs.learning(task, lesson, once=True)
         files = self.git.staged_files()
         status = dict(self.state.status_map(), **{task.id: "done"})
         nxt = self.plan.next_ready(status, self.cfg.get("scheduling.phase_dependency", "soft"))
