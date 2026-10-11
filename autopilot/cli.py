@@ -83,6 +83,8 @@ def cmd_init(args):
         with open(cm, "a", encoding="utf-8") as fh:
             fh.write(("" if t.endswith("\n") or not t else "\n") + "\n".join(lines) + "\n")
     write_ide_rules(root)  # N6
+    from .mcp import register  # N9
+    register(root)
     print(f"\nstack: {stack}")
     if not getattr(args, "quiet", False):  # quickstart does these steps itself
         print("next:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
@@ -1249,6 +1251,11 @@ def cmd_approve(args):
     return 0
 
 
+def cmd_mcp(args):
+    from .mcp import serve
+    serve(Path(args.path).resolve())
+
+
 def cmd_stop(args):
     p = Path(args.path).resolve() / AGENT_DIR / "STOP"
     p.write_text("stop requested\n")
@@ -1279,7 +1286,7 @@ def cmd_review(args):
     orch.write_report()
 
 
-NEW_PROJECT = ("init", "onboard", "quickstart")  # these make a project: with no -C they use this folder
+NEW_PROJECT = ("init", "onboard", "quickstart", "mcp")  # these make a project: with no -C they use this folder
 
 
 def _recent_file() -> Path:
@@ -1395,6 +1402,7 @@ def main(argv=None):
     p.add_argument("task_id"); p.add_argument("text")
     p = add("skip", cmd_skip, "skip task(s)"); p.add_argument("task_ids", nargs="+")
     p = add("approve", cmd_approve, "deploy an approved phase to prod"); p.add_argument("phase")
+    add("mcp", cmd_mcp, "MCP server on stdin/stdout for IDE chats: ap_status, ap_next, ap_start, ap_stop, ap_answer")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("review", cmd_review, "run an audit / completion audit / replan now")
