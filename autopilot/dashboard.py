@@ -150,8 +150,24 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
     now = dt.datetime.now().isoformat(timespec="seconds")
     name = lambda m: next((s for k, s in MODEL_NAMES.items() if k in str(m).lower()), str(m or ""))  # noqa: E731
 
+    # J13/15: a task's time = its first session to its merge (every try), not the last attempt only
+    first = {r[0]: r[1] for r in state.db.execute(
+        "SELECT task_id, MIN(started_at) FROM sessions WHERE kind IN ('task','review','unstick') AND task_id IS NOT NULL "
+        "GROUP BY task_id")}
+
+    def secs(a, b):
+        try:
+            return max(0.0, (dt.datetime.fromisoformat(b) - dt.datetime.fromisoformat(a)).total_seconds())
+        except (TypeError, ValueError):
+            return None
+
+    def span(r):  # (start, end) of a task: first session to the merge, or to now while it works
+        start = first.get(r["id"]) or r["started_at"]
+        return (start, r["finished_at"] if r["status"] == "done" else now if r["status"] == "running" else None)
+
     def one(i, t):
         r = rows.get(t.id)
+        a, b = span(r) if r else (None, None)
         st = "running" if live and run.get("task") == t.id else status.get(t.id, "pending")
         st = st if st in ("done", "running", "blocked") else "pending"
         tries = int(r["attempts"] or 0) if r else 0
@@ -160,21 +176,44 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         else:
             model = name(r["model"]) if r else ""
         return {"n": i + 1, "id": t.id, "title": t.title, "phase": t.phase_id, "status": st,
-                "time": (_span(r["started_at"], r["finished_at"]) if st == "done" else
-                         _span(r["started_at"], now) if st == "running" else "") if r else "",
-                "detail": " · ".join(x for x in (model,
-                                                 f"{tries} attempts" if tries > 1 else "") if x)}
+                "time": (_span(a, b) if st == "done" else _span(a, now) if st == "running" else "") if r else "",
+                "detail": " · ".join(x for x in (model, f"{tries} tries" if tries > 1 else "") if x)}
 
     table = [one(i, t) for i, t in enumerate(tasks)]
     working = [t for t in table if t["status"] == "running"]
     here = [r for r in state.tasks("done") if (r["finished_at"] or "") >= (run.get("started_at") or "")]
     left = sum(1 for t in tasks if status.get(t.id, "pending") in ("pending", "running"))
-    eta = ""
-    if live and left and len(here) >= 3:  # the same pace rule as the digest (G3)
-        ms = state.db.execute("SELECT COALESCE(SUM(duration_ms),0) FROM sessions WHERE id >= ?",
-                              (int(run.get("first_session") or 0),)).fetchone()[0]
-        mins = left * ms / len(here) / 60000
-        eta = f"{round(mins)}m" if mins < 90 else f"{mins / 60:.1f}h"
+    # J13/15: tasks + other = elapsed. The tasks' time is the union of their spans inside the run, so a parallel run
+    # never counts one minute twice. Elapsed ends now (live) or at the last journal write.
+    begin, end = run.get("started_at"), now if live else run.get("updated_at")
+    elapsed = secs(begin, end) if begin and end else None
+    time_secs = None
+    if elapsed is not None:
+        cut = sorted((max(s, 0.0), min(e, elapsed)) for s, e in (
+            (secs(begin, a), secs(begin, b)) for a, b in (span(r) for r in rows.values() if r["id"] in first or r["started_at"])
+            if a and b) if s is not None and e is not None and min(e, elapsed) > max(s, 0.0))
+        used, edge = 0.0, 0.0
+        for s, e in cut:
+            used += max(0.0, e - max(s, edge))
+            edge = max(edge, e)
+        time_secs = {"tasks": round(used), "other": round(elapsed) - round(used), "elapsed": round(elapsed)}
+    # J13/16: ETA = (queued / parallel) x median task time of this run + what the running tasks still need
+    eta, mid = "", None
+    if live and left:
+        spent = sorted(s for s in (secs(*span(r)) for r in here if r["id"] in rows) if s is not None)
+        if len(spent) < 3:
+            eta = f"after 3 tasks ({len(spent)} done)"
+        else:
+            mid = spent[len(spent) // 2] if len(spent) % 2 else (spent[len(spent) // 2 - 1] + spent[len(spent) // 2]) / 2
+            par = max(1, int(cfg.get("scheduling.parallel", 1) or 1))
+            run_rows = [rows[t["id"]] for t in table if t["status"] == "running"]
+            queued = left - len(run_rows)
+            rest = sum(max(0.0, mid - (secs(*span(r)) or 0)) for r in run_rows)
+            total = queued * mid / par + rest / par
+            hours = f"{total / 3600:.1f}h" if total >= 5400 else f"{round(total / 60)}m"
+            basis = (f"{queued} × {_dur(mid)}" if queued else f"{len(run_rows)} running, {_dur(mid)} each") + \
+                (f" + {_dur(rest)} now" if queued and rest else "")
+            eta = f"~{hours} ({basis})"
     total, models, _, _ = _shares(state, 0)
     five, week = open_window(state), (state.get_meta("window_seen", {}) or {}).get("seven_day") or {}
     used = int(run.get("context_tokens") or 0) if live else 0
@@ -226,6 +265,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "state_words": (STATE_WORDS.get(str(run.get("state") or ""), "Works.") if live else
                             ending(run.get("outcome")) if finished else "No build is active."),
             "elapsed": _runtime(run.get("started_at")) if live else "", "eta": eta,
+            "other": _dur(time_secs["other"]) if time_secs and time_secs["other"] > 0 else "", "time_secs": time_secs,
             "attempt": int(run.get("attempt") or 1) if live else 0,
             "now": doing, "next": nxt.title if nxt else "",
             # a build that writes nothing for a long time can be in one long command, or stuck

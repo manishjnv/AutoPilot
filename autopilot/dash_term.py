@@ -264,7 +264,8 @@ def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
                  (" ", None), (fit(time, 6), style)]
         return parts + ([(" ", None), (fit(det, 18), style)] if detail else [])
     rows = [line("#", "Task", "Status", "Time", "Detail", "dim", "dim")]
-    room = h - 3
+    other = d["project"]["other"]  # J13/15: the time in no task, so the tasks and this row add up to Elapsed
+    room = h - 3 - (1 if other else 0)
     focus = next((i for i, t in enumerate(tasks) if t["status"] == "running"),
                  next((i for i, t in enumerate(tasks) if t["status"] != "done"), len(tasks) - 1))
     start = min(max(focus - room // 2, 0), max(len(tasks) - room, 0))
@@ -272,6 +273,8 @@ def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
         sym, word, st = STATUS.get(t["status"], ("○", t["status"] or "Pending", "dim"))
         rows.append(line(t["n"], t["title"], f"{sym} {word}", t["time"], t["detail"],
                          "bold" if t["status"] == "running" else None, st))
+    if other:
+        rows.append(line("", "Other: decide, research, docs, audit, waits", "", other, "", "dim", "dim"))
     return box("Tasks", rows, w, h, color, asof_note(d, False))
 
 
@@ -294,7 +297,7 @@ def status_bar(d: dict, cols: int, color: bool) -> str:
     blocked = count(pr.get("blocked"))
     five = num(u.get("five"))
     parts = [(task if total else "", "count"),
-             (bar(d["share"]) if pr else "", None), (f"Left {p['eta']}" if p["eta"] else "", None),
+             (bar(d["share"]) if pr else "", None), (f"Left{':' if p['eta'].startswith('after') else ''} {p['eta']}" if p["eta"] else "", None),
              (f"Blocked {blocked}" if pr else "", "red" if blocked > 0 else "dim"),
              (f"Tok {u['tokens_text']}" if u["tokens_text"] else "", None), (u["cost_text"], None),
              (f"5h {round(five * 100)}%" if five is not None else "", None)]
@@ -332,7 +335,7 @@ def normalize(data) -> dict:
     return {
         "project": {**{k: clean(p.get(k)) for k in ("name", "branch", "model", "started", "status", "tone", "stale",
                                                     "state_words", "elapsed", "eta", "next", "last_commit",
-                                                    "last_commit_age")},
+                                                    "last_commit_age", "other")},
                     "stale_min": count(p.get("stale_min"))},
         "progress": {**pr, "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6]},
         "share": num(share) or 0.0, "now": now, "size": size,

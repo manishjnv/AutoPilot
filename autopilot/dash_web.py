@@ -102,7 +102,7 @@ def _sec(i: str, title: str, body: str) -> str:
     return f'<section id="{i}" aria-labelledby="{i}-h"><h2 id="{i}-h">{e(title)}</h2>{body}</section>'
 
 
-def _tasks(tasks) -> str:
+def _tasks(tasks, other: str = "") -> str:
     rows = []
     for t in tasks:
         st = t.get("status") or "pending"
@@ -111,6 +111,8 @@ def _tasks(tasks) -> str:
         rows.append(f'<tr{cur}><td>{e(str(t.get("n", "")))}</td><td>{e(str(t.get("title", "")))}</td>'
                     f'<td class="st {e(st if st in WORDS else "pending")}">{sym} {word}</td>'
                     f'<td>{e(str(t.get("time", "")))}</td><td>{e(str(t.get("detail", "")))}</td></tr>')
+    if other:  # J13/15: tasks + this row = Elapsed
+        rows.append(f'<tr><td></td><td>Other: decide, research, docs, audit, waits</td><td></td><td>{e(other)}</td><td></td></tr>')
     head = "".join(f"<th scope=col>{h}</th>" for h in ("#", "Task", "Status", "Time", "Detail"))
     return f'<div class="box" data-keep tabindex="0"><table><thead><tr>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
 
@@ -249,7 +251,7 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
         right.append(_sec("files", "Files", fv("added", "good") + fv("modified", "") + fv("deleted", "bad")))
     right.append(_sec("issues", "Issues", issues))
     cols = ([_sec("project", "Project", proj)],
-            [_sec("tasks", "Tasks", _tasks(tasks)), _sec("live", "Live output", _live(data.get("live") or []))], right)
+            [_sec("tasks", "Tasks", _tasks(tasks, str(p.get("other") or ""))), _sec("live", "Live output", _live(data.get("live") or []))], right)
     cells = [f'<div class="col">{"".join(c)}</div>' for c in cols]
 
     need, needs = data.get("needs_you") or [], ""
@@ -269,7 +271,7 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     bar = (f'<footer><span>{e(str(p.get("name") or ""))}</span>'
            + (f"<span>Task {active}/{total}</span>" if active > 0 else f"<span>Done {done}/{total}</span>")
            + f'<span>{_bar(pct / 100, "Progress")}{pct}%</span>'
-           + (f"<span>Left {e(str(eta))}</span>" if eta else "")
+           + (f"<span>Left{':' if str(eta).startswith('after') else ''} {e(str(eta))}</span>" if eta else "")
            + f'<span class="{"bad" if nb else "z"}">Blocked {nb}</span><span>Tok {e(str(u.get("tokens_text") or "0"))}</span>'
            f'<span>${float(u.get("cost") or 0):.2f}</span>'
            + (f"<span>5h {round(float(five) * 100)}%</span>" if isinstance(five, (int, float)) else "") + "</footer>")
