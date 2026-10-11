@@ -59,6 +59,10 @@ The orchestrator runs the gate after each task. It never accepts the "done" mess
 
 The agent gets these rules before it starts, so it can obey them on the first attempt.
 
+The agent edits the file that owns the content. A move or a rename is allowed. Each new file (test files excepted)
+needs a reason in the report field `new_files`. The task commit gets one line per new file:
+`new file <path>: <reason>`.
+
 ## 4. When a task fails
 
 ```mermaid
