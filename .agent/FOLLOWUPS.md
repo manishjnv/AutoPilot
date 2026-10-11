@@ -25,3 +25,6 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P05-T01] The bash dry-run test returns early on Windows or without bash instead of skipping; it really runs only on WSL/Linux
 - [P05-T01] HOWTO.md pins install.sh and install.ps1 SHA-256 values to an old commit; refresh them when the first release tag is made
 - [P05-T01] install.yml (protected) could also run `ap --version` in the real-install step
+- [P05-T02] Run Vale (CI or locally) to confirm the new README and HOWTO text passes; it was not run because vale is not installed here
+- [P05-T02] The README says Codex, Gemini and OpenCode work through presets, but the honest-limits list names six runners without OpenCode; decide whether OpenCode belongs in the supported list
+- [P05-T02] Refresh the HOWTO checksums when the first release tag is made (P05-T03)

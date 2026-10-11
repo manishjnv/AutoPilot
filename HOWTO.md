@@ -9,7 +9,7 @@ setting, use the [reference](REFERENCE.md). The guides use `ap`, the short name 
 | Audits | [Start an audit now](#start-an-audit-now) |
 | Projects | [Change the plan in plain words](#change-the-plan-in-plain-words) · [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
 | Tasks | [Get a design choice or research before a task](#get-a-design-choice-or-research-before-a-task) |
-| Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
+| Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Install by hand](#install-by-hand) · [Update or remove Autopilot](#update-or-remove-autopilot) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) · [Merge each task through a pull request](#merge-each-task-through-a-pull-request) |
 | Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
@@ -454,6 +454,9 @@ the step starts. A second run is safe: the script skips a program that is alread
 4. Run the same command without the dry-run option.
 5. Open a new terminal. Then run `ap`.
 
+Run the script with `bash`, not `sh`: it uses bash features, such as `set -o pipefail`, that `sh` on Debian and
+Ubuntu does not have. The one-line form in the [README](README.md#install) uses `bash` for this reason.
+
 | Fact | Detail |
 |---|---|
 | Administrator rights | Only on Windows, and only if `winget` installs git |
@@ -462,6 +465,37 @@ the step starts. A second run is safe: the script skips a program that is alread
 | git on macOS and Linux | The script does not use `sudo`. If git is missing, it shows the command and stops |
 | Login | The script does not log in for you. It shows `claude auth login` if the login is missing |
 | Remove Autopilot | `uv tool uninstall dev-autopilot` |
+
+## Install by hand
+
+Use these steps when the script fails, or when you want to see each command. They do the same as the script.
+
+1. **Windows (PowerShell):**
+
+   ```powershell
+   winget install --id Git.Git -e
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   irm https://claude.ai/install.ps1 | iex
+   # Open a new terminal. Then:
+   uv tool install git+https://github.com/manishjnv/AutoPilot
+   claude auth login
+   ```
+
+2. **macOS, Linux, WSL:** install git with your package manager if `git --version` fails. Then:
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   curl -fsSL https://claude.ai/install.sh | bash
+   # Open a new terminal. Then:
+   uv tool install git+https://github.com/manishjnv/AutoPilot
+   claude auth login
+   ```
+
+3. Start the first project:
+
+   ```bash
+   ap quickstart -C myapp --idea "a todo list CLI with due dates" --run
+   ```
 
 ## Update or remove Autopilot
 

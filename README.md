@@ -71,25 +71,39 @@ Two real projects, each a CLI built from a plan:
 
 Both runs used a subscription. The envguard audits found 8 real bugs, and Autopilot fixed all of them.
 
-## Quick start
+## Install
 
-You need a paid Claude plan or an API key. The free Claude plan cannot use Claude Code. `ap` is the short name of
-`autopilot`.
+Windows (PowerShell):
 
 ```powershell
-winget install --id Git.Git -e
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-irm https://claude.ai/install.ps1 | iex
-# Open a new terminal. Then:
-uv tool install git+https://github.com/manishjnv/AutoPilot
-claude auth login
-ap quickstart -C myapp --idea "a todo list CLI with due dates" --run
+irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 | iex
 ```
 
-These commands are for Windows PowerShell. For macOS and Linux, and for each step in detail, see the
-[tutorial](GUIDE.md). If you already have a plan, see
-[Use a project that already exists](HOWTO.md#use-a-project-that-already-exists). To start from a Claude Code chat,
-paste one prompt or install the plugin: see [Start from inside Claude Code](HOWTO.md#start-from-inside-claude-code).
+macOS, Linux or WSL:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash
+```
+
+Open a project folder and type `ap`.
+
+The script installs what is missing: git, uv, Claude Code, Python 3.10 or newer, and Autopilot. You need a paid
+Claude plan or an API key. The free Claude plan cannot use Claude Code. `ap` is the short name of `autopilot`.
+For the checksums, the dry run and each step, see [Install with one script](HOWTO.md#install-with-one-script). To
+install by hand, see [Install by hand](HOWTO.md#install-by-hand). To learn with a first project, see the
+[tutorial](GUIDE.md). To start from a Claude Code chat, see
+[Start from inside Claude Code](HOWTO.md#start-from-inside-claude-code).
+
+## Honest limits
+
+Autopilot starts a CLI agent for each session. It does not drive a chat panel in an IDE, so you watch the build in
+your IDE or terminal.
+
+- **Supported CLI runners:** Claude Code (the default), kiro-cli, cursor-agent, codex, gemini and aider. Autopilot
+  uses the one that is installed and logged in. To choose one, set `agent.backend` in `.agent/project.yaml`.
+- **Not supported:** Replit has no CLI that Autopilot can call. The Kiro and Cursor chat panels have none either.
+  Use the `kiro-cli` or `cursor-agent` CLI instead.
+- **Where you watch:** run `ap watch` in the terminal of your IDE, or open the status page in your browser.
 
 **After the run:** the code is on `main`. Also read `CHANGELOG.md`, `docs/RCA.md` and `docs/NEEDS-YOU.md`.
 
