@@ -1,14 +1,13 @@
 # Handoff
 
-Last completed: **P05-T02 — README: one install line per system and honest limits** (2026-10-11)
+Last completed: **P06-T01 — Autopilot block in IDE rule files and CLAUDE.md** (2026-10-11)
 
-README.md now shows one Windows install line and one macOS/Linux/WSL line (`| bash`), then "Open a project folder and type `ap`.", plus an honest-limits section naming Replit, the Kiro and Cursor chat panels and the six CLI runners. The manual install steps moved to a new HOWTO.md section "Install by hand". Four new tests in tests/test_quickstart.py cover the install lines, the limits, the relative links, and a piped bash dry-run of install.sh. The full WSL suite passes (576 tests) and ruff is clean. Vale was not run because it is not installed here.
+cmd_init now calls write_ide_rules(): it appends or creates one marked Autopilot block in Cursor (.mdc with alwaysApply), Kiro steering, Copilot instructions, GEMINI.md and AGENTS.md when the IDE marker exists. The user's bytes are never changed and a second init writes nothing. CLAUDE.md.snippet now lists ap status, ap next and ap start. Verified by 4 new tests and the full WSL suite (580 passed); ruff is clean.
 
-Files: .vale/styles/config/vocabularies/Autopilot/accept.txt, HOWTO.md, README.md, tests/test_quickstart.py
+Files: REFERENCE.md, autopilot/cli.py, autopilot/templates/agent/CLAUDE.md.snippet, autopilot/templates/agent/ide_rules.md, tests/test_ide_rules.py
 
 Follow-ups noted:
-- Run Vale (CI or locally) to confirm the new README and HOWTO text passes; it was not run because vale is not installed here
-- The README says Codex, Gemini and OpenCode work through presets, but the honest-limits list names six runners without OpenCode; decide whether OpenCode belongs in the supported list
-- Refresh the HOWTO checksums when the first release tag is made (P05-T03)
+- An existing CLAUDE.md that already has the Autopilot heading does not get the new ap command lines
+- A project with both .kiro/ and AGENTS.md gets the instruction twice, because Kiro also reads AGENTS.md
 
-Next planned task: P06-T01
+Next planned task: P07-T01

@@ -75,10 +75,41 @@ def cmd_init(args):
     if not cm.exists() or "## Autopilot (autonomous sessions)" not in (t := cm.read_text(encoding="utf-8")) and "## AutoDev (autonomous sessions)" not in t:
         with open(cm, "a", encoding="utf-8") as fh:
             fh.write(cm_snip)
+    write_ide_rules(root)  # N6
     print(f"\nstack: {stack}")
     if not getattr(args, "quiet", False):  # quickstart does these steps itself
         print("next:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
               "       autopilot validate && autopilot run")
+
+
+IDE_BEGIN = "<!-- autopilot:begin -->"
+
+
+def write_ide_rules(root):
+    """N6: one marked Autopilot block in the rule file of each IDE present; user text is never changed."""
+    block = (TEMPLATES / "agent" / "ide_rules.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+    targets = []  # (path, front matter for a new file)
+    if (root / ".cursor").is_dir():
+        targets.append((root / ".cursor" / "rules" / "autopilot.mdc", "---\ndescription: Autopilot project rules\nalwaysApply: true\n---\n"))
+    if (root / ".kiro").is_dir():
+        targets.append((root / ".kiro" / "steering" / "autopilot.md", "---\ninclusion: always\n---\n"))
+    if (root / ".vscode").is_dir():
+        targets.append((root / ".github" / "copilot-instructions.md", ""))
+    for name in ("GEMINI.md", "AGENTS.md"):
+        if (root / name).is_file():
+            targets.append((root / name, ""))
+    for path, front in targets:
+        old = path.read_bytes() if path.exists() else b""
+        rel = path.relative_to(root).as_posix()
+        if IDE_BEGIN.encode() in old:
+            print(f"keep     {rel}")
+            continue
+        nl = "\r\n" if b"\r\n" in old else "\n"
+        add = (("" if old.endswith(b"\n") else nl) + nl + block.replace("\n", nl)) if old else front + block
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "ab") as fh:
+            fh.write(add.encode("utf-8"))
+        print(f"{'append' if old else 'create'}   {rel}")
 
 
 def cmd_onboard(args):
