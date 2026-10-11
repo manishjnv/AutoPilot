@@ -113,3 +113,71 @@ def test_pack_is_capped_and_marks_truncation(tmp_path):
         (tmp_path / "docs" / f"document-number-{i:05d}-with-a-long-name.md").write_text("x", encoding="utf-8")
     pack = discovery_pack(tmp_path, _cfg(tmp_path))
     assert len(pack) <= PACK_CAP + 200 and "truncated" in pack
+
+
+# N1: onboarding prompt with the pack and the four rules
+import yaml
+
+from autopilot.cli import main as cli_main
+
+PLAN6 = "# Plan\n" + "".join(f"- [x] step {i}\n" for i in range(1, 7)) + "- [ ] export csv\n"
+AGENT = r"""import pathlib, sys
+pathlib.Path(sys.argv[1]).write_text(sys.stdin.read(), encoding="utf-8")
+if len(sys.argv) > 2 and sys.argv[2] == "plan":
+    tasks = [{"id": f"P01-T0{i}", "title": f"step {i}", "status": "done", "acceptance_criteria": ["works"]} for i in range(1, 7)]
+    tasks.append({"id": "P01-T07", "title": "export csv", "acceptance_criteria": ["csv is written"]})
+    plan = {"version": 1, "goal": "demo", "phases": [{"id": "P01", "title": "All", "goal": "g", "tasks": tasks}]}
+    pathlib.Path(".agent/plan.yaml").write_text(__import__("yaml").safe_dump(plan), encoding="utf-8")
+if len(sys.argv) > 2 and sys.argv[2] == "doc":
+    pathlib.Path("docs").mkdir(exist_ok=True)
+    pathlib.Path("docs/PLAN2.md").write_text("second plan\n", encoding="utf-8")
+print('{"summary": "fake onboarding done"}')
+"""
+
+
+def _onboard_fixture(tmp_path, mode):
+    _repo(tmp_path)
+    (tmp_path / "PLAN.md").write_text(PLAN6, encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "plan with six checked tasks")
+    agent = tmp_path.parent / f"agent_{tmp_path.name}.py"
+    agent.write_text(AGENT, encoding="utf-8")
+    seen = tmp_path.parent / f"prompt_{tmp_path.name}.txt"
+    from argparse import Namespace
+
+    from autopilot.cli import cmd_init
+    cmd_init(Namespace(path=str(tmp_path), stack=None, name=None, force=False, quiet=True))
+    pj = tmp_path / ".agent" / "project.yaml"
+    pj.write_text(pj.read_text(encoding="utf-8") + f"\nagent:\n  backend: command\n  command: '\"{sys.executable}\" \"{agent}\" \"{seen}\" {mode}'\n", encoding="utf-8")
+    return seen
+
+
+def test_onboard_prompt_has_log_plan_path_and_four_rules(tmp_path, capsys):
+    seen = _onboard_fixture(tmp_path, "plan")
+    cli_main(["onboard", "-C", str(tmp_path)])
+    prompt = seen.read_text(encoding="utf-8")
+    for s in ("plan with six checked tasks", "PLAN.md", "notes/session-3.md", "Rule 1", "Rule 2", "status: done",
+              "Rule 3", "Rule 4"):
+        assert s in prompt
+    assert "{{discovery}}" not in prompt
+
+
+def test_six_done_tasks_validate_and_next_lists_first_open(tmp_path, capsys):
+    _onboard_fixture(tmp_path, "plan")
+    assert cli_main(["onboard", "-C", str(tmp_path)]) in (0, None)
+    out = capsys.readouterr().out
+    assert "plan    OK" in out and "WARN  onboarding created" not in out
+    assert cli_main(["validate", "-C", str(tmp_path)]) in (0, None)
+    capsys.readouterr()
+    cli_main(["next", "-C", str(tmp_path)])
+    nxt = capsys.readouterr().out
+    assert nxt.splitlines()[0].split()[1] == "P01-T07" and "P01-T01" not in nxt
+    assert yaml.safe_load((tmp_path / ".agent/plan.yaml").read_text())["phases"][0]["tasks"][0]["status"] == "done"
+
+
+def test_new_file_outside_agent_dir_is_warned(tmp_path, capsys):
+    _onboard_fixture(tmp_path, "doc")
+    cli_main(["onboard", "-C", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "WARN" in out and "docs/PLAN2.md" in out
+    assert (tmp_path / "docs/PLAN2.md").exists()
