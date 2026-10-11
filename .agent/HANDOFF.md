@@ -1,15 +1,15 @@
 # Handoff
 
-Last completed: **P03-T01 — Presets for kiro, cursor and aider** (2026-10-11)
+Last completed: **P03-T02 — Detect the installed and logged-in runner** (2026-10-11)
 
-Added kiro, cursor and aider presets to PRESETS in autopilot/backends/command.py, following the ADR. The model option is --model for these three (_MODEL_OPT), and a {prompt_file} placeholder lets aider read the prompt from a temp file outside the worktree that is removed after the run. New parametrized tests run each preset through CommandBackend with a fake executable of that name on PATH and check the parsed report, the flags, the model flag, unsafe model names, and that codex/gemini/opencode are byte-identical. Ruff is clean and the full WSL suite passes (553 tests).
+Added detect_runner(env=None) to autopilot/doctor.py: a RUNNERS table (claude, kiro-cli, cursor-agent, codex, gemini, aider) checked in order with shutil.which on env PATH; a non-empty documented key variable counts first, then check_login for claude or a read-only status command (whoami / status / login status) via run_proc with LOGIN_TIMEOUT=10, exit 0 without logged-out wording. _run and check_login got a defaulted timeout kwarg. 9 tests with fake executables on a tmp PATH cover every acceptance criterion; ruff clean, full WSL suite 562 passed.
 
-Files: .agent/DECISIONS.md, REFERENCE.md, autopilot/backends/command.py, autopilot/templates/agent/project.yaml, tests/test_presets.py
+Files: autopilot/doctor.py, tests/test_runner_detect.py
 
 Follow-ups noted:
-- config.py:95 error text still lists only codex, gemini, opencode
-- HOWTO.md:329 and README.md:123 name only the old presets
-- Live check of kiro-cli, cursor-agent and aider; especially whether cursor-agent reads stdin (fallback: _ASK pointing to {prompt_file})
-- wsltest_self.sh needs MSYS_NO_PATHCONV=1 when run from Git Bash
+- P03 next task: preflight calls detect_runner when no runner is set and writes it to project.yaml; then document it in REFERENCE.md
+- Known gaps: gemini Google login without a key, aider keys only in project .env or .aider.conf.yml, cursor-agent installed as 'agent', OPENAI_API_KEY not counted for codex
+- check_login for claude runs with os.environ, not the env argument of detect_runner (only PATH lookup uses env)
+- Live check of kiro-cli whoami / cursor-agent status / codex login status output when logged out
 
-Next planned task: P03-T02
+Next planned task: P03-T03

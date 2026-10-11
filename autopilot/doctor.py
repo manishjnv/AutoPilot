@@ -16,9 +16,9 @@ OK, WARN, FAIL = "ok", "WARN", "FAIL"
 NOTIFY_ENVS = ("telegram_token_env", "slack_webhook_env", "webhook_env", "ntfy_topic_env")
 
 
-def _run(cmd: list[str], cwd=None) -> tuple[int, str]:
+def _run(cmd: list[str], cwd=None, timeout: float = 30) -> tuple[int, str]:
     try:
-        p = run_proc(cmd, cwd=cwd, timeout=30)
+        p = run_proc(cmd, cwd=cwd, timeout=timeout)
     except OSError as exc:
         return 127, str(exc)
     return p.rc, (p.stdout + p.stderr).strip()
@@ -40,9 +40,9 @@ def other_auth(cfg) -> str:
     return name or ("usage.billing: api" if cfg is not None and cfg.get("usage.billing") == "api" else "")
 
 
-def check_login(binary: str, version: tuple, cfg) -> tuple[str, str, str]:
+def check_login(binary: str, version: tuple, cfg, timeout: float = 30) -> tuple[str, str, str]:
     """H2: FAIL only when a login is surely missing: a CLI that has `auth status`, and no other way to pay."""
-    rc, out = _run([binary, "auth", "status"])  # documented from 2.1.268: exit 0 = logged in
+    rc, out = _run([binary, "auth", "status"], timeout=timeout)  # documented from 2.1.268: exit 0 = logged in
     other = other_auth(cfg)
     if rc == 0:
         # only the sure case: a claude.ai login (not a key, not a gateway) on the free plan, and no other way to pay
@@ -55,6 +55,53 @@ def check_login(binary: str, version: tuple, cfg) -> tuple[str, str, str]:
     if other:
         return WARN, "claude login", f"not logged in; sessions use {other}"
     return FAIL, "claude login", f"not logged in: {LOGIN_FIX}"
+
+
+# N3: agent CLIs in the order preflight tries them -> (binary, backend choice, read-only status argv or None,
+# documented key variables). A key variable counts first: no process to start. Never a `login` argument here.
+LOGIN_TIMEOUT = 10
+RUNNERS = (
+    ("claude", "claude_cli", None, OTHER_AUTH),
+    ("kiro-cli", "kiro", ("whoami",), ("KIRO_API_KEY",)),
+    ("cursor-agent", "cursor", ("status",), ("CURSOR_API_KEY",)),
+    ("codex", "codex", ("login", "status"), ("CODEX_API_KEY",)),
+    ("gemini", "gemini", None, ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
+    ("aider", "aider", None, ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY",
+                              "DEEPSEEK_API_KEY")),
+)
+# exit codes of the status commands are not documented: a logged-out CLI may still exit 0
+LOGGED_OUT = re.compile(r"not (logged|signed) in|not authenticated|unauthenticated|logged out|no (active )?"
+                        r"(session|credentials)|please (log|sign) ?in", re.I)
+
+
+def _logged_in(path: str, binary: str, status: tuple | None, keys: tuple, env: dict) -> bool:
+    """N3: True when a key variable is set (only its presence is read), or the status command exits 0 within
+    LOGIN_TIMEOUT without logged-out wording. A timeout or a program that does not start counts as logged out."""
+    if any(env.get(k) for k in keys):
+        return True
+    if binary == "claude":
+        return check_login(path, (0, 0, 0), None, timeout=LOGIN_TIMEOUT)[0] == OK
+    if not status:
+        return False
+    try:
+        p = run_proc([path, *status], env=dict(env), timeout=LOGIN_TIMEOUT)
+    except OSError:
+        return False
+    return p.rc == 0 and not p.timed_out and not LOGGED_OUT.search(p.stdout + p.stderr)
+
+
+def detect_runner(env=None) -> str | None:
+    """N3: the backend choice (`claude_cli`, or a preset name) of the first agent CLI on PATH that is installed and
+    logged in, in RUNNERS order; None when there is none. Read-only: never starts a login."""
+    env = dict(os.environ if env is None else env)
+    path = next((v for k, v in env.items() if k.upper() == "PATH"), "")
+    if not path:
+        return None
+    for binary, backend, status, keys in RUNNERS:
+        exe = shutil.which(binary, path=path)
+        if exe and _logged_in(exe, binary, status, keys, env):
+            return backend
+    return None
 
 
 def check_claude(cfg=None) -> list[tuple[str, str, str]]:

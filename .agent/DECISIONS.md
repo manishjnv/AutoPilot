@@ -17,3 +17,5 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [P03-T01] model option is --model for kiro/cursor/aider via _MODEL_OPT, -m for the others — aider -m means --message
 - [2026-10-11] [P03-T01] kiro preset has no positional _ASK (a positional argument disables stdin); cursor keeps _ASK + undocumented stdin
 - [2026-10-11] [P03-T02] ADR: A: RUNNERS table + key-first check + status argv via run_proc; check_login reused with a new timeout kwarg → docs/adr/0002-table-driven-detect-runner-in-doctor-py-key-variab.md
+- [2026-10-11] [P03-T02] detect_runner checks key variables before running any status command; an empty key does not count; a status command counts only with rc 0, no timeout and no LOGGED_OUT wording — exit codes are undocumented
+- [2026-10-11] [P03-T02] doctor.LOGIN_TIMEOUT (10 s) is the single timeout for login checks; tests lower it with monkeypatch

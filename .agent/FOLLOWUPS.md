@@ -15,3 +15,7 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P03-T01] HOWTO.md:329 and README.md:123 name only the old presets
 - [P03-T01] Live check of kiro-cli, cursor-agent and aider; especially whether cursor-agent reads stdin (fallback: _ASK pointing to {prompt_file})
 - [P03-T01] wsltest_self.sh needs MSYS_NO_PATHCONV=1 when run from Git Bash
+- [P03-T02] P03 next task: preflight calls detect_runner when no runner is set and writes it to project.yaml; then document it in REFERENCE.md
+- [P03-T02] Known gaps: gemini Google login without a key, aider keys only in project .env or .aider.conf.yml, cursor-agent installed as 'agent', OPENAI_API_KEY not counted for codex
+- [P03-T02] check_login for claude runs with os.environ, not the env argument of detect_runner (only PATH lookup uses env)
+- [P03-T02] Live check of kiro-cli whoami / cursor-agent status / codex login status output when logged out
