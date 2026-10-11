@@ -335,3 +335,11 @@ def test_the_agent_is_told_the_gate_rules_and_the_advice_passes_the_gate():
 def test_needs_you_file_is_protected(tmp_path):
     from autopilot.gate import protected_files
     assert "docs/NEEDS-YOU.md" in protected_files(Config.load(tmp_path))   # an agent must not answer its own decision
+
+
+def test_task_report_schema_names_every_field_the_gate_reads():
+    """Session 27: the structured report follows the schema; a field the schema omits never arrives (O1 hatch, O3 deps)."""
+    from autopilot.schemas import REPORTS  # noqa: PLC0415
+    props = REPORTS["task"]["properties"]
+    assert props["scope_additions"]["type"] == "object" and props["new_deps"]["type"] == "array"
+    assert {"name", "reason"} <= set(props["new_deps"]["items"]["properties"])
