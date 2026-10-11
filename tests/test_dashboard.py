@@ -24,7 +24,8 @@ def test_data_is_plain_and_has_every_part(tmp_path):
     assert len(data["recent"]) == 3 and {"n", "title", "time"} == set(data["recent"][0])
     assert data["project"]["status"] == "idle" and data["project"]["state_words"] == "No build is active."
     assert data["progress"] == {"done": 3, "total": 3, "pct": 100, "phases_done": 2, "phases_total": 2,
-                                "blocked": 0, "questions": 0, "warnings": 0, "warned": [], "working": 0, "waiting": 0,
+                                "blocked": 0, "questions": 0, "warnings": 0, "warned": [], "warned_why": [], "retries": 0,
+                                "working": 0, "waiting": 0,
                                 "active": 0}
     assert data["project"]["now"] is None and data["project"]["tone"] == "" and data["needs_you"] == []
     assert [t["status"] for t in data["tasks"]] == ["done"] * 3 and data["tasks"][0]["n"] == 1

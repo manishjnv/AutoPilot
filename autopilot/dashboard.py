@@ -91,12 +91,17 @@ def by_commit(root, main: str, started: str) -> dict:
             stat = _git(root, "diff", "--shortstat", base, main) if base else ""
             files, plus = re.search(r"(\d+) files? changed", stat), re.search(r"(\d+) insertions?", stat)
             if files:
-                facts["run"] = {"files": int(files.group(1)), "lines": int(plus.group(1)) if plus else 0}
+                gone = re.search(r"(\d+) deletions?", stat)
+                diff = _git(root, "diff", "-U0", base, main)  # J13/6: tests added = new test functions in the diff
+                new = "\n".join(x[1:] for x in diff.splitlines() if x.startswith("+") and not x.startswith("+++"))
+                facts["run"] = {"files": int(files.group(1)), "lines": int(plus.group(1)) if plus else 0,
+                                "removed": int(gone.group(1)) if gone else 0, "tests": len(TEST_CASE.findall(new))}
+                facts["files"].update(plus=facts["run"]["lines"], minus=facts["run"]["removed"], tests=facts["run"]["tests"])
         _cache[key] = facts
     return _cache[key]
 
 
-def live_rows(root, plan, lines: int = 40) -> list[dict]:
+def live_rows(root, plan, lines: int = 40, live: bool = False) -> list[dict]:
     """The last lines of the simple view as {at, text, kind}; kind: heading, goal, step, good, bad, note, blank."""
     from . import AGENT_DIR
     log = root / AGENT_DIR / "logs" / "autopilot.log"
@@ -104,15 +109,41 @@ def live_rows(root, plan, lines: int = 40) -> list[dict]:
     view = SimpleView({t.id: (i + 1, len(ids), t.title, t.description) for i, t in enumerate(ids)})
     # ponytail: reads the end of the log on each call; read by offset if a log grows to many MB
     raw = log.read_text(encoding="utf-8", errors="replace").splitlines()[-600:] if log.exists() else []
+    # J13/8: the time of a step = the session clock of the line that ends it minus the clock of the line that began it
+    clock = lambda row: (lambda m: int(m.group(1)) * 60 + int(m.group(2)) if m else None)(  # noqa: E731
+        re.search(r"· (\d+)m(\d\d)s\s*$", row))
+    outs, begun, last = [], None, None
+    for row in raw:
+        g0, now_s = view.group, clock(row)
+        got = view.feed(row)
+        if now_s is not None:
+            last = now_s
+        if g0 and view.group is not g0 and got:  # the group g0 ended with the first line
+            took = now_s - begun if now_s is not None and begun is not None and now_s >= begun else None
+            outs.append((got[0], took))
+            got = got[1:]
+        if view.group is not g0 and view.group:
+            begun = now_s
+        outs += [(x, None) for x in got]
+    tail = view.close()
+    if tail:
+        outs.append((tail[0], last - begun if last is not None and begun is not None and last >= begun else None))
     rows = []
-    for text in ([out for row in raw for out in view.feed(row)] + view.close())[-lines:]:
+    for text, took in outs[-lines:]:
         m = re.match(r"(\d\d:\d\d)  (.*)$", text)
         at, body = (m.group(1), m.group(2)) if m else ("", text)
         kind = ("blank" if not text else "goal" if text.startswith("Goal: ") else "heading" if not m else
                 "good" if " is complete." in body else
                 "bad" if body.startswith(("The checks failed.", "The build stopped.")) else
                 "note" if not re.match(r"(Reads|Writes|Changes|Checks|Runs|Searches|Installs|Uses) ", body) else "step")
-        rows.append({"at": at, "text": body, "kind": kind})
+        rows.append({"at": at, "text": body, "kind": kind,
+                     **({"took": f"{took // 60}m{took % 60:02d}s"} if took is not None and kind == "step" else {})})
+    try:  # a tool that runs for over 60 s writes nothing: say so, dim
+        quiet = int(time.time() - log.stat().st_mtime)
+    except OSError:
+        quiet = 0
+    if live and raw and quiet > 60 and "▸" in raw[-1]:
+        rows.append({"at": "", "text": f"A tool runs for {_dur(quiet)}.", "kind": "wait"})
     return rows
 
 
@@ -176,6 +207,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         else:
             model = name(r["model"]) if r else ""
         return {"n": i + 1, "id": t.id, "title": t.title, "phase": t.phase_id, "status": st,
+                "risk": t.risk, "tries": tries,
                 "time": (_span(a, b) if st == "done" else _span(a, now) if st == "running" else "") if r else "",
                 "detail": " · ".join(x for x in (model, f"{tries} tries" if tries > 1 else "") if x)}
 
@@ -245,6 +277,24 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             stale = 0
     git, checks = (str(run.get("git") or ""), str(run.get("build") or "")) if live else ("", "")
     warned = [tid for p in plan.phases for tid in warned_tasks(cfg, p)]
+    why_warned = []  # J13/7: the first gate warning of each warned task, from its history file
+    hist = root / cfg.get("docs.history_dir", ".agent/history")
+    for p in plan.phases:
+        for tid in warned_tasks(cfg, p):
+            try:
+                first_line = (hist / p.id / f"{tid}.md").read_text(encoding="utf-8").rpartition("## Gate warnings\n")[2].splitlines()[0]
+            except (OSError, IndexError):
+                continue
+            why_warned.append({"id": tid, "why": first_line.lstrip("- ").replace("outside files_in_scope", "out of scope")[:70]})
+    # J13/3: the last error still open (a task that is not done); J13/5: minutes per done task, from the task spans
+    broken = max((r for r in rows.values() if r["last_error"] and r["status"] != "done"),
+                 key=lambda r: r["updated_at"] or "", default=None)
+    kept = [secs(*span(r)) for r in rows.values() if r["status"] == "done"]
+    kept = [x for x in kept if x is not None]
+    login = (state.get_meta("window_seen", {}) or {}).get("plan_tier")
+    backend = str(cfg.get("agent.backend", "claude_cli"))
+    runner = ("claude" if backend == "claude_cli" else
+              str(cfg.get("agent.preset") or (cfg.get("agent.command") or "command").split()[0]))
     ended = sorted((r for r in rows.values() if r["status"] == "done" and r["finished_at"]),
                    key=lambda r: r["finished_at"], reverse=True)[:3]
     number = {t["id"]: t for t in table}
@@ -257,6 +307,9 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "last_commit": _first(facts["subject"], 60),
             "last_commit_age": _dur(time.time() - facts["stamp"]) if 0 < facts["stamp"] <= time.time() else "",
             "model": name(run.get("model")) if live else "",
+            "runner": runner, "login": str(login or "—"),  # the CLI version and the plan are not stored: a dash, no call
+            "resets": f"{dt.datetime.fromtimestamp(float(five['reset'])):%H:%M}" if five else "—",
+            "last_error": _first(broken["last_error"], 70) if broken else "—",
             "run_id": str(run.get("run_id") or ""), "started": str(run.get("started_at") or "").replace("T", " "),
             "status": "running" if live else "finished" if finished else "idle",
             # how the status word looks: good, wait (it needs the person or a usage window), bad, or '' (neutral)
@@ -275,7 +328,8 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "done": done, "total": len(tasks), "pct": 100 * done // len(tasks) if tasks else 0,
             "phases_done": sum(1 for p in plan.phases if p.tasks and all(status.get(t.id) == "done" for t in p.tasks)),
             "phases_total": len(plan.phases), "blocked": blocked, "questions": len(asked),
-            "warnings": len(warned), "warned": warned[:6],
+            "warnings": len(warned), "warned": warned[:6], "warned_why": why_warned[:6],
+            "retries": sum(max(0, int(r["attempts"] or 0) - 1) for r in rows.values()),
             "working": len(working) if live else 0, "waiting": max(0, len(tasks) - done - blocked - (len(working) if live else 0)),
             "active": working[0]["n"] if live and working else 0,
         },
@@ -293,13 +347,14 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         "recent": [{"n": number[r["id"]]["n"], "title": number[r["id"]]["title"], "time": number[r["id"]]["time"]}
                    for r in ended if r["id"] in number],
         "tasks": table,
-        "live": live_rows(root, plan),
+        "live": live_rows(root, plan, live=live),
         "usage": {
             "five": float(five["pct"]) if five else None,
             "week": float(week["pct"]) if five and "pct" in week else None,
             "reset_in": _dur(float(five["reset"]) - time.time()) if five and float(five.get("reset") or 0) > time.time() else "",
             "context": (used / (200_000 if used <= 200_000 else 1_000_000)) if used else None,
             "tokens_text": _n(total), "cost": round(state.cost(), 2),
+            "rate": f"{round(sum(kept) / len(kept) / 60)} min per task" if kept else "—",
             "models": [{"name": name(m), "tokens_text": _n(v["total"]), "share": v["total"] / total}
                        for m, v in sorted(models, key=lambda x: -x[1]["total"]) if total and v["total"]],
         },

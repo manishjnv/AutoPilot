@@ -13,7 +13,7 @@ MIN_COLS, MIN_ROWS = 100, 24
 LEFT_W, RIGHT_W = 36, 30
 STATUS = {"done": ("✓", "Complete", "green"), "running": ("▶", "In progress", "green"),
           "blocked": ("✗", "Blocked", "red"), "pending": ("○", "Pending", "dim")}
-KIND = {"heading": "bold", "goal": "dim", "good": "green", "bad": "red", "note": "yellow"}
+KIND = {"heading": "bold", "goal": "dim", "good": "green", "bad": "red", "note": "yellow", "wait": "dim"}
 
 
 def clean(x) -> str:
@@ -182,6 +182,8 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     if p["last_commit"]:
         groups.append([rule("Last commit"), *text(p["last_commit"]),
                        *([[(f"{p['last_commit_age']} ago", "dim")]] if p["last_commit_age"] else [])])
+    g = [rule("Agent")] + row("Runner", p["runner"] or "—") + row("Login", p["login"] or "—")
+    groups.append(g + row("Resets", p["resets"] or "—") + row("Error", p["last_error"] or "—"))
     rows = []
     for g in groups:
         if rows and len(rows) + len(g) > h - 2:
@@ -226,18 +228,24 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     use += [f"{m['name']:<9}{m['tokens_text']:>6} {round((num(m['share']) or 0) * 100):>3}%" for m in u["models"]]
     if u["cost_text"]:
         use.append(f"Cost    {u['cost_text']}")
+    use.append(f"Rate    {u['rate'] or '—'}")
     issues = []  # the counts of blocked and questions live in Progress and in the question group
     if why:
         issues += wrap2(f"{why['id']}: {why['why']}", w - 4)
     issues += [["Warnings  ", alert(count(pr.get("warnings")), "yellow")]]
-    issues += ["  " + x for x in wrap2(" ".join(pr["warned"]), w - 6)]  # the tasks that have a warning
+    issues += ["  " + cut(f"{x['id']} {x['why']}", w - 6) for x in pr["warned_why"][:3]]  # the reason of each warning
+    if not pr["warned_why"]:
+        issues += ["  " + x for x in wrap2(" ".join(pr["warned"]), w - 6)]  # the tasks that have a warning
+    issues += [["Retries   ", cnt(count(pr.get("retries")), "yellow")]]
     issues += [[f"{k:<10}", (v, "green" if v == "OK" else "red")] for k, v in d["health"].items() if k != "words" and v]
     issues += [[(x, "red")] for x in wrap2(d["health"]["words"], w - 4)]
     boxes = [("Progress", prog), ("Usage", use)]
     if f is not None:
         boxes.append(("Files", [["Added     ", cnt(count(f.get("added")), "green")],
                                 ["Modified  ", cnt(count(f.get("modified")))],
-                                ["Deleted   ", cnt(count(f.get("deleted")), "red")]]))
+                                ["Deleted   ", cnt(count(f.get("deleted")), "red")],
+                                *([["Lines +   ", cnt(count(f["plus"]), "green")], ["Lines -   ", cnt(count(f["minus"]), "red")],
+                                   ["Tests +   ", cnt(count(f["tests"]))]] if f.get("plus") is not None else [])]))
     boxes.append(("Issues", issues))
     tip = d["next"][0][0] if d["next"] else ""
     out, left = [], h
@@ -256,14 +264,16 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
 
 def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     iw, tasks = w - 4, d["tasks"]
-    detail = iw - 44 >= 14
-    tw = iw - 25 - (19 if detail else 0)
+    rt = iw - 37 >= 13  # J13/4: Risk and Tries columns when the title keeps 13 cells
+    detail = rt and iw - 56 >= 13 or not rt and iw - 44 >= 14
+    tw = iw - 25 - (12 if rt else 0) - (19 if detail else 0)
 
-    def line(n, title, status, time, det, style=None, sstyle=None):
+    def line(n, title, status, time, det, style=None, sstyle=None, risk="", tries=""):
         parts = [(n.rjust(3), style), (" ", None), (fit(title, tw), style), (" ", None), (fit(status, 13), sstyle),
                  (" ", None), (fit(time, 6), style)]
+        parts += [(" ", None), (fit(risk, 5), style), (" ", None), (tries.rjust(5), style)] if rt else []
         return parts + ([(" ", None), (fit(det, 18), style)] if detail else [])
-    rows = [line("#", "Task", "Status", "Time", "Detail", "dim", "dim")]
+    rows = [line("#", "Task", "Status", "Time", "Detail", "dim", "dim", "Risk", "Tries")]
     other = d["project"]["other"]  # J13/15: the time in no task, so the tasks and this row add up to Elapsed
     room = h - 3 - (1 if other else 0)
     focus = next((i for i, t in enumerate(tasks) if t["status"] == "running"),
@@ -272,7 +282,7 @@ def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     for t in tasks[start:start + room]:
         sym, word, st = STATUS.get(t["status"], ("○", t["status"] or "Pending", "dim"))
         rows.append(line(t["n"], t["title"], f"{sym} {word}", t["time"], t["detail"],
-                         "bold" if t["status"] == "running" else None, st))
+                         "bold" if t["status"] == "running" else None, st, t["risk"][:4] or "—", t["tries"] or "—"))
     if other:
         rows.append(line("", "Other: decide, research, docs, audit, waits", "", other, "", "dim", "dim"))
     return box("Tasks", rows, w, h, color, asof_note(d, False))
@@ -286,7 +296,9 @@ def live_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
         elif e["kind"] in ("heading", "goal"):
             rows.append([(e["text"], KIND[e["kind"]])])
         else:
-            rows.append([(fit(e["at"], 5), "dim"), "  ", (e["text"], KIND.get(e["kind"]))])
+            took = e.get("took")
+            rows.append([(fit(e["at"], 5), "dim"), "  ", (fit(e["text"], w - 4 - 7 - 7) if took else e["text"], KIND.get(e["kind"])),
+                         *([(" " + took.rjust(6), "dim")] if took else [])])
     return box("Live output", rows or [[("No output yet.", "dim")]], w, h, color, asof_note(d, False))
 
 
@@ -335,9 +347,11 @@ def normalize(data) -> dict:
     return {
         "project": {**{k: clean(p.get(k)) for k in ("name", "branch", "model", "started", "status", "tone", "stale",
                                                     "state_words", "elapsed", "eta", "next", "last_commit",
-                                                    "last_commit_age", "other")},
+                                                    "last_commit_age", "other", "runner", "login", "resets",
+                                                    "last_error")},
                     "stale_min": count(p.get("stale_min"))},
-        "progress": {**pr, "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6]},
+        "progress": {**pr, "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6],
+                     "warned_why": [x for x in (one(r, ("id", "why")) for r in pr.get("warned_why") or []) if x]},
         "share": num(share) or 0.0, "now": now, "size": size,
         "phases": [{"id": clean(r.get("id")), "status": clean(r.get("status")), "done": count(r.get("done")),
                     "total": count(r.get("total"))} for r in listed("phases") if isinstance(r, dict)],
@@ -345,10 +359,10 @@ def normalize(data) -> dict:
                  if isinstance(t, (list, tuple)) and t],
         "needs_you": [x for x in (one(r, ("id", "title")) for r in data.get("needs_you") or []) if x],
         "blocked_why": one(data.get("blocked_why"), ("id", "why")),
-        "tasks": rows("tasks", ("n", "id", "title", "status", "time", "detail")),
-        "live": rows("live", ("at", "text", "kind")),
+        "tasks": rows("tasks", ("n", "id", "title", "status", "time", "detail", "risk", "tries")),
+        "live": rows("live", ("at", "text", "kind", "took")),
         "usage": {**u, "tokens_text": clean(u.get("tokens_text")), "cost_text": cost_text,
-                  "reset_in": clean(u.get("reset_in")),
+                  "reset_in": clean(u.get("reset_in")), "rate": clean(u.get("rate")),
                   "models": [{"name": clean(m.get("name"))[:9], "tokens_text": clean(m.get("tokens_text")),
                               "share": m.get("share")} for m in models]},
         "asof": ({"age": count(a["age"]) if isinstance(a.get("age"), (int, float)) else None,
