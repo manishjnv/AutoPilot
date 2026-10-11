@@ -1,15 +1,14 @@
 # Handoff
 
-Last completed: **P03-T02 — Detect the installed and logged-in runner** (2026-10-11)
+Last completed: **P03-T03 — Preflight writes the detected runner to project.yaml** (2026-10-11)
 
-Added detect_runner(env=None) to autopilot/doctor.py: a RUNNERS table (claude, kiro-cli, cursor-agent, codex, gemini, aider) checked in order with shutil.which on env PATH; a non-empty documented key variable counts first, then check_login for claude or a read-only status command (whoami / status / login status) via run_proc with LOGIN_TIMEOUT=10, exit 0 without logged-out wording. _run and check_login got a defaulted timeout kwarg. 9 tests with fake executables on a tmp PATH cover every acceptance criterion; ruff clean, full WSL suite 562 passed.
+preflight(cfg) now reads the raw project.yaml. When it sets no backend, command or preset, preflight calls detect_runner and writes backend/preset as a comment-keeping text edit that is parse-checked before the write. It prints `runner: <binary> (found on PATH)`, or prints the Claude Code install command and the supported CLIs and returns False when none is found. The template backend line is commented out and config.defaults() keeps claude_cli as the in-memory default. 8 new tests, including a smoke test where a fake kiro-cli runs one task to done through the Orchestrator; WSL suite 570 passed, ruff clean.
 
-Files: autopilot/doctor.py, tests/test_runner_detect.py
+Files: .agent/DECISIONS.md, .agent/HANDOFF.md, HOWTO.md, REFERENCE.md, autopilot/cli.py, autopilot/config.py, autopilot/templates/agent/project.yaml, tests/test_runner_detect.py
 
 Follow-ups noted:
-- P03 next task: preflight calls detect_runner when no runner is set and writes it to project.yaml; then document it in REFERENCE.md
-- Known gaps: gemini Google login without a key, aider keys only in project .env or .aider.conf.yml, cursor-agent installed as 'agent', OPENAI_API_KEY not counted for codex
-- check_login for claude runs with os.environ, not the env argument of detect_runner (only PATH lookup uses env)
-- Live check of kiro-cli whoami / cursor-agent status / codex login status output when logged out
+- ap init writes a short project.yaml without an agent: block, so the runner lines are appended as a new block at the end of the file
+- doctor.checks still shows the claude rows for a project with no runner set before its first preflight
+- config.py was edited (one line in defaults(), as the ADR says) although it was not in the listed files
 
-Next planned task: P03-T03
+Next planned task: P04-T01

@@ -19,3 +19,6 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P03-T02] Known gaps: gemini Google login without a key, aider keys only in project .env or .aider.conf.yml, cursor-agent installed as 'agent', OPENAI_API_KEY not counted for codex
 - [P03-T02] check_login for claude runs with os.environ, not the env argument of detect_runner (only PATH lookup uses env)
 - [P03-T02] Live check of kiro-cli whoami / cursor-agent status / codex login status output when logged out
+- [P03-T03] ap init writes a short project.yaml without an agent: block, so the runner lines are appended as a new block at the end of the file
+- [P03-T03] doctor.checks still shows the claude rows for a project with no runner set before its first preflight
+- [P03-T03] config.py was edited (one line in defaults(), as the ADR says) although it was not in the listed files

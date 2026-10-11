@@ -118,7 +118,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 |---|---|---|
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
 | `gate` | The checks | `test_globs`, `ci_files`, `protected` |
-| `agent` | The agent CLI | `backend` (`claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
+| `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
 | `onboard` | Onboarding discovery pack | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | The network allowlist | `enabled` (false), `allowed_domains` |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
@@ -144,6 +144,12 @@ Sessions do not load your own Claude Code settings, plugins, hooks, or MCP serve
 and the project's own `.claude/settings.json` and `.mcp.json` also load. Thus a run acts the same on each computer.
 Your own settings add cost and context to each session. To load them too, for example a proxy or an
 `apiKeyHelper`, set `agent.user_config: true`.
+
+Runner detection: when the project's own `.agent/project.yaml` sets no `agent.backend`, `agent.command` or
+`agent.preset`, preflight (before `ap run` and `ap onboard`) detects the first installed, logged-in CLI in this order and
+writes it: `claude`, `kiro-cli`, `cursor-agent`, `codex`, `gemini`, `aider`. It prints `runner: <name> (found on
+PATH)`. For `claude` it writes `backend: claude_cli`; for a different CLI, `backend: command` and the preset. When it
+finds no CLI, it prints the install command of Claude Code and stops. A value that you set is never changed.
 
 Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
 `agent.model_map` gives the model option (`-m`, or `--model` for kiro, cursor and aider).

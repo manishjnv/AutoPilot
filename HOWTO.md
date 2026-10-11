@@ -325,8 +325,12 @@ To send the requests through a gateway such as LiteLLM or OpenRouter, set `agent
 
 ## Use a different agent CLI
 
+Which agent CLI runs: when `.agent/project.yaml` has no `agent.backend`, preflight finds the first installed,
+logged-in CLI on PATH (`claude`, `kiro-cli`, `cursor-agent`, `codex`, `gemini`, `aider`) and writes it into the file.
+To choose a CLI yourself, do these steps:
+
 1. In `.agent/project.yaml`, set `agent.backend: command`.
-2. Set `agent.preset` to `codex`, `gemini` or `opencode`. For a different CLI, write the command in `agent.command`.
+2. Set `agent.preset` to `codex`, `gemini`, `opencode`, `kiro`, `cursor` or `aider`. For a different CLI, write the command in `agent.command`.
 3. Optional: map the model names to the models of that CLI in `agent.model_map`.
 
 > [!NOTE]
