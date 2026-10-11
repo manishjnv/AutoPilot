@@ -332,6 +332,8 @@ class Orchestrator:
         return "\n".join(x for x in (token_footer(self.state, self.first_session), window_line(self.state)) if x)
 
     def _run(self) -> str:
+        from .doctor import package_line
+        log.info(package_line())
         self.heal_config()
         blocking = self.cfg.blocking_errors()
         if blocking:

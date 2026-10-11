@@ -383,9 +383,24 @@ def check_deps(cfg: Config) -> tuple[str, str, str] | None:
     return (WARN, "dependencies", "not installed; run " + "; ".join(parts))
 
 
+def package_line() -> str:
+    """Which Autopilot is imported: version and package path (shared by `ap doctor` and the run log)."""
+    from . import __file__ as init_file, __version__
+    return f"Autopilot {__version__} from {Path(init_file).resolve().parent}"
+
+
+def check_package(root) -> tuple[str, str, str]:
+    """WARN when the project's own autopilot/ folder is imported instead of the installed package."""
+    line = package_line()
+    pkg = Path(line.split(" from ", 1)[1])
+    if Path(root).resolve() in pkg.parents:
+        return (WARN, "autopilot", line + ": the project's own autopilot/ folder is imported, not the installed Autopilot")
+    return (OK, "autopilot", line)
+
+
 def checks(cfg: Config) -> list[tuple[str, str, str]]:
     """(level, name, detail) per check. FAIL = the run would break; WARN = it runs, but something is missing."""
-    out = [check_path()]
+    out = [check_path(), check_package(cfg.root)]
     if cfg.get("agent.backend", "claude_cli") == "claude_cli":
         out += check_claude(cfg)
         out += [g for g in [check_user_guards(cfg)] if g]
