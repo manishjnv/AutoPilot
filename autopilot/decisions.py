@@ -18,7 +18,7 @@ INTRO = [
     "## How to answer", "",
     "1. Open a terminal in the project folder.",
     "2. Run `ap answer`.",
-    "3. Type your answer for each question, then press Enter.", "",
+    "3. Type 1, 2 or 3 for each question. Press Enter alone to pick 1, the suggestion of the agent.", "",
     "Write the answer in your own words, as an instruction for the agent. Example: `Try again. Keep all the tests.`", "",
     "To answer one question in one command, run `ap answer D-001 \"your answer\"`.",
     "If no build is active, you can also write the answer after \"Your answer:\" in this file. Then commit the file.", ""]
@@ -43,14 +43,15 @@ def problems(why) -> list[str]:
 def explain(d) -> list[str]:
     """One question as markdown list items in simple words. An empty field gives no line."""
     done = re.match(r"(\d+) attempts by the agent$", _line(d["checked"]))
-    happened = f"The agent made {done.group(1)} attempts. The checks did not pass." if done else _line(d["checked"])
+    happened = f"The agent made {done.group(1)} attempts. The checks did not pass." if done else \
+        " ".join(re.split(r"(?<=[.!?]) ", _line(d["checked"]))[:3])  # at most 3 sentences
     question = _line(d["question"])
     why, blocks = problems(d["why"]), json.loads(d["blocks"] or "[]")
     out = [f"- **What happened:** {happened}"] if happened else []
     if len(why) == 1:
         out.append(f"- **The problem:** {why[0]}")
     elif why:
-        out += ["- **The problem:**"] + [f"  - {p}" for p in why]
+        out += ["- **The problem:**"] + [f"  - {p}" for p in why[:2]] + (["  - More problems are in the log."] if len(why) > 2 else [])
     out.append(f"- **The question:** {QUESTION if question == OLD_QUESTION else question}")
     if _line(d["suggestion"]):
         out.append(f"- **Suggestion from the agent:** {_line(d['suggestion'])}")
@@ -59,11 +60,17 @@ def explain(d) -> list[str]:
     return out
 
 
+CHOICES = "1 = do that (Enter) · 2 = skip this task · 3 = your own words"
+SKIP = "skip this task"
+LOG = "../.agent/logs/autopilot.log"
+
+
 def render(state) -> str:
     out = list(INTRO)
     for d in state.decisions():
         out += [f"## {d['id']} · {_line(d['title'])} · {LABEL.get(d['status'], d['status'])}", "",
                 f"- **Status:** {STATUS.get(d['status'], d['status'])}", *explain(d),
+                *([f"- **Choices:** {CHOICES}. Full details: [log]({LOG})"] if d["status"] == "OPEN" else []),
                 f"- Your answer: {(d['answer'] or '').strip()}".rstrip(), ""]
     return "\n".join(out)
 

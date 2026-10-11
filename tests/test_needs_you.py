@@ -128,12 +128,29 @@ def test_answer_without_arguments(tmp_path, monkeypatch, capsys):
     assert cli_main(["answer", "-C", str(root), "D-001"]) == 1               # id only, no terminal: usage
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    lines = iter(["", "use X"])
+    lines = iter(["use X"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(lines))
-    assert cli_main(["answer", "-C", str(root)]) == 0                       # terminal: empty line skips, nothing stored
-    assert orch.state.decision("D-001")["status"] == "OPEN"
     assert cli_main(["answer", "-C", str(root), "D-001"]) == 0              # id only: asks for that one answer
     assert orch.state.decision("D-001")["answer"] == "use X"
+
+
+def test_a_question_is_short_and_enter_picks_choice_1(tmp_path, monkeypatch):
+    root, _, orch, _ = parked_run(tmp_path)
+    block = (root / "docs" / "NEEDS-YOU.md").read_text(encoding="utf-8").split("## D-001")[1].strip().splitlines()
+    block = [x for x in block if x.strip()]
+    assert len(block) < 12 and any("1 = do that (Enter)" in x and ".agent/logs/" in x for x in block)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    assert cli_main(["answer", "-C", str(root)]) == 0
+    assert orch.state.decision("D-001")["answer"] == "Stripe"               # Enter = the suggested fix
+    for pick, want in (("2", "skip this task"), ("3", "own words")):
+        (tmp_path / pick).mkdir()
+        r2, _, o2, _ = parked_run(tmp_path / pick)
+        lines = iter([pick, "own words"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(lines))
+        assert cli_main(["answer", "-C", str(r2)]) == 0
+        assert o2.state.decision("D-001")["answer"] == want
 
 
 def test_answer_written_in_file_is_applied(tmp_path):

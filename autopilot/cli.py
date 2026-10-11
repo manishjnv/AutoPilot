@@ -1168,10 +1168,16 @@ def cmd_answer(args):
     if not _tty():
         print(f"usage: {usage}")
         return 1
+    from .decisions import CHOICES, SKIP
+    print(f"Choices: {CHOICES}")
     for r in rows:
-        text = _ask(f"Your answer for {r['id']} (Enter = no answer now): ")
-        if text is None:
+        sug = " ".join(str(r["suggestion"] or "").split())
+        pick = _ask(f"{r['id']} choice (Enter = 1{': ' + sug if sug else ''}): ")
+        if pick is None:
             break
+        pick = pick.strip()
+        text = sug if pick in ("", "1") else SKIP if pick == "2" else \
+            (_ask(f"Your answer for {r['id']}: ") or "") if pick == "3" else pick  # other text = your own words
         if text:
             _store_answer(state, r["id"], text)
     return 0
