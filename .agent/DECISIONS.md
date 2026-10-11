@@ -45,3 +45,4 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [P07-T02] Paths in new_files are normalised (backslash to slash, strip, remove './'). Only dict entries with a non-empty path and a non-empty reason count.
 - [2026-10-11] [P08-T02] Config error text builds its preset list from backends.command.PRESETS — one source of truth for preset names
 - [2026-10-11] [P08-T02] An old CLAUDE.md section gets only the last two lines of templates/agent/CLAUDE.md.snippet (Commands and plan-files lines), appended once; the presence of `ap status` is the marker, so re-running init is a no-op
+- [2026-10-11] [P09-T01] config.defaults() sets gate.new_file_reasons False explicitly — defaults() loads the template, so without the pin the template's true would turn the guard on for every existing project.yaml and the test fakes; an existing test asserts the default `is False`, so the key is set to False rather than removed
