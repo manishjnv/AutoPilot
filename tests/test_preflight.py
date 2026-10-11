@@ -16,8 +16,15 @@ def _cfg():
 
 def test_missing_token_blocks(monkeypatch):
     rows = pf.run_preflight(Plan.from_dict(DATA), _cfg(), env={})
-    assert {r["status"] for r in rows} == {"missing"} and len(rows) == 3  # token, passthrough, owner task
-    assert "NEEDS YOU: 3" in pf.report_text(rows)
+    assert [r["status"] for r in rows] == ["missing", "missing", "ok"]  # token, passthrough; the owner task informs only
+    assert "NEEDS YOU: 2" in pf.report_text(rows)
+
+
+def test_owner_task_alone_does_not_block():
+    d = {"phases": [{"id": "P01", "tasks": [{"id": "T1", "title": "x"}, {"id": "T2", "title": "own it", "owner_only": True}]}]}
+    c = Config.__new__(Config); c.data = {}
+    rows = pf.run_preflight(Plan.from_dict(d), c, env={})
+    assert all(r["status"] == "ok" for r in rows) and "preflight OK" in pf.report_text(rows)
 
 
 def test_all_present_green(monkeypatch):

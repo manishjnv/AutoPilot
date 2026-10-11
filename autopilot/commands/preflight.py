@@ -89,8 +89,8 @@ def run_preflight(plan, cfg, env=None) -> list[dict]:
             rows.append({"item": name, "status": "ok" if env.get(name) else "missing",
                          "detail": "agent.env_passthrough" if env.get(name) else "listed in agent.env_passthrough"})
     for t in plan.all_tasks():
-        if t.owner_only:
-            rows.append({"item": f"{t.id} {t.title}", "status": "missing", "detail": "owner_only: you must do this task"})
+        if t.owner_only:  # the loop skips owner tasks (plan.py), so they inform, they do not block (RCA 2026-10-11)
+            rows.append({"item": f"{t.id} {t.title}", "status": "ok", "detail": "owner_only: left for you; the run skips it"})
     return rows
 
 

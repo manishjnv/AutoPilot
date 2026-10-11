@@ -767,7 +767,10 @@ def start_detached(root: Path, argv: list[str]) -> int:
     log.parent.mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, "-m", "autopilot", *argv]
     out = open(log, "a", encoding="utf-8")  # noqa: SIM115 — the child keeps it open
-    kw = dict(stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, cwd=str(Path.cwd()))
+    # PYTHONSAFEPATH: `-m` puts the cwd first on sys.path, so a project that has an `autopilot/` folder of its own (a
+    # self-build clone) would be imported instead of the installed Autopilot (RCA 2026-10-11)
+    kw = dict(stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, cwd=str(Path.cwd()),
+              env={**os.environ, "PYTHONSAFEPATH": "1"})
     if os.name == "nt":  # a hidden console of its own (git and claude get no window each), out of the caller's job
         flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
         try:
