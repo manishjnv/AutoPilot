@@ -302,7 +302,7 @@ def install_deps(cfg) -> bool:
             print(f"FAIL  {tool} is not installed. Install it with: {system_tool_hint(tool)}")
             return False
     setup = cfg.commands("setup")
-    cmds = setup or list(dict.fromkeys(m["command"] for m in miss))
+    cmds = setup or list(dict.fromkeys(c for m in miss for c in venv_commands(cfg.root, m["command"])))
     note = logging.getLogger("autopilot.preflight")
     for cmd in cmds:
         print(f"setup {cmd}")
@@ -315,6 +315,21 @@ def install_deps(cfg) -> bool:
     if not setup:
         remember_setup(cfg.root / AGENT_DIR / "project.yaml", cmds)
     return True
+
+
+def venv_commands(root, cmd: str) -> list[str]:
+    """A bare `pip install ...` never runs on the system Python: use the active venv, a project venv, or make .venv."""
+    if not cmd.startswith("pip install "):
+        return [cmd]
+    pip = f"-m pip {cmd[4:]}"
+    py = "python" if shutil.which("python") else "python3"
+    if os.environ.get("VIRTUAL_ENV"):
+        return [f"{py} {pip}"]
+    sub = "Scripts\\python.exe" if os.name == "nt" else "bin/python"
+    for n in (".venv", "venv", "env"):
+        if (Path(root) / n / "pyvenv.cfg").is_file():
+            return [f"{n}\\{sub} {pip}" if os.name == "nt" else f"{n}/{sub} {pip}"]
+    return [f"{py} -m venv .venv", f".venv\\{sub} {pip}" if os.name == "nt" else f".venv/{sub} {pip}"]
 
 
 def remember_setup(proj_path: Path, cmds: list[str]) -> None:

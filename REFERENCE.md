@@ -151,6 +151,10 @@ writes it: `claude`, `kiro-cli`, `cursor-agent`, `codex`, `gemini`, `aider`. It 
 PATH)`. For `claude` it writes `backend: claude_cli`; for a different CLI, `backend: command` and the preset. When it
 finds no CLI, it prints the install command of Claude Code and stops. A value that you set is never changed.
 
+Python setup: preflight never runs a bare `pip install` on the system Python. When a `requirements*.txt` file has no
+environment, preflight runs `python -m venv .venv`, then installs with the `.venv` Python. An active venv
+(`VIRTUAL_ENV`) or a project venv (`.venv`, `venv`, `env`) is used as is. `commands.setup` stores these commands.
+
 Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
 `agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor` and `aider` presets).
 
