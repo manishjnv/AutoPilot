@@ -1,13 +1,13 @@
 # Handoff
 
-Last completed: **P06-T01 — Autopilot block in IDE rule files and CLAUDE.md** (2026-10-11)
+Last completed: **P04-T01 — One-screen adopt summary: done, open, next** (2026-10-11)
 
-cmd_init now calls write_ide_rules(): it appends or creates one marked Autopilot block in Cursor (.mdc with alwaysApply), Kiro steering, Copilot instructions, GEMINI.md and AGENTS.md when the IDE marker exists. The user's bytes are never changed and a second init writes nothing. CLAUDE.md.snippet now lists ap status, ap next and ap start. Verified by 4 new tests and the full WSL suite (580 passed); ruff is clean.
+Added adopt_summary(root) in autopilot/report.py: from plan.yaml, or the state DB when it exists, it prints done/open counts, per-phase progress, the next ready task and open owner-only tasks, in at most about 20 plain lines. Four new tests in tests/test_adopt.py cover counts, the line limit with no escape codes, the no-state-DB case and owner tasks. The full pytest run on this machine exited 0 (2 skipped, no failures; the pass count line was not printed). Lint gate is clean.
 
-Files: REFERENCE.md, autopilot/cli.py, autopilot/templates/agent/CLAUDE.md.snippet, autopilot/templates/agent/ide_rules.md, tests/test_ide_rules.py
+Files: autopilot/report.py, tests/test_adopt.py
 
 Follow-ups noted:
-- An existing CLAUDE.md that already has the Autopilot heading does not get the new ap command lines
-- A project with both .kiro/ and AGENTS.md gets the instruction twice, because Kiro also reads AGENTS.md
+- Wire adopt_summary into plain `ap` for the code-without-.agent case (next N4 step)
+- The WSL script (docs/wsltest_self.sh) was not run; the full suite ran on Windows only
 
-Next planned task: P07-T01
+Next planned task: P04-T02

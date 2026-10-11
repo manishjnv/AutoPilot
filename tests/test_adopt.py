@@ -181,3 +181,41 @@ def test_new_file_outside_agent_dir_is_warned(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "WARN" in out and "docs/PLAN2.md" in out
     assert (tmp_path / "docs/PLAN2.md").exists()
+
+
+# N4: one-screen summary after an adopt
+def _adopt_plan(tmp_path, done=6, open_=4, owner=()):
+    tasks = [{"id": f"P01-T{i:02d}", "title": f"step {i}", "status": "done"} for i in range(1, done + 1)]
+    tasks += [{"id": f"P01-T{i:02d}", "title": f"open {i}", **({"owner_only": True} if f"P01-T{i:02d}" in owner else {})}
+              for i in range(done + 1, done + open_ + 1)]
+    plan = {"version": 1, "goal": "demo", "phases": [{"id": "P01", "title": "All", "goal": "g", "tasks": tasks}]}
+    (tmp_path / ".agent").mkdir(exist_ok=True)
+    (tmp_path / ".agent" / "plan.yaml").write_text(yaml.safe_dump(plan), encoding="utf-8")
+    return tmp_path
+
+
+def test_adopt_summary_counts_done_open_and_first_open_next(tmp_path):
+    from autopilot.report import adopt_summary
+    out = adopt_summary(_adopt_plan(tmp_path))
+    assert "Done: 6 of 10 tasks. Open: 4." in out
+    assert "P01 All: 6 of 10 done" in out
+    assert "Next: P01-T07 open 7" in out
+
+
+def test_adopt_summary_is_at_most_20_plain_lines(tmp_path):
+    from autopilot.report import adopt_summary
+    out = adopt_summary(_adopt_plan(tmp_path))
+    assert len(out.splitlines()) <= 20
+    assert "\x1b" not in out
+
+
+def test_adopt_summary_works_without_state_db_and_creates_none(tmp_path):
+    from autopilot.report import adopt_summary
+    adopt_summary(_adopt_plan(tmp_path))
+    assert not (tmp_path / ".agent" / "state.db").exists()
+
+
+def test_adopt_summary_lists_owner_tasks_still_open(tmp_path):
+    from autopilot.report import adopt_summary
+    out = adopt_summary(_adopt_plan(tmp_path, owner=("P01-T08",)))
+    assert "Waits for you (owner tasks): P01-T08." in out
