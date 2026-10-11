@@ -43,7 +43,7 @@ PLACEHOLDER_RX = re.compile(r"(?i)example|placeholder|change_?me|dummy|fake|samp
 # G2: each finding says how to fix it. The retry reads these; no rule is weaker for it.
 SKIP_HINT = (" (skips are not allowed, `skipif` on a platform condition too: make the test run on this machine, "
              "or test the behavior another way and list the gap under followups)")
-FAKE_HINT = " (test data? use a value containing example, dummy or fake)"
+FAKE_HINT = " (test data? put example, dummy or fake inside the value itself, e.g. AKIAIOSFODNN7EXAMPLE, ghp_fakefake…)"
 # N7: the new-file rule; system.md repeats it word for word and the gate (P07-T02) quotes it in the retry
 # (only with `gate.new_file_reasons: true`)
 NEW_FILE_RULE = ("Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) "
@@ -115,18 +115,22 @@ def scan_secrets(lines: list[str]) -> list[str]:
     for line in lines:
         for rx, label in SECRET_PATTERNS:
             m = rx.search(line)
-            if m and not (label == "hardcoded credential" and PLACEHOLDER_RX.search(m.group(0))):
+            # test data: a placeholder word inside the matched value itself (AKIAIOSFODNN7EXAMPLE, ghp_fake…); a
+            # private-key header has no value, so the word may stand anywhere on its line. The hint says the same.
+            fake = PLACEHOLDER_RX.search(m.group(0)) or (label == "private key" and PLACEHOLDER_RX.search(line)) if m else None
+            if m and not fake:
                 # redacted: these messages reach logs, prompts and notifications
                 msg = f"possible {label} added: {line.replace(m.group(0), m.group(0)[:4] + '…').strip()[:80]}"
-                if label == "hardcoded credential":
+                if label == "hardcoded credential":  # a real-looking key gets no "just rename it" hint
                     msg, hint = msg + hint, ""
                 found.append(msg)
     return found
 
 
 SCOPE_FREE = [".agent/*", ".agent/**", "CHANGELOG.md", "README.md", "docs/**", "tests/**", "test/**"]  # O1 allowlist
-SCOPE_HINT = ('Add each file to the task scope with a reason in the report ("scope_additions": {"path": "why"}), '
-              "or leave it unchanged.")
+SCOPE_HINT = ('Add each file to the task scope with a reason in the report ("scope_additions": {"path": "why"}, '
+              "counted from attempt 2, at most 3), or leave it unchanged.")
+SCOPE_MAX_ADDS = 3
 
 
 def out_of_scope(files: list[str], scope: list[str], extra: list[str] | None = None) -> list[str]:
@@ -138,10 +142,22 @@ def out_of_scope(files: list[str], scope: list[str], extra: list[str] | None = N
     return [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
 
 
-def scope_additions(report) -> list[str]:
-    """O1: the report's `scope_additions` {"glob": "reason"}: only entries with a reason count."""
+def scope_additions(report, attempt: int = 1, files: list[str] | None = None) -> tuple[list[str], list[str], list[str]]:
+    """O1: the report's `scope_additions` {"path": "reason"}: only entries with a reason count, only from attempt 2
+    (the first try must stay in scope), at most SCOPE_MAX_ADDS, and each key must be a changed file's exact path (no
+    glob: `*` would open the whole repository). Returns (accepted paths, warnings, problems); every accepted addition
+    is a warning `scope added: <file>: <reason>` that lands in the history file, PROOF.md and the dashboard."""
     adds = (report or {}).get("scope_additions") if isinstance(report, dict) else None
-    return [str(k) for k, v in adds.items() if str(v or "").strip()] if isinstance(adds, dict) else []
+    pairs = [(str(k), str(v).strip()) for k, v in adds.items() if str(v or "").strip()] if isinstance(adds, dict) else []
+    if not pairs:
+        return [], [], []
+    if attempt < 2:
+        return [], [], [f"scope_additions count only from attempt 2: {[k for k, _ in pairs]}. Leave the file unchanged."]
+    if len(pairs) > SCOPE_MAX_ADDS:
+        return [], [], [f"scope_additions: {len(pairs)} given, at most {SCOPE_MAX_ADDS}. Keep the task in its scope."]
+    if bad := [k for k, _ in pairs if k not in (files or [])]:
+        return [], [], [f"scope_additions must name a changed file exactly (no pattern): {bad}"]
+    return [k for k, _ in pairs], [f"scope added: {k}: {v}" for k, v in pairs], []
 
 
 def changed_tests(cfg, cmd: str, files: list[str]) -> str:
@@ -268,7 +284,9 @@ def missing_reasons(cfg, git, report, task=None) -> list[str]:
         paths = ", ".join(bare[:20]) + (f", and {len(bare) - 20} more" if len(bare) > 20 else "")
         out.append(f"new file without a reason: {paths}. {NEW_FILE_RULE}")  # the rule last: the retry keeps the tail
     changed = git.run("-c", "core.quotepath=false", "diff", "--cached", "--name-only").splitlines()
-    manifests = [p for p in changed if _match(p, MANIFESTS)]
+    # a manifest the task creates (new file with a reason, or declared) is the project's first one: no `new_deps` needed
+    manifests = [p for p in changed if _match(p, MANIFESTS)
+                 and not (p in added and (_norm(p) in reasons or _match(_norm(p), declared)))]
     deps = report.get("new_deps") if isinstance(report, dict) else None
     with_reason = [d for d in (deps if isinstance(deps, list) else []) if isinstance(d, dict)
                    and str(d.get("name") or "").strip() and str(d.get("reason") or "").strip()]
@@ -327,8 +345,8 @@ def file_growth(cfg, git) -> list[str]:
     return out
 
 
-def task_gate(cfg, git, task, report=None) -> GateResult:
-    """Run on the task branch with the agent's changes staged."""
+def task_gate(cfg, git, task, report=None, attempt: int = 1) -> GateResult:
+    """Run on the task branch with the agent's changes staged. `attempt`: the try this diff comes from (O1)."""
     gate = GateResult(ok=True)
     files = git.staged_files()
     if not files and not task.allow_no_changes:
@@ -342,11 +360,13 @@ def task_gate(cfg, git, task, report=None) -> GateResult:
         gate.problems += missing_reasons(cfg, git, report, task)  # O3: task-declared files and dependencies
     if cfg.get("gate.file_growth"):  # O2: on in the template (new projects); a missing key = off
         gate.problems += file_growth(cfg, git)
-    outside = out_of_scope(files, task.files_in_scope, scope_additions(report))
-    if outside and cfg.get("gate.scope_fail", True):  # O1: a hard gate; `gate.scope_fail: false` keeps the old warning
-        gate.problems.append(f"outside files_in_scope: {outside}. {SCOPE_HINT}")
+    extra, added, bad = scope_additions(report, attempt, files)
+    outside = out_of_scope(files, task.files_in_scope, extra)
+    if (outside or bad) and cfg.get("gate.scope_fail", True):  # O1: a hard gate; `gate.scope_fail: false` = old warning
+        gate.problems += bad + ([f"outside files_in_scope: {outside}. {SCOPE_HINT}"] if outside else [])
     else:
         gate.warnings += [f"outside files_in_scope: {f}" for f in outside]
+        gate.warnings += added
     if not gate.problems:
         gate.results = run_commands(verify_commands(cfg, task.verify, files=files), cfg.root,
                                     int(cfg.get("verify_timeout_sec", 1200)), base_env=agent_env(cfg))

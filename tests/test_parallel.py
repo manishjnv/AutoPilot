@@ -132,9 +132,10 @@ def test_gate_failure_in_a_worktree_retries_serially(tmp_path):
     assert "failed verification" in fake.prompts[-1][1]
 
 
-def test_parallel_on_by_default(tmp_path):
+def test_parallel_unset_means_three(tmp_path):  # session 27: the template writes 1; an absent key still means 3
     fake = FakeBackend()
-    root = make_project(tmp_path, scoped(independent(3)), {"audit": {"completion_audit": False}})
+    root = make_project(tmp_path, scoped(independent(3)), {"audit": {"completion_audit": False},
+                                                            "scheduling": {"parallel": None}})
     Orchestrator(root, backend=fake, sleep=lambda s: None).run()
     assert "[autopilot] docs for" in git(root, "log", "--format=%s")
 
@@ -144,7 +145,8 @@ def batch_of(tmp_path, scopes, meta=None):
     tmp_path.mkdir(parents=True, exist_ok=True)
     tasks = [{"id": f"P01-T0{i}", "title": f"t{i}", "risk": "low", "files_in_scope": s}
              for i, s in enumerate(scopes, 1)]
-    root = make_project(tmp_path, [{"id": "P01", "title": "One", "tasks": tasks}], {"decide": {"enabled": False}})
+    root = make_project(tmp_path, [{"id": "P01", "title": "One", "tasks": tasks}],
+                        {"decide": {"enabled": False}, "scheduling": {"parallel": 3}})
     orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
     orch.reload_plan()
     for k, v in (meta or {}).items():

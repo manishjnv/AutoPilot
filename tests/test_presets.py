@@ -168,3 +168,12 @@ def test_trust_all_presets_documented():
     assert "never ran live" in sec.lower()
     line = readme.split("## Honest limits")[1].split("- **Approve-all presets:**")[1].split("- **Where")[0]
     assert "--force" in line and "yolo" in line and "never ran live" in line.lower()
+
+
+def test_stack_preset_setup_runs_under_cmd_and_bash():
+    """Session 27: cmd.exe has no `true` and keeps single quotes; the python preset's setup line must work in both shells."""
+    from autopilot.config import TEMPLATES  # noqa: PLC0415
+    import yaml  # noqa: PLC0415
+    for f in (TEMPLATES / "presets").glob("*.yaml"):
+        for cmd in (yaml.safe_load(f.read_text(encoding="utf-8")).get("commands") or {}).get("setup") or []:
+            assert "|| true" not in cmd and "'" not in cmd, f"{f.name}: {cmd}"

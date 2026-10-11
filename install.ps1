@@ -2,7 +2,8 @@
 # Env: AUTOPILOT_REF (git tag/branch to install), AUTOPILOT_DRY_RUN=1, AUTOPILOT_SKIP_LOGIN=1.
 # Safe to run twice. One UAC prompt at most (N8): it installs Git when missing and creates the scheduled task
 # Autopilot-Setup (highest run level), so later runs install winget packages with no prompt. Edits no profile or
-# PATH setting. `ap uninstall --rights` removes the task.
+# PATH setting. The task's script lives in ProgramData\Autopilot, writable by Administrators only. `ap uninstall --rights`
+# removes the task and that folder.
 param([switch]$DryRun, [switch]$SkipLogin)
 $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
@@ -57,17 +58,28 @@ Write-Host 'This script installs: Git (winget, when missing), uv, Claude Code, P
 Write-Host 'Rights it takes: one administrator prompt now, and the scheduled task Autopilot-Setup (highest run level)'
 Write-Host 'so later runs install winget packages with no prompt. Remove it later with: ap uninstall --rights'
 $TaskName = 'Autopilot-Setup'
-$SetupDir = Join-Path $env:LOCALAPPDATA 'autopilot'
+# The script the task runs lives under ProgramData; the elevated step writes it and lets only Administrators and
+# SYSTEM change it (icacls, well-known SIDs), so a user process can queue winget ids but never change what runs.
+$SetupDir = Join-Path $env:ProgramData 'Autopilot'
 $SetupScript = Join-Path $SetupDir 'setup.ps1'
+$SetupQueue = Join-Path $SetupDir 'setup-queue.txt'
 # The task runs this script as administrator: it installs the winget ids queued by `ap` (ids only, checked by pattern).
+# The queue is cleared, never deleted, so its ACL (Users may write it) stays.
 $SetupBody = @'
-$q = Join-Path $env:LOCALAPPDATA 'autopilot\setup-queue.txt'
+$q = Join-Path $env:ProgramData 'Autopilot\setup-queue.txt'
 if (-not (Test-Path $q)) { exit 0 }
 $ids = Get-Content $q | Where-Object { $_ -match '^[A-Za-z0-9][A-Za-z0-9.+_-]{1,99}$' } | Select-Object -Unique
-Remove-Item $q -Force
+Clear-Content $q
 foreach ($id in $ids) { winget install --id $id -e --source winget --silent --accept-package-agreements --accept-source-agreements }
 '@
-function HasTask { $null = Run schtasks /Query /TN $TaskName; $LASTEXITCODE -eq 0 }  # Run: stderr never stops the script
+# The body travels inside the elevated command as base64: no user-writable draft file that could be swapped before
+# the administrator step reads it.
+$SetupB64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($SetupBody))
+# The task is complete only when it runs the script under ProgramData (an older install pointed at LOCALAPPDATA).
+function HasTask {
+    $out = Run schtasks /Query /TN $TaskName /V /FO LIST   # Run: stderr never stops the script
+    ($LASTEXITCODE -eq 0) -and ("$out" -match [regex]::Escape($SetupScript))
+}
 
 Step 1 'git'
 $needGit = -not (Has git)
@@ -75,14 +87,20 @@ if (-not $needGit) { Write-Host "found: $(Ver git)" }
 elseif (-not (Has winget)) { Fail 1 'install Git from https://git-scm.com/download/win, then run this script again' }
 $gitCmd = 'winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements'
 $taskCmd = "schtasks /Create /TN $TaskName /TR `"powershell -NoProfile -ExecutionPolicy Bypass -File $SetupScript`" /SC ONCE /ST 00:00 /RL HIGHEST /F"
+# The elevated step: a folder the user may have made first is removed, then the folder, the script and the queue get
+# fixed ACLs (well-known SIDs: Administrators, SYSTEM, Users): only Administrators change the folder and the script;
+# Users may write the queue file only.
+$aclCmd = "if (Test-Path '$SetupDir') { Remove-Item -Recurse -Force '$SetupDir' }; New-Item -ItemType Directory -Force '$SetupDir' | Out-Null; " +
+    "icacls '$SetupDir' /setowner *S-1-5-32-544 | Out-Null; icacls '$SetupDir' /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null; " +
+    "[IO.File]::WriteAllText('$SetupScript', [Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('$SetupB64'))); " +
+    "New-Item -ItemType File -Force '$SetupQueue' | Out-Null; icacls '$SetupQueue' /grant '*S-1-5-32-545:M' | Out-Null"
 if ($DryRun) {
     if ($needGit) { Write-Host "would install. Command: $gitCmd" }
-    Write-Host "would create the scheduled task (one administrator prompt). Command: $taskCmd"
+    Write-Host "would write $SetupScript (Administrators only) and create the scheduled task (one administrator prompt). Command: $aclCmd; $taskCmd"
 } elseif ($needGit -or -not (HasTask)) {
-    New-Item -ItemType Directory -Force $SetupDir | Out-Null
-    Set-Content -Path $SetupScript -Value $SetupBody -Encoding ASCII
     $elev = @()
     if ($needGit) { $elev += $gitCmd }
+    $elev += $aclCmd
     $elev += $taskCmd
     $script = ($elev -join '; ') + '; exit $LASTEXITCODE'
     Write-Host "run as administrator (one prompt): $script"

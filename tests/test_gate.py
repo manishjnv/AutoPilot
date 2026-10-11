@@ -136,8 +136,18 @@ def test_task_gate_fails_a_file_outside_scope_unless_declared(repo):  # O1
     task = SimpleNamespace(allow_no_changes=False, allow_test_changes=True, files_in_scope=["lib/**"], verify=[])
     g = task_gate(cfg, Git(repo), task, report={})
     assert not g.ok and any("outside files_in_scope: ['src/other.py']" in m for m in g.problems)
-    g = task_gate(cfg, Git(repo), task, report={"scope_additions": {"src/other.py": "shared constant lives here"}})
+    put(repo, "src/x.py", "z = 1\n")
+    adds = {"src/other.py": "shared constant lives here"}
+    g = task_gate(cfg, Git(repo), task, report={"scope_additions": adds})  # attempt 1: additions do not count
+    assert not g.ok and any("attempt 2" in m for m in g.problems)
+    g = task_gate(cfg, Git(repo), task, report={"scope_additions": {**adds, "src/x.py": "also"}}, attempt=2)
     assert g.ok and not any("outside" in m for m in g.problems)
+    assert "scope added: src/other.py: shared constant lives here" in g.warnings and len(g.warnings) == 2
+    four = {f"src/{i}.py": "why" for i in range(4)}
+    g = task_gate(cfg, Git(repo), task, report={"scope_additions": four}, attempt=2)
+    assert not g.ok and any("at most 3" in m for m in g.problems)
+    g = task_gate(cfg, Git(repo), task, report={"scope_additions": {"*": "everything"}}, attempt=2)  # no pattern
+    assert not g.ok and any("exactly" in m for m in g.problems)
     task.files_in_scope = ["lib/**", "src/**"]
     assert task_gate(cfg, Git(repo), task, report={}).ok
     cfg.data["gate"] = {"scope_fail": False}
@@ -214,6 +224,10 @@ NEGATIVE = [
     "ghp_short",
     "hf_short",
     "AKIAshort",
+    # session 27: test data with the placeholder word inside the value itself passes (the hint promises this)
+    'AWS = "AKIAIOSFODNN7EXAMPLE"',
+    'GITHUB = "ghp_fakefakefakefakefakefake1234"',
+    'HEADER = "-----BEGIN RSA PRIVATE KEY-----"  # fake fixture header',
 ]
 
 
@@ -325,3 +339,11 @@ def test_the_agent_is_told_the_gate_rules_and_the_advice_passes_the_gate():
 def test_needs_you_file_is_protected(tmp_path):
     from autopilot.gate import protected_files
     assert "docs/NEEDS-YOU.md" in protected_files(Config.load(tmp_path))   # an agent must not answer its own decision
+
+
+def test_task_report_schema_names_every_field_the_gate_reads():
+    """Session 27: the structured report follows the schema; a field the schema omits never arrives (O1 hatch, O3 deps)."""
+    from autopilot.schemas import REPORTS  # noqa: PLC0415
+    props = REPORTS["task"]["properties"]
+    assert props["scope_additions"]["type"] == "object" and props["new_deps"]["type"] == "array"
+    assert {"name", "reason"} <= set(props["new_deps"]["items"]["properties"])

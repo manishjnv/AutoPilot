@@ -4,7 +4,7 @@
 name: my-project
 stack: generic            # python | node | go | rust | java | static | docker | generic (set by `autopilot init`)
 main_branch: main
-profile: lean             # O10: lean = one smoke test per criterion, changed-module tests per task (full suite at phase close),
+profile: full             # O10: lean = one smoke test per criterion, changed-module tests per task (full suite at phase close),
                           # one retry, no periodic/completion audit (run `ap audit`), smaller prompt. full = every check, every audit
 
 # Commands the orchestrator runs itself. The agent's own "done" is never trusted.
@@ -163,7 +163,7 @@ needs_you:                # what only the owner can decide goes here; everything
 
 retries:
   resume: true            # a retry on the same model continues the failed session (--resume): context and cache kept
-  max_attempts_per_task: 3
+  # max_attempts_per_task: 3  # unset = 3 under `profile: full`, 2 under `lean` (one retry, then park)
   max_fixer_attempts: 3
   rate_limit_backoff_sec: [60, 300, 900, 1800, 3600]
 
@@ -187,7 +187,8 @@ budget_usd:
 scheduling:
   phase_dependency: soft  # soft = blocked tasks don't hold later phases; strict = they do
   max_sessions_per_run: 0 # 0 = unlimited
-  # parallel: 3           # unset = 3 with a test command in direct git mode, else 1; tasks that share a file run serial
+  parallel: 1             # measured 2026-10-11: 0 batches on a plan of mostly high tasks (N12); 3 = up to three low or
+                          # medium first attempts at once, each in a git worktree; unset = 3 with a test command
                           # (up to N independent low/medium first attempts at once, each in a git worktree)
   worktree_setup: true    # run commands.setup in each new worktree (deps like node_modules aren't shared)
   worktree_dir: ""        # where worktrees live; empty = <temp>/autopilot-worktrees (always outside the repo)
@@ -207,6 +208,9 @@ docs:
   adr_dir: docs/adr       # architecture decision records (MADR) from the decide session
   status: docs/STATUS.md  # the plan as a checklist, regenerated at every commit ("" = off)
   backlog: docs/BACKLOG.md  # new ideas ("- " lines); one replan adds them to the plan ("" = off)
+  session: true           # O11: one session per closed phase writes the RCA entries of retried tasks, a README
+                          # section per feature and the file below; it may touch only those files and docs/
+  developing: docs/DEVELOPING.md  # how to run, test, deploy and extend, for a person (under 200 lines)
 
 quality:                  # one line per finished task (model, risk, attempts, reworked, tokens) in the events log
   every: 20               # after this many finished tasks, suggest model ladder changes from the data (0 = never)

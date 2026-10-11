@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from autopilot.cli import main as cli_main
+from autopilot.cli import folder_case, main as cli_main
 from test_backend import stub_claude
 
 CLAUDE_OK = ("if sys.argv[1:2] == ['--version']: print('2.1.286 (Claude Code)')\n"
@@ -433,3 +433,15 @@ def test_piped_install_sh_dry_run_runs_the_script(tmp_path):
     assert p.returncode == 0, p.stderr.decode()
     assert "==> Step 1 of 6:" in out and out.splitlines()[-1] == FINAL_LINE
     assert list(home.iterdir()) == []
+
+
+def test_a_fresh_clone_has_no_agent_state_and_validate_finds_no_plan(tmp_path, monkeypatch, capsys):
+    """The repo's own .agent/ is not tracked: a clone is a code folder, never an existing project."""
+    work, _ = guided(tmp_path, monkeypatch, [])
+    (work / "README.md").write_text("# Autopilot\n")
+    (work / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+    (work / "autopilot").mkdir()
+    (work / "autopilot" / "__init__.py").write_text("")
+    assert folder_case(work) == "code"  # the adopt flow, not a continue of an old run
+    assert cli_main(["validate", "-C", str(work)]) == 1
+    assert "plan.yaml not found" in capsys.readouterr().out

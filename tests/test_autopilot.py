@@ -29,6 +29,35 @@ class FakeBackend:
         self.calls = []
         self.prompts = []                    # (task_id, prompt) of every task session
         self.failing_features = set()        # feature ids the functional check reports as failing
+        self.docs_writes = True              # O11: the docs session writes the three files (False = report only)
+        self.docs_touches_code = False       # O11: the docs session also edits a code file (the gate must drop it)
+        self.docs_secret_line = False        # O11: the RCA quotes a line that looks like a secret (redacted, kept)
+
+    def _docs(self, cwd, prompt):
+        """O11: a deterministic documentation session: one RCA entry per retried task (never twice), one README
+        section per feature (never twice), DEVELOPING.md once."""
+        if not self.docs_writes:
+            return SessionResult(ok=True, cost=0.1, report={"summary": "nothing", "files": []})
+        rca, readme, dev = cwd / "docs" / "RCA.md", cwd / "README.md", cwd / "docs" / "DEVELOPING.md"
+        rca.parent.mkdir(exist_ok=True)
+        text = rca.read_text() if rca.exists() else "# RCA log\n\n"
+        for tid in re.findall(r"^### (\S+) .* \(attempts: \d+\)", prompt, re.M):
+            if f"· {tid} " not in text:
+                text += f"## 2026-10-11 · {tid} fixed\n- Symptom: s\n- Root cause: r\n- Fix: f\n- Prevention: p\n\n"
+                if self.docs_secret_line:
+                    text += '- Quoted: the test wrote password = "hunter2hunter2hunter2" and the gate refused it\n\n'
+        rca.write_text(text)
+        rd = readme.read_text() if readme.exists() else "# demo\n"
+        for title in re.findall(r"^- `\S+` ([^:]+):", prompt.split("### Features shipped")[1].split("## Output 3")[0], re.M):
+            if f"## {title}\n" not in rd:
+                rd += f"\n## {title}\n\nYou can use it.\n"
+        readme.write_text(rd)
+        if not dev.exists():
+            dev.write_text("# Developing\n\n## Run\n\n## Test\n\n## Deploy\n\n## Extend\n")
+        if self.docs_touches_code:
+            (cwd / "src").mkdir(exist_ok=True)
+            (cwd / "src" / "sneaky.py").write_text("x = 1\n")
+        return SessionResult(ok=True, cost=0.1, report={"summary": "wrote docs", "files": ["README.md"]})
 
     def run(self, req):
         cwd = Path(req.cwd)
@@ -96,6 +125,9 @@ class FakeBackend:
         if "replan remaining work" in req.prompt:
             self.calls.append(("replan", req.model))
             return SessionResult(ok=True, cost=0.2, report={"summary": "no changes"})
+        if req.prompt.startswith("# Assignment: document phase"):  # O11
+            self.calls.append(("docs", req.model))
+            return self._docs(cwd, req.prompt)
         raise AssertionError("unexpected prompt: " + req.prompt[:200])
 
 
@@ -105,7 +137,7 @@ def make_project(tmp_path: Path, phases: list[dict], extra_cfg: dict | None = No
     assert cli_main(["init", "-C", str(root), "--stack", "generic"]) == 0
     cfg = {"name": "demo", "commands": {"test": [TEST_CMD]}, "audit": {"every_n_phases": 0},
            "replan": {"every_n_phases": 0}, "budget_usd": {"wait_for_next_day": False},
-           "needs_you": {"wait": False}}
+           "needs_you": {"wait": False}, "docs": {"session": False}}  # O11: on only where a test asks for it
     if extra_cfg:
         for k, v in extra_cfg.items():
             cfg[k] = {**cfg.get(k, {}), **v} if isinstance(v, dict) else v

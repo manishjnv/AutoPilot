@@ -177,6 +177,15 @@ def test_dependency_manifest_change_needs_a_declared_dependency(tmp_path):  # O3
     assert task_gate(cfg, Git(cfg.root), task, report={"status": "done", "summary": "x"}).ok
 
 
+def test_a_new_manifest_with_a_reason_needs_no_declared_dependency(tmp_path):  # session 27: the skeleton task
+    cfg = gate_repo(tmp_path)
+    put(tmp_path, "pyproject.toml", '[project]\nname = "x"\n')
+    assert not gate(cfg, {"status": "done", "summary": "skeleton"}).ok  # no reason at all
+    g = gate(cfg, {"status": "done", "summary": "skeleton",
+                   "new_files": [{"path": "pyproject.toml", "reason": "the package metadata the task asks for"}]})
+    assert g.ok and g.problems == []
+
+
 def test_test_file_agent_file_and_rename_need_no_reason(tmp_path):
     cfg = gate_repo(tmp_path)
     put(tmp_path, "tests/test_parser.py", "def test_p():\n    assert True\n")

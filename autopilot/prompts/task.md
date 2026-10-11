@@ -12,7 +12,7 @@ Risk tier: {{risk}}
 
 ### Files in scope
 {{scope}}
-The gate fails a change to any file outside this list (tests, docs, README and CHANGELOG are always allowed). When you must edit another file, name it in the report under `scope_additions` with a reason, or leave it unchanged.
+The gate fails a change to any file outside this list (tests, docs, README and CHANGELOG are always allowed). On a retry (attempt 2 or later) you may name up to 3 more files in the report under `scope_additions` with a reason; on the first attempt leave every other file unchanged.
 
 ### Docs to update
 {{docs}}

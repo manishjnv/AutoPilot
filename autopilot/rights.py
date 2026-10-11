@@ -1,7 +1,8 @@
 """N8: one consent at install start, then zero questions (owner rule 2026-10-11, one developer, one PC).
 
 The installer takes the rights once: on Windows one UAC prompt creates the scheduled task `Autopilot-Setup` (run level
-highest) that installs winget packages from a queue file; on Linux and WSL one `sudo` writes `/etc/sudoers.d/autopilot`
+highest) that runs `%ProgramData%/Autopilot/setup.ps1` (writable by Administrators only) to install the winget ids
+queued in that folder; on Linux and WSL one `sudo` writes `/etc/sudoers.d/autopilot`
 (apt-get, dpkg, snap, brew without a password). A later run that needs a missing system tool goes through those
 rights, logs it, names it on screen, and never asks. `ap uninstall --rights` removes both.
 """
@@ -25,8 +26,26 @@ WINGET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]{1,99}$")  # the queue holds
 APT_PKG = re.compile(r"^[a-z0-9][a-z0-9.+-]{1,99}$")
 
 
+def win_dir() -> Path:
+    """Windows: the folder the scheduled task trusts. The installer's elevated step creates it under ProgramData and
+    gives only Administrators write access to `setup.ps1`; the queue file next to it is per-id text, pattern checked."""
+    return Path(os.environ.get("PROGRAMDATA") or r"C:\ProgramData") / "Autopilot"
+
+
 def queue_path() -> Path:
-    return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "autopilot" / "setup-queue.txt"
+    return win_dir() / "setup-queue.txt"
+
+
+def queue_write(winget_id: str, path: Path | None = None) -> bool:
+    """Append one checked winget id to the queue. Refuses an id that is not a plain id and a queue outside `win_dir()`:
+    the task reads only that folder, so a queue elsewhere would never run and must not be written."""
+    q = path or queue_path()
+    if not WINGET_ID.match(winget_id) or q.parent != win_dir():
+        return False
+    q.parent.mkdir(parents=True, exist_ok=True)
+    with open(q, "a", encoding="utf-8") as fh:
+        fh.write(winget_id + "\n")
+    return True
 
 
 def have_rights(platform: str | None = None) -> str:
@@ -72,12 +91,8 @@ def install_system_tool(tool: str, hint: str, platform: str | None = None, wait:
     print(f"install {tool}: {hint}")
     if hint.startswith("winget "):
         m = re.search(r"--id\s+(\S+)", hint)
-        if not m or not WINGET_ID.match(m.group(1)) or have_rights(p) != "task":
+        if not m or have_rights(p) != "task" or not queue_write(m.group(1)):
             return False
-        q = queue_path()
-        q.parent.mkdir(parents=True, exist_ok=True)
-        with open(q, "a", encoding="utf-8") as fh:
-            fh.write(m.group(1) + "\n")
         if run_proc(["schtasks", "/Run", "/TN", TASK], timeout=30).rc != 0:
             return False
         end = time.monotonic() + wait
@@ -109,12 +124,14 @@ def remove_rights(platform: str | None = None, run=run_proc) -> list[str]:
     out = []
     if p.startswith("win"):
         rc = run(["schtasks", "/Delete", "/TN", TASK, "/F"], timeout=30).rc
-        out.append(f"removed scheduled task {TASK}" if rc == 0 else
-                   f"run this in an administrator PowerShell: schtasks /Delete /TN {TASK} /F")
-        q = queue_path()
-        if q.exists():
-            q.unlink()
-            out.append(f"removed {q}")
+        d = win_dir()  # the task's script is writable by Administrators only, so the folder goes with the task
+        try:
+            if rc == 0 and d.exists():
+                shutil.rmtree(d)
+        except OSError:
+            rc = 1
+        out.append(f"removed scheduled task {TASK} and {d}" if rc == 0 else "run this in an administrator PowerShell: "
+                   f"schtasks /Delete /TN {TASK} /F; Remove-Item -Recurse -Force '{d}'")
     elif p != "darwin":
         if have_rights(p) == "sudoers":
             rc = run(["sudo", "-n", "rm", "-f", SUDOERS], timeout=30).rc

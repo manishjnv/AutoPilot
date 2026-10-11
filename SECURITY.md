@@ -39,3 +39,7 @@ Three presets let the agent run every tool without a prompt. This is not limited
 - The worktree is the only boundary. The agent can still reach files and the network outside it.
 - These three presets never ran live. Autopilot wrote them from the vendor docs.
 - Use them only on a PC and an account where you accept this risk.
+
+## Rights the installer takes
+
+The installer takes rights once, with one prompt, so a later run never asks. On Windows it creates the scheduled task `Autopilot-Setup` with the highest run level. The task runs only `%ProgramData%\Autopilot\setup.ps1`. Only Administrators can change that script. The script installs only `winget` ids from the queue file in the same folder. On Linux it writes `/etc/sudoers.d/autopilot` for `apt-get`, `dpkg`, `snap` and `brew`. You accept this standing elevation when you run the installer on a solo PC. On a shared PC, do not run the installer. Remove the rights with `ap uninstall --rights`.

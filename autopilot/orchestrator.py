@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import fnmatch
 import json
 import logging
 import os
@@ -131,7 +132,8 @@ def new_file_lines(report: dict) -> str:
 
 # G8: the word the status line shows for each kind of session
 STATE = {"task": "Code", "fixer": "Fix", "unstick": "Fix", "repair": "Fix", "verify": "Review", "audit": "Review",
-         "replan": "Plan", "decide": "Plan", "review": "Review", "research": "Plan", "onboard": "Plan", "triage": "Plan"}
+         "replan": "Plan", "decide": "Plan", "review": "Review", "research": "Plan", "onboard": "Plan", "triage": "Plan",
+         "docs": "Review"}
 
 
 def _scopes_collide(a: list, b: list, tracked: list) -> bool:
@@ -899,10 +901,10 @@ class Orchestrator:
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 self._journal(state="Test")
-                gate = task_gate(self.cfg, self.git, task, report=res.report)
+                gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts)
                 if not gate.ok and self.env_problem(gate.report()):  # a missing tool, not the agent's code
                     self.run_setup()
-                    gate = task_gate(self.cfg, self.git, task, report=res.report)  # the same work, after reinstalling the tools
+                    gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts)  # same work, tools reinstalled
                     if not gate.ok and self.env_problem(gate.report()) and not self.env_repair_tried:
                         report = gate.report()
                         self.git.discard()
@@ -1812,6 +1814,7 @@ class Orchestrator:
         self.state.set_phase(phase.id, status=status, completed_at=now())
         self.docs.phase_done(phase, self.state, status, note)
         self._commit_main(f"[autopilot] close phase {phase.id} ({status})")
+        self.docs_phase(phase)  # O11: on a clean tree, so a dropped result discards nothing of ours
         self.notify.send("phase_done", f"{phase.id} {phase.title}: {status}. "
                                        f"{progress_line(self.plan, self.state.status_map())}. {note}")
         self.sync_plan_source(wait=False)  # N13: items added to the plan document meanwhile become tasks now
@@ -1824,6 +1827,41 @@ class Orchestrator:
             self.audit("periodic", phase.id)
         if self.cfg.get("replan.enabled") and replan_n and closed % replan_n == 0:
             self.replan(f"after {phase.id}")
+
+    # ------------------------------------------------------------------ O11: the agent documents the app it builds
+    def docs_phase(self, phase):
+        """One session per closed phase writes the app's RCA entries (retried or repaired tasks), a README section per
+        shipped feature and docs/DEVELOPING.md for a person. It runs on main, and may touch only those files and
+        `docs/`; any other change or a secret fails this gate and the whole result is dropped. What passed is one
+        commit after the phase-close commit."""
+        if not self.cfg.get("docs.session", True) or not any(
+                self.state.task(t.id)["status"] == "done" for t in phase.tasks):
+            return
+        allowed = ["README.md", self.cfg.get("docs.rca", "docs/RCA.md"),
+                   self.cfg.get("docs.developing", "docs/DEVELOPING.md"), "docs/*", "docs/**"]
+        res = self.session("docs", self.ctx.docs_prompt(phase, self.state), self.cfg.get("models.docs", "sonnet"),
+                           phase=phase.id, label=f"docs {phase.id}")
+        files = self.git.staged_files()
+        bad = [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
+        for f in files:  # prose about secrets (an RCA of a scanner) can look like one: redact the line, keep the docs
+            p = self.root / f
+            try:
+                text = p.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if (clean := redact_secrets(text)) != text:
+                p.write_text(clean, encoding="utf-8")
+                log.info("docs session for %s: a line in %s looked like a secret and was redacted", phase.id, f)
+        files = self.git.staged_files()  # re-stage the redacted text
+        bad += scan_secrets(self.git.staged_added_lines())
+        if not res.ok or bad:
+            why = "; ".join(map(str, bad))[:300] or (res.error or "")[:300]
+            log.warning("docs session for %s dropped: %s", phase.id, why)
+            self.state.event("docs", f"{phase.id}: result dropped ({why})")
+            self.git.discard()
+            return
+        log.info("docs session for %s wrote %s", phase.id, files)
+        self._commit_main(f"[autopilot] docs for phase {phase.id}")
 
     # ------------------------------------------------------------------ L4: one functional check per phase
     def functional_check(self, phase) -> bool:

@@ -31,13 +31,16 @@ def test_linux_install_goes_through_sudoers_without_a_question(tmp_path, monkeyp
 def test_windows_install_queues_a_winget_id_and_runs_the_task(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(rights, "run_proc", fake_run(calls))
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("PROGRAMDATA", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setattr(rights, "_refresh_path", lambda: None)
     monkeypatch.setattr(shutil, "which", lambda t, **kw: "C:/node.exe")
     assert install_system_tool("node", "winget install -e --id OpenJS.NodeJS.LTS", platform="win32", sleep=lambda s: None)
-    assert (tmp_path / "autopilot" / "setup-queue.txt").read_text() == "OpenJS.NodeJS.LTS\n"
+    assert (tmp_path / "Autopilot" / "setup-queue.txt").read_text() == "OpenJS.NodeJS.LTS\n"  # N8: ProgramData only
     assert calls[-1] == ["schtasks", "/Run", "/TN", "Autopilot-Setup"]
     assert install_system_tool("x", "winget install -e --id 'bad id; calc'", platform="win32") is False
+    assert rights.queue_write("Git.Git", tmp_path / "local" / "autopilot" / "setup-queue.txt") is False  # elsewhere
+    assert not (tmp_path / "local").exists()
 
 
 def test_per_user_commands_need_no_rights(monkeypatch):
@@ -92,3 +95,11 @@ def test_install_scripts_take_the_rights_once():
     assert "visudo -cf" in sh and "/etc/sudoers.d/autopilot" in sh and "This script installs:" in sh
     assert "/RL HIGHEST" in ps and "Autopilot-Setup" in ps and "--silent --accept-package-agreements" in ps
     assert ps.count("-Verb RunAs") == 1  # one UAC prompt
+    # N8: the task's script and queue live under ProgramData; the script is writable by Administrators (S-1-5-32-544) only
+    assert "$env:ProgramData 'Autopilot'" in ps and "$env:ProgramData 'Autopilot\\setup-queue.txt'" in ps
+    assert "Remove-Item -Recurse -Force '$SetupDir'" in ps and "icacls '$SetupDir' /setowner *S-1-5-32-544" in ps
+    assert "/grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX'" in ps
+    assert "FromBase64String('$SetupB64')" in ps and "SetupDraft" not in ps  # the body rides inside the elevated command
+    assert "icacls '$SetupQueue' /grant '*S-1-5-32-545:M'" in ps and "Clear-Content $q" in ps
+    assert "[regex]::Escape($SetupScript)" in ps  # an old task that points elsewhere is recreated
+    assert "$env:LOCALAPPDATA" not in ps
