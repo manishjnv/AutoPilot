@@ -323,6 +323,30 @@ With `billing: api`, Autopilot does not use the 5-hour window. Only the `budget_
 
 To send the requests through a gateway such as LiteLLM or OpenRouter, set `agent.env.ANTHROPIC_BASE_URL`.
 
+## What `ap` does in a folder
+
+Open a project folder and type `ap`. The result depends on the folder:
+
+- **Empty folder:** `ap` asks for your idea.
+- **Folder with code and no `.agent/`:** `ap` reads the code and the documents, shows what is done and what is open, and asks to start.
+- **Autopilot project:** `ap` continues the build.
+
+## Limits and supported agent CLIs
+
+Autopilot starts a CLI agent for each session. It does not drive a chat panel in an IDE, so you watch the build in
+your IDE or terminal.
+
+- **Supported CLI runners:** Claude Code (the default), `kiro-cli`, `cursor-agent`, `codex`, `gemini` and `aider`. Autopilot
+  uses the one that is installed and logged in. To choose one, set `agent.backend` in `.agent/project.yaml`.
+- **Not supported:** Replit has no CLI that Autopilot can call. The Kiro and Cursor chat panels have none either.
+  Use the `kiro-cli` or `cursor-agent` CLI instead.
+- **Approve-all presets:** `kiro` (`--trust-all-tools`), `cursor` (`--force`) and `gemini` (`yolo`) approve every tool,
+  not only the worktree. They never ran live. See [SECURITY.md](SECURITY.md).
+- **Where you watch:** run `ap watch` in the terminal of your IDE, or open the status page in your browser.
+- **After the run:** the code is on `main`. Also read `CHANGELOG.md`, `docs/RCA.md` and `docs/NEEDS-YOU.md`.
+- **Presets:** Codex, Gemini, and OpenCode work through presets. They have less testing than Claude Code.
+- **Start from a chat:** see [Start from inside Claude Code](#start-from-inside-claude-code). To install by hand, see [Install by hand](#install-by-hand).
+
 ## Use a different agent CLI
 
 Which agent CLI runs: when `.agent/project.yaml` has no `agent.backend`, preflight finds the first installed,

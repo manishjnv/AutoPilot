@@ -2,8 +2,7 @@
 
 **Give it a plan tonight. Wake up to a working app, and proof that it works.**
 
-Autopilot runs Claude Code through your full plan, and you do not have to watch it. Python code, not the AI model,
-decides when a task is complete.
+Autopilot runs Claude Code through your full plan, and you do not have to watch it. Python code, not the AI model, decides when a task is complete.
 
 [![CI](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -69,7 +68,7 @@ Two real projects, each a CLI built from a plan:
 | Agent time | 2.2 hours, 38 sessions | 1.4 hours, 42 sessions |
 | Cost at API prices | $17.13 | $19.01 |
 
-Both runs used a subscription. The envguard audits found 8 real bugs, and Autopilot fixed all of them. envguard: private repository, numbers from the run log.
+Both runs used a subscription. The envguard audits found 8 real bugs, and Autopilot fixed all of them. envguard is private. Numbers come from the run log.
 
 ## Install
 
@@ -85,35 +84,16 @@ macOS, Linux or WSL:
 curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash
 ```
 
-Open a project folder and type `ap`. In an empty folder, `ap` asks for your idea. In a folder with code and no
-`.agent/`, `ap` reads the code and the documents, shows what is done and what is open, and asks to start. In an
-Autopilot project, it continues.
+Open a project folder and type `ap`. For the result, see [What `ap` does](HOWTO.md#what-ap-does-in-a-folder).
 
 The script installs what is missing: git, uv, Claude Code, Python 3.10 or newer, and Autopilot. You need a paid
 Claude plan or an API key. The free Claude plan cannot use Claude Code. `ap` is the short name of `autopilot`.
-For the checksums, the dry run and each step, see [Install with one script](HOWTO.md#install-with-one-script). To
-install by hand, see [Install by hand](HOWTO.md#install-by-hand). To learn with a first project, see the
-[tutorial](GUIDE.md). To start from a Claude Code chat, see
-[Start from inside Claude Code](HOWTO.md#start-from-inside-claude-code).
-
-## Honest limits
-
-Autopilot starts a CLI agent for each session. It does not drive a chat panel in an IDE, so you watch the build in
-your IDE or terminal.
-
-- **Supported CLI runners:** Claude Code (the default), `kiro-cli`, `cursor-agent`, `codex`, `gemini` and `aider`. Autopilot
-  uses the one that is installed and logged in. To choose one, set `agent.backend` in `.agent/project.yaml`.
-- **Not supported:** Replit has no CLI that Autopilot can call. The Kiro and Cursor chat panels have none either.
-  Use the `kiro-cli` or `cursor-agent` CLI instead.
-- **Approve-all presets:** `kiro` (`--trust-all-tools`), `cursor` (`--force`) and `gemini` (`yolo`) approve every tool,
-  not only the worktree. They never ran live. See [SECURITY.md](SECURITY.md).
-- **Where you watch:** run `ap watch` in the terminal of your IDE, or open the status page in your browser.
-
-**After the run:** the code is on `main`. Also read `CHANGELOG.md`, `docs/RCA.md` and `docs/NEEDS-YOU.md`.
+For the checksums and each step, see [Install with one script](HOWTO.md#install-with-one-script). To learn with a
+first project, see the [tutorial](GUIDE.md).
 
 ## Example output
 
-This is real output, shortened. The checks reject a skipped test, the next attempt passes, and the audit finds gaps:
+Real output, shortened. The checks reject a skipped test, and the next attempt passes:
 
 ```text
 task P02-T01 attempt 1 failed: PROBLEM: skip/focus marker added in tests/test_walker.py
@@ -138,5 +118,5 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 > [Run Autopilot on a server](HOWTO.md#run-autopilot-on-a-server).
 
 - Autopilot is for a solo developer. This is version 0.1.0, an early release.
-- Codex, Gemini, and OpenCode work through presets. They have less testing than Claude Code.
+- Autopilot starts a CLI agent for each session. See the [limits and runners](HOWTO.md#limits-and-supported-agent-clis).
 - Autopilot has the [MIT license](LICENSE).

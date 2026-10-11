@@ -140,11 +140,12 @@ def test_parallel_unset_means_three(tmp_path):  # session 27: the template write
     assert "[autopilot] docs for" in git(root, "log", "--format=%s")
 
 
-def batch_of(tmp_path, scopes, meta=None):
+def batch_of(tmp_path, scopes, meta=None, risks=None):
     """The ids parallel_batch picks for tasks with these scopes (a list of globs per task)."""
     tmp_path.mkdir(parents=True, exist_ok=True)
-    tasks = [{"id": f"P01-T0{i}", "title": f"t{i}", "risk": "low", "files_in_scope": s}
-             for i, s in enumerate(scopes, 1)]
+    risks = risks or ["low"] * len(scopes)
+    tasks = [{"id": f"P01-T0{i}", "title": f"t{i}", "risk": r, "files_in_scope": s}
+             for i, (s, r) in enumerate(zip(scopes, risks), 1)]
     root = make_project(tmp_path, [{"id": "P01", "title": "One", "tasks": tasks}],
                         {"decide": {"enabled": False}, "scheduling": {"parallel": 3}})
     orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
@@ -158,6 +159,16 @@ def test_batch_takes_disjoint_scopes_only(tmp_path):
     assert batch_of(tmp_path, [["a/*.py"], ["b/*.py"], ["c.py"]]) == ["P01-T01", "P01-T02", "P01-T03"]
     assert batch_of(tmp_path / "x", [["a/*.py"], ["a/*.py"], ["c.py"]]) == []  # the second shares a file: first runs alone
     assert batch_of(tmp_path / "y", [["a.py"], ["b.py"], ["a/*.py", "b.py"]]) == ["P01-T01", "P01-T02"]
+
+
+def test_high_tasks_join_a_batch_when_scopes_are_disjoint(tmp_path):  # session 28, owner answer 2026-10-12
+    assert batch_of(tmp_path, [["a/*.py"], ["b/*.py"]], risks=["high", "high"]) == ["P01-T01", "P01-T02"]
+    assert batch_of(tmp_path / "x", [["a/*.py"], ["a/x.py"]], risks=["high", "high"]) == []  # one shared file
+
+
+def test_critical_task_never_joins_a_batch(tmp_path):
+    assert batch_of(tmp_path, [["a.py"], ["b.py"], ["c.py"]], risks=["low", "critical", "low"]) == []
+    assert batch_of(tmp_path / "x", [["a.py"], ["b.py"], ["c.py"]], risks=["high", "critical", "low"]) == []
 
 
 def test_batch_empty_scope_runs_alone(tmp_path):

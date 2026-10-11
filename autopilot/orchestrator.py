@@ -1282,7 +1282,8 @@ class Orchestrator:
     # ------------------------------------------------------------------ P3: independent tasks in parallel worktrees
     def parallel_batch(self, view: dict) -> list:
         """Up to `scheduling.parallel` ready tasks that don't depend on each other, or [] (= run serially).
-        Only plain first attempts: risky, research or decide tasks, corrective work and retries stay serial."""
+        Only plain first attempts: critical, research or decide tasks, corrective work and retries stay serial.
+        Session 28: `high` first attempts join when their `files_in_scope` are disjoint (O1 makes the scope a hard gate)."""
         n = self.cfg.parallel_size()
         if self.max_sessions:
             n = min(n, self.max_sessions - self.sessions_this_run)
@@ -1296,7 +1297,7 @@ class Orchestrator:
             t = self.plan.next_ready(view, self.cfg.get("scheduling.phase_dependency", "soft"))
             row = self.state.task(t.id) if t else None
             if not t or (row and row["attempts"]) or self.plan.phase_of(t).priority or t.research \
-                    or t.needs_decision or RISKS.index(self.effective_risk(t)) > RISKS.index("medium"):
+                    or t.needs_decision or RISKS.index(self.effective_risk(t)) > RISKS.index("high"):
                 break
             if not t.files_in_scope:  # no scope = touches everything: runs alone
                 break

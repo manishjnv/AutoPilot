@@ -157,16 +157,18 @@ def test_command_error_names_every_preset(tmp_path):
 
 
 def test_trust_all_presets_documented():
-    # P10-T04: SECURITY.md and README name the presets that approve every tool; the flags match PRESETS
+    # P10-T04: SECURITY.md and HOWTO name the presets that approve every tool; the flags match PRESETS
+    # (session 28: the limits section moved from the README to HOWTO, the README links to it)
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
     sec = (root / "SECURITY.md").read_text(encoding="utf-8")
-    readme = (root / "README.md").read_text(encoding="utf-8")
+    readme = (root / "HOWTO.md").read_text(encoding="utf-8")
+    assert "HOWTO.md#limits-and-supported-agent-clis" in (root / "README.md").read_text(encoding="utf-8")
     assert "--trust-all-tools" in PRESETS["kiro"] and "--trust-all-tools" in sec
     assert " --force " in PRESETS["cursor"] and "--force" in sec
     assert "--approval-mode=yolo" in PRESETS["gemini"] and "yolo" in sec
     assert "never ran live" in sec.lower()
-    line = readme.split("## Honest limits")[1].split("- **Approve-all presets:**")[1].split("- **Where")[0]
+    line = readme.split("## Limits and supported agent CLIs")[1].split("- **Approve-all presets:**")[1].split("- **Where")[0]
     assert "--force" in line and "yolo" in line and "never ran live" in line.lower()
 
 
