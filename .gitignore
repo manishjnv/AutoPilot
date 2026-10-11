@@ -17,6 +17,7 @@ sampleProject/
 vid/
 
 # Autopilot runtime (not committed)
+.agent/
 .agent/state.db
 .agent/state.db-*
 .agent/logs/
