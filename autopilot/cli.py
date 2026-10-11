@@ -1338,6 +1338,12 @@ def cmd_review(args):
     orch.write_report()
 
 
+def cmd_report(args):
+    from .report import build_report, tokens_report
+    cfg, plan, state = _open_state(Path(args.path).resolve())
+    print(tokens_report(state) if args.tokens else build_report(cfg, plan, state))
+
+
 NEW_PROJECT = ("init", "onboard", "quickstart", "mcp")  # these make a project: with no -C they use this folder
 
 
@@ -1471,6 +1477,10 @@ def main(argv=None):
     add("mcp", cmd_mcp, "MCP server on stdin/stdout for IDE chats: ap_status, ap_next, ap_start, ap_stop, ap_answer")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
+    p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
+    p.add_argument("--tokens", action="store_true", help="tokens and cost per step: build, retry, review, verify, audit, ...")
+    p = add("audit", cmd_review, "run the completion audit now (the lean profile never runs it by itself)")
+    p.set_defaults(kind="completion")
     p = add("review", cmd_review, "run an audit / completion audit / replan now")
     p.add_argument("--kind", choices=["periodic", "completion", "replan"], default="periodic")
     p.add_argument("-v", "--verbose", action="store_true")

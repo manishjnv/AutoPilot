@@ -36,6 +36,7 @@ def load_yaml(path: Path) -> dict:
 def defaults() -> dict:
     d = load_yaml(TEMPLATES / "agent" / "project.yaml")
     d.setdefault("agent", {}).setdefault("backend", "claude_cli")  # N3: the template leaves it unset (preflight detects)
+    d["profile"] = "full"  # O10: lean in the template (new projects) only; a missing key = full
     d.setdefault("gate", {})["new_file_reasons"] = False  # N7: on in the template (new projects) only; a missing key = off
     return d
 
@@ -52,7 +53,14 @@ class Config:
         root = Path(root).resolve()
         path = root / AGENT_DIR / "project.yaml"
         user = load_yaml(path) if path.exists() else {}
-        return cls(root, deep_merge(defaults(), user))
+        cfg = cls(root, deep_merge(defaults(), user))
+        if cfg.lean and "max_attempts_per_task" not in (user.get("retries") or {}):
+            cfg.data["retries"]["max_attempts_per_task"] = 2  # O10: one retry under lean, unless the project sets it
+        return cfg
+
+    @property
+    def lean(self) -> bool:
+        return self.get("profile", "full") == "lean"
 
     def get(self, dotted: str, default: Any = None) -> Any:
         cur: Any = self.data

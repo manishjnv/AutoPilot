@@ -51,7 +51,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
 ## How to work
 1. Read the relevant existing code first. Follow the existing conventions in BRAIN.md.
 2. Implement the task completely — no stubs, TODOs or placeholder logic for anything in the acceptance criteria.
-3. Add or extend automated tests that prove each acceptance criterion.
+3. {{test_rule}}
 4. Run the project's checks yourself and fix failures before finishing:
 {{verify_cmds}}
 5. Update documentation touched by this change (README, API docs, docstrings, the docs listed above).

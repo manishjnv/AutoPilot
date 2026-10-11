@@ -14,6 +14,13 @@ from .gate import verify_commands
 from .repomap import helper_index
 
 PROMPTS = Path(__file__).parent / "prompts"
+TEST_RULE = {False: "Add or extend automated tests that prove each acceptance criterion.",
+             True: ("Write one smoke test per acceptance criterion: the smallest test that fails when the feature breaks. "
+                    "No coverage target and no edge-case suites unless the task text asks for them.")}  # O10
+VARIATION_STEP = {False: ("3. When a journey works as written, try to break that feature once: one variation that a real user "
+                          "can meet (other\n   input, an edge case, a real-environment condition). "
+                          "One variation for each feature, no more."),
+                  True: "3. Do not try variations: one journey for each feature, run once."}  # O10
 FIX_RULES = ("This is a corrective task. 1) Add a regression test that fails before your fix and passes after it. "
              "2) Include `rca` (symptom, root_cause, fix, prevention) in your final report.")
 
@@ -81,10 +88,10 @@ class ContextBuilder:
         self.ad = cfg.agent_dir
 
     def brain(self) -> str:
-        return read_capped(self.ad / "BRAIN.md", 12000)
+        return read_capped(self.ad / "BRAIN.md", 6000 if self.cfg.lean else 12000)
 
     def decisions(self) -> str:
-        return read_capped(self.ad / "DECISIONS.md", 6000, tail=True)
+        return read_capped(self.ad / "DECISIONS.md", 2000 if self.cfg.lean else 6000, tail=True)
 
     def handoff(self) -> str:
         return read_capped(self.ad / "HANDOFF.md", 3000)
@@ -133,7 +140,8 @@ class ContextBuilder:
         init = self.cfg.get("functional.init", "")
         return render("verify.md", phase_id=phase.id, phase_title=phase.title,
                       features="\n".join(f"- `{f['id']}` {f['title']}: {f['journey']}" for f in features),
-                      init=f"Run `{init}`." if init else "Work it out from the project brain, the README and the files.")
+                      init=f"Run `{init}`." if init else "Work it out from the project brain, the README and the files.",
+                      once="" if self.cfg.lean else ", then one variation", variation=VARIATION_STEP[self.cfg.lean])
 
     def research_prompt(self, task, topic: str) -> str:
         return render("research.md", topic=topic, task_id=task.id, task_title=task.title,
@@ -178,7 +186,7 @@ class ContextBuilder:
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
             git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
             adr_block=self.adr_block(task), research_block=self.research_block(task),
-            helper_index=helper_index(self.cfg.root) or "(none)",
+            helper_index=helper_index(self.cfg.root) or "(none)", test_rule=TEST_RULE[self.cfg.lean],
         )
 
     def resume_prompt(self, task, attempt: int, last_error: str | None) -> str:

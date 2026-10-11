@@ -496,7 +496,7 @@ class Orchestrator:
                 return f"stalled: {len(pending)} tasks wait on skipped or blocked work"
 
             # plan exhausted -> is the app actually complete?
-            if not self.cfg.get("audit.enabled") or not self.cfg.get("audit.completion_audit"):
+            if not self.cfg.get("audit.enabled") or not self.cfg.get("audit.completion_audit") or self.cfg.lean:
                 return "plan complete"
             rounds = self.state.get_meta("completion_rounds", 0)
             if rounds >= int(self.cfg.get("audit.max_completion_rounds", 2)):
@@ -933,7 +933,8 @@ class Orchestrator:
                 log.info("task %s escalates to a stronger model: %s", task.id, why)
             self.git.discard()
             fail_err = last_error or ""
-            if (self.cfg.get("unstick.enabled", True) and not self.state.get_meta(f"unstick:{task.id}", False)
+            if (self.cfg.get("unstick.enabled", True) and not self.cfg.lean  # O10: lean = one retry, then park
+                    and not self.state.get_meta(f"unstick:{task.id}", False)
                     and (agent_blocked or res.stuck or attempts >= int(self.cfg.get("unstick.after_attempts", 2)))):
                 kind, text, rep = self.unstick(task, phase, fail_err)
                 fix_model, fix_line, fix_label = own_fix(rep.get("suggestion")) if kind != "skip" else ("", "", "")
@@ -1760,7 +1761,7 @@ class Orchestrator:
         closed = self.state.phases_closed()
         audit_n = int(self.cfg.get("audit.every_n_phases", 0) or 0)
         replan_n = int(self.cfg.get("replan.every_n_phases", 0) or 0)
-        if self.cfg.get("audit.enabled") and audit_n and closed % audit_n == 0:
+        if self.cfg.get("audit.enabled") and audit_n and closed % audit_n == 0 and not self.cfg.lean:
             self.audit("periodic", phase.id)
         if self.cfg.get("replan.enabled") and replan_n and closed % replan_n == 0:
             self.replan(f"after {phase.id}")

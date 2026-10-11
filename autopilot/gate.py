@@ -143,8 +143,34 @@ def scope_additions(report) -> list[str]:
     return [str(k) for k, v in adds.items() if str(v or "").strip()] if isinstance(adds, dict) else []
 
 
-def verify_commands(cfg, extra: list[str] | None = None, phase: bool = False) -> list[str]:
-    cmds = cfg.commands("build", "lint", "typecheck", "test") + list(extra or [])
+def changed_tests(cfg, cmd: str, files: list[str]) -> str:
+    """O10: the test command narrowed to the changed modules; the full command when nothing maps. pytest: by path
+    (`tests/test_<module>.py` when it exists, else the test files in the diff); vitest: `related`; go: changed dirs."""
+    tests = cfg.get("gate.test_globs") or TEST_GLOBS
+    if "pytest" in cmd:
+        paths = []
+        for f in files:
+            stem = f.rsplit("/", 1)[-1].removesuffix(".py")
+            mapped = f"tests/test_{stem}.py"
+            if f.endswith(".py") and _match(f, tests):
+                paths.append(f)
+            elif f.endswith(".py") and (cfg.root / mapped).exists():
+                paths.append(mapped)
+        return f"{cmd} {' '.join(dict.fromkeys(paths))}" if paths else cmd
+    code = [f for f in files if re.search(r"\.(?:[cm]?[jt]sx?)$", f) and not _match(f, tests)]
+    if "vitest" in cmd and code:
+        return re.sub(r"vitest(\s+run)?", f"vitest related {' '.join(code)} --run", cmd, count=1)
+    dirs = {f.rsplit("/", 1)[0] if "/" in f else "" for f in files if f.endswith(".go")}
+    if "go test" in cmd and dirs and "" not in dirs:
+        return cmd.replace("./...", " ".join(f"./{d}/..." for d in sorted(dirs)))
+    return cmd
+
+
+def verify_commands(cfg, extra: list[str] | None = None, phase: bool = False, files: list[str] | None = None) -> list[str]:
+    tests = cfg.commands("test")
+    if files is not None and cfg.lean and not phase:  # O10: per task only the changed modules; phase close runs it all
+        tests = [changed_tests(cfg, c, files) for c in tests]
+    cmds = cfg.commands("build", "lint", "typecheck") + tests + list(extra or [])
     if phase:
         cmds += cfg.commands("phase_verify")
     return cmds
@@ -248,7 +274,7 @@ def task_gate(cfg, git, task, report=None) -> GateResult:
     else:
         gate.warnings += [f"outside files_in_scope: {f}" for f in outside]
     if not gate.problems:
-        gate.results = run_commands(verify_commands(cfg, task.verify), cfg.root,
+        gate.results = run_commands(verify_commands(cfg, task.verify, files=files), cfg.root,
                                     int(cfg.get("verify_timeout_sec", 1200)), base_env=agent_env(cfg))
     gate.ok = not gate.problems and all(r.rc == 0 for r in gate.results)
     return gate

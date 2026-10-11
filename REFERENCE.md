@@ -44,6 +44,8 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot stop` | Stops the run before its next session |
 | `autopilot resume` | Removes the stop flag. It does not start a run |
 | `autopilot review --kind periodic\|completion\|replan` | Starts an audit or a replan now |
+| `autopilot audit` | Starts the completion audit now |
+| `autopilot report --tokens` | Shows the tokens and the cost of each step type |
 
 **Options of `autopilot run`:**
 
@@ -131,6 +133,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
 | `budget_usd` | Cost limits | `per_session` (8), `per_task` (20), `per_phase` (150), `daily` (200), `total` (5000) |
+| `profile` | How much checking each task gets | `lean` (new projects) or `full` (a missing key) |
 | `retries` | Attempts | `max_attempts_per_task` (3), `resume` (true) |
 | `unstick` | The diagnosis of a blocked task | `enabled` (true), `after_attempts` (2) |
 | `decide` | Design choices before risky tasks | `enabled` (true), `risks` (high, critical) |
@@ -185,6 +188,15 @@ committer. Your git settings do not change.
 
 Autopilot supports these stacks: python, node, go, rust, java, docker, static, and generic. Each project type works
 when you put its build and test commands in `commands`.
+
+### Lean profile
+
+Set `profile` to `lean` or `full` in `.agent/project.yaml`; new projects start with `lean`.
+Under `lean`, a task writes one smoke test for each criterion, and the task gate runs only the tests of the changed modules.
+`lean` allows one retry, then parks the task in "Questions for you"; it also turns off the periodic and the completion audit, and the phase check runs no variations.
+`lean` cuts `BRAIN.md` to 6000 characters and the decisions to 2000, and `autopilot audit` runs the audit on demand.
+`autopilot report --tokens` shows the tokens and the cost of each step type; the total equals the state total.
+The trade-off: a regression shows at phase close, not for each task, and the merged-result gate keeps `main` green.
 
 ## Gate guards
 
