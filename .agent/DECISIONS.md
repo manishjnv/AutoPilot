@@ -10,3 +10,4 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [P02-T01] missing_deps presence checks: node_modules/ for npm/pnpm/yarn; .venv/ or venv/ for uv/poetry; project venv or active venv for requirements*; non-empty Go module cache or vendor/ for go.sum; target/ or cargo registry for Cargo.lock. Yarn Berry gets --immutable. Doctor row is WARN only.
 - [2026-10-11] [P02-T02] install_deps(cfg) in cli.py runs after the agent CLI check; standard commands are de-duplicated, run one by one, and written to commands.setup as a JSON-style list by remember_setup (regex text edit, comments kept) — same approach as cmd_init
 - [2026-10-11] [P02-T02] When commands.setup is set it is run as is and never rewritten
+- [2026-10-11] [P03-T01] ADR: A: _MODEL_OPT per preset + {prompt_file} placeholder for aider; kiro on stdin only; cursor with _ASK + stdin → docs/adr/0001-presets-for-kiro-cursor-and-aider-a-model-option-f.md
