@@ -21,7 +21,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot init [--stack X]` | Makes `.agent/` only. `quickstart` does this for you |
 | `autopilot onboard [--plan-doc FILE]` | One session writes `BRAIN.md`, the commands and `plan.yaml`. With no file, it reads the repository. The session gets a discovery pack (git log, documents, stack files, one test run) and four rules: read first, mark existing work `status: done`, link documents, keep file names. New files outside `.agent/` and `CLAUDE.md` are named in a warning |
 | `autopilot validate` | Checks `project.yaml` and `plan.yaml` for errors |
-| `autopilot doctor [--fix]` | Checks the Claude CLI and its login, git, `gh`, the sandbox tools, the alerts, and the settings. A missing login is a `FAIL`. `--fix` repairs what needs no person |
+| `autopilot doctor [--fix]` | Checks the Claude CLI and its login, git, `gh`, the sandbox tools, the alerts, the settings, and project dependencies that are not installed (a `WARN` with the install command). A missing login is a `FAIL`. `--fix` repairs what needs no person |
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
 | `autopilot run` | Builds until the completion audit passes |
 | `autopilot start` | Starts or continues the build in the background. It is the same as `run --clear-stop --detach` |

@@ -1,13 +1,13 @@
 # Handoff
 
-Last completed: **P01-T03 — Onboarding prompt: four adopt rules and the pack** (2026-10-11)
+Last completed: **P02-T01 — Detect missing project dependencies and the standard install command** (2026-10-11)
 
-onboard.md now carries a {{discovery}} section and the four adopt rules; cmd_onboard builds discovery_pack and passes it to render, and after the session warns with the names of new untracked files outside .agent/ and CLAUDE.md (via git status before/after). Verified by 3 new fake-agent tests in tests/test_adopt.py (14 pass in that file), the onboard/quickstart tests and ruff; the full suite and WSL script were not run.
+Added missing_deps, system_tool_hint and a 'dependencies' WARN doctor row to autopilot/doctor.py; new tests/test_deps.py covers every lock file, both OS hints and the doctor row. test_deps.py and test_doctor.py pass (29) and ruff is clean; the full suite and WSL script were not run.
 
-Files: REFERENCE.md, autopilot/cli.py, autopilot/prompts/onboard.md, tests/test_adopt.py
+Files: .agent/DECISIONS.md, REFERENCE.md, autopilot/doctor.py, tests/test_deps.py
 
 Follow-ups noted:
-- Full pytest suite and the WSL script were not run in this session; the orchestrator should run them
-- cmd_quickstart onboarding goes through cmd_onboard, so it gets the pack and warning too; no separate check was added
+- A Poetry venv outside the project gives a false WARN; consider poetry env info -p or POETRY_VIRTUALENVS_IN_PROJECT
+- Run the full pytest suite and the WSL script
 
-Next planned task: P02-T01
+Next planned task: P02-T02
