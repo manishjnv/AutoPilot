@@ -17,6 +17,9 @@ FIX_RULES = ("This is a corrective task. 1) Add a regression test that fails bef
              "2) Include `rca` (symptom, root_cause, fix, prevention) in your final report.")
 
 
+TAMPER_COUNT_RX = re.compile(r"test count dropped in (\S+): (\d+) -> \d+")
+
+
 def render(name: str, **vars) -> str:
     text = (PROMPTS / name).read_text(encoding="utf-8")
     for k, v in vars.items():
@@ -161,6 +164,9 @@ class ContextBuilder:
         retry = ""
         if attempt > 1 and last_error:
             retry = render("retry.md", attempt=attempt - 1, errors=last_error[-6000:])
+            # J14.4: a tamper failure becomes one instruction with the real file and count
+            keep = [f"Keep all {m[1]} tests in {m[0]}. Add, do not remove." for m in TAMPER_COUNT_RX.findall(last_error)]
+            retry += "".join(f"\n**{k}**\n" for k in keep)
         return render(
             "task.md", task_id=task.id, task_title=task.title, phase_id=phase.id, phase_title=phase.title,
             phase_goal=phase.goal, risk=task.risk,
