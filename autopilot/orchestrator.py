@@ -54,6 +54,8 @@ def run_supervised(root, make=None, sleep=time.sleep, max_restarts: int = 10) ->
         except (KeyboardInterrupt, SystemExit):
             raise
         except Exception as exc:  # noqa: BLE001 — that is the point: any crash
+            if orch:  # J14.9: run.json says finished only when the process exits; ap watch stays through the restart
+                orch._journal(status="running", outcome="", state="Heal", current="restarts after a crash")
             state = orch.state if orch else State(Path(root) / AGENT_DIR / "state.db")
             task = str(state.get_meta("current_task", "") or "")
             sig, path = _crash_report(Path(root), exc, task)

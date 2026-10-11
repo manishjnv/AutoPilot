@@ -262,3 +262,38 @@ def test_a_cli_that_prints_nothing_is_an_infra_failure(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", str(tmp_path / "missing"))
     assert ClaudeCLIBackend(Config.load(tmp_path)).run(
         SessionRequest(prompt="x", model="sonnet", cwd=str(tmp_path))).infra == "cli"
+
+
+def test_the_supervisor_writes_the_heal_state_before_it_sleeps(tmp_path):
+    import json
+
+    from autopilot.orchestrator import run_supervised
+    root = make_project(tmp_path, TWO_INDEPENDENT, BASE)
+    seen = []
+    run_supervised(root, crashing(root, "task", 1),
+                   sleep=lambda s: seen.append(json.loads((root / ".agent" / "run.json").read_text())))
+    assert seen[0]["status"] == "running" and seen[0]["state"] == "Heal" and seen[0]["outcome"] == ""
+
+
+def test_watch_stays_open_when_an_interrupted_run_restarts(tmp_path):
+    import json
+
+    from autopilot.cli import restarting
+    root = make_project(tmp_path, TWO_INDEPENDENT, BASE)
+    rj = root / ".agent" / "run.json"
+    t = [0.0]
+
+    def tick(s):
+        t[0] += s
+    rj.write_text(json.dumps({"status": "finished", "outcome": "interrupted"}))
+
+    def sleep(s):
+        tick(s)
+        if t[0] >= 5:
+            rj.write_text(json.dumps({"status": "running"}))
+    assert restarting(root, 90, sleep, lambda: t[0]) is True
+    rj.write_text(json.dumps({"status": "finished", "outcome": "interrupted"}))
+    t[0] = 0
+    assert restarting(root, 90, tick, lambda: t[0]) is False  # no restart within the window: the watch ends
+    rj.write_text(json.dumps({"status": "finished", "outcome": "plan complete"}))
+    assert restarting(root, 90, tick, lambda: t[0]) is False  # a real end does not wait

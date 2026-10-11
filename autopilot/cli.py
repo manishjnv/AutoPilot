@@ -769,6 +769,23 @@ def watch_end(root: Path, run: dict, color: bool, hold: bool):
             pass
 
 
+def restarting(root: Path, wait: float = 90, sleep=None, clock=None) -> bool:
+    """J14.9: a run that ended `interrupted` may be restarting itself after a crash. True when run.json turns
+    `running` again within `wait` seconds."""
+    import time
+
+    from .report import run_journal
+    sleep, clock = sleep or time.sleep, clock or time.monotonic
+    if run_journal(root).get("outcome") != "interrupted":
+        return False
+    end = clock() + wait
+    while clock() < end:
+        sleep(1)
+        if run_journal(root).get("status") == "running":
+            return True
+    return False
+
+
 def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
     """J9: the full-window dashboard (dash_term.frame) on the terminal's second screen, drawn again each second.
     Returns None when this terminal cannot show it (too small, no plan yet): the caller uses the scrolling view.
@@ -814,6 +831,8 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
                 pass
             out.flush()
             done = done + 1 if run_journal(root).get("status") == "finished" else 0
+            if done >= 3 and restarting(root):
+                done = 0
             if done >= 3:
                 ended = True
                 break
@@ -934,6 +953,9 @@ def cmd_watch(args):
                 asked[0], drawn[0] = True, None  # the line in work stays as it is; the notice goes below it
                 print(paint("You asked for a stop. The build stops after the current session.", "yellow", color),
                       flush=True)
+            if run.get("status") == "finished" and quiet >= 3 and restarting(root):
+                quiet = 0
+                continue
             if run.get("status") == "finished" and quiet >= 3:
                 if simple:
                     show("", final=True)
