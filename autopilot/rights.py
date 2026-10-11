@@ -39,7 +39,10 @@ def have_rights(platform: str | None = None) -> str:
             return ""
     if p == "darwin":
         return "brew"
-    return "sudoers" if Path(SUDOERS).is_file() else ""
+    try:
+        return "sudoers" if Path(SUDOERS).is_file() else ""
+    except OSError:  # /etc/sudoers.d is not readable on every machine (CI runners): then no rights are known
+        return ""
 
 
 def _refresh_path():
@@ -113,7 +116,7 @@ def remove_rights(platform: str | None = None, run=run_proc) -> list[str]:
             q.unlink()
             out.append(f"removed {q}")
     elif p != "darwin":
-        if Path(SUDOERS).is_file():
+        if have_rights(p) == "sudoers":
             rc = run(["sudo", "-n", "rm", "-f", SUDOERS], timeout=30).rc
             out.append(f"removed {SUDOERS}" if rc == 0 else f"run: sudo rm -f {SUDOERS}")
         else:
