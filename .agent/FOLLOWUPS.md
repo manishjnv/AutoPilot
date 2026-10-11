@@ -30,3 +30,5 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P05-T02] Refresh the HOWTO checksums when the first release tag is made (P05-T03)
 - [P06-T01] An existing CLAUDE.md that already has the Autopilot heading does not get the new ap command lines
 - [P06-T01] A project with both .kiro/ and AGENTS.md gets the instruction twice, because Kiro also reads AGENTS.md
+- [P04-T01] Wire adopt_summary into plain `ap` for the code-without-.agent case (next N4 step)
+- [P04-T01] The WSL script (docs/wsltest_self.sh) was not run; the full suite ran on Windows only
