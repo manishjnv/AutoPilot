@@ -117,3 +117,31 @@ def test_old_presets_unchanged():
     assert PRESETS["codex"] == "codex exec --sandbox workspace-write --skip-git-repo-check{model_flag} " + ask
     assert PRESETS["gemini"] == "gemini --approval-mode=yolo{model_flag} -p " + ask
     assert PRESETS["opencode"] == "opencode run --auto{model_flag} " + ask
+
+
+def _init_python(tmp_path, force=False):
+    import argparse
+    from autopilot.cli import cmd_init
+    cmd_init(argparse.Namespace(path=str(tmp_path), stack="python", name=None, force=force, quiet=True))
+    return (tmp_path / ".agent" / "project.yaml").read_text(encoding="utf-8")
+
+
+def _template_keys():
+    from autopilot.cli import TEMPLATES
+    return set(yaml.safe_load((TEMPLATES / "agent" / "project.yaml").read_text(encoding="utf-8")))
+
+
+def test_init_stack_keeps_blocks_after_commands(tmp_path):
+    text = _init_python(tmp_path)
+    data = yaml.safe_load(text)
+    assert _template_keys() <= set(data)
+    assert {"agent", "gate", "models", "scheduling"} <= set(data)
+    assert data["commands"]["test"] == ["python -m pytest -q"]
+    assert "scheduling:" in text
+
+
+def test_init_force_twice_keeps_one_commands_block(tmp_path):
+    first = yaml.safe_load(_init_python(tmp_path))
+    text = _init_python(tmp_path, force=True)
+    assert text.count("\ncommands:") + text.startswith("commands:") == 1
+    assert set(yaml.safe_load(text)) == set(first)

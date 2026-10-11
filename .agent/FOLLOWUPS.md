@@ -8,3 +8,5 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P07-T02] Run the suite on WSL (docs/wsltest_self.sh, P07-T03); this session did not run it.
 - [P07-T02] To turn N7 on by default: make the test fakes report new_files, then set gate.new_file_reasons: true. The P08-T01 cmd_init commands-regex bug drops the whole gate: block from project.yaml at init, so ap init or adopt cannot write the setting into a new project until P08-T01 is fixed.
 - [P07-T02] autopilot/templates/agent/project.yaml is outside the task's file list, so expect a scope warning.
+- [P08-T01] Run the full suite on WSL; this session did not run it.
+- [P08-T01] gate.new_file_reasons can now be written into a new project by ap init, since the gate: block survives.
