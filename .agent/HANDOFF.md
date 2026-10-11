@@ -1,12 +1,13 @@
 # Handoff
 
-Last completed: **P01-T01 — plan.yaml `status: done` marks finished work** (2026-10-11)
+Last completed: **P01-T02 — Discovery pack for onboarding** (2026-10-11)
 
-Added optional task key `status` (only `done`) to plan.py with validation naming the task id. sync_plan records done tasks as done (note 'done before Autopilot') when the row is new or pending, and never touches running/blocked/skipped/done tasks. Verified by 7 new tests in tests/test_adopt.py, ruff, and 35 existing tests in three files. The background full-suite run was killed at its time limit and the WSL script was not reachable, so neither was confirmed.
+Added discovery_pack(root, cfg) in autopilot/context.py: git log, document tree with plan-file heads, stack files and one capped test run (timeout from onboard.test_timeout_sec, default 300), all capped to ~60k characters with truncation markers. Verified by 4 new tests in tests/test_adopt.py (11 pass in that file) and ruff; the full suite and the WSL script were not run.
 
-Files: REFERENCE.md, autopilot/plan.py, autopilot/state.py, autopilot/templates/agent/plan.yaml, tests/test_adopt.py
+Files: REFERENCE.md, autopilot/context.py, tests/test_adopt.py
 
 Follow-ups noted:
-- Full pytest suite (background run killed at time limit) and the WSL script were not run to completion in this session; the orchestrator should run them
+- Full pytest suite and the WSL script were not run in this session; the orchestrator should run them
+- discovery_pack is not yet wired into the onboard prompt (cmd_onboard); a later N1 task should do that
 
-Next planned task: P01-T02
+Next planned task: P01-T03
