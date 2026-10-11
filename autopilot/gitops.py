@@ -3,10 +3,15 @@ from __future__ import annotations
 
 import os
 import shutil
+import logging
 import subprocess
+import time
 from pathlib import Path
 
 from .github_util import identity_env
+
+log = logging.getLogger("autopilot")
+LOCK_WORDS = ("unlink", "permission denied", "resource busy", "unable to unlink")  # lowercase; covers "Unlink of file"
 
 # Agent sessions can write .git/ and the user's git config. Nothing they plant may run inside the orchestrator's own
 # git calls: hooks and fsmonitor are switched off per call, filters are removed after each session (guard_config).
@@ -149,9 +154,24 @@ class Git:
         if self.head() != base_sha:
             self.run("reset", "-q", "--soft", base_sha)
 
-    def discard(self):
-        self.run("reset", "-q", "--hard")
-        self.run("clean", "-q", "-fd")
+    def discard(self, sleep=time.sleep, wait: float = 1.0):
+        """Throw away uncommitted work. On Windows another process (watch window, web page) can hold a file open and
+        make git fail to unlink it: retry, then discard everything except .agent/. A lock never raises."""
+        for attempt in range(1, 4):
+            try:
+                self.run("reset", "-q", "--hard")
+                self.run("clean", "-q", "-fd")
+                return
+            except GitError as e:
+                if not any(w in str(e).lower() for w in LOCK_WORDS):
+                    raise
+                if attempt < 3:
+                    log.warning("git discard hit a file lock, retry %d/2: %s", attempt, str(e)[:200])
+                    sleep(wait)
+        log.warning("git discard still locked after 3 tries: discarding everything except .agent/")
+        self.run("reset", "-q")
+        self.run("checkout", "-q", "--", ".", ":(exclude).agent")
+        self.run("clean", "-q", "-fd", "-e", ".agent")
 
     def stash_all(self, message: str):
         self.run("reset", "-q")
