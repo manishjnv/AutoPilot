@@ -69,7 +69,7 @@ Two real projects, each a CLI built from a plan:
 | Agent time | 2.2 hours, 38 sessions | 1.4 hours, 42 sessions |
 | Cost at API prices | $17.13 | $19.01 |
 
-Both runs used a subscription. The envguard audits found 8 real bugs, and Autopilot fixed all of them.
+Both runs used a subscription. The envguard audits found 8 real bugs, and Autopilot fixed all of them. envguard: private repository, numbers from the run log.
 
 ## Install
 
