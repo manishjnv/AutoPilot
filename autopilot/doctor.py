@@ -235,6 +235,107 @@ def check_user_guards(cfg: Config) -> tuple[str, str, str] | None:
             "Autopilot sessions do not load them. To keep them, set agent.user_config: true")
 
 
+def _venv_in(root: Path, names=(".venv",)) -> bool:
+    return any((root / n / "pyvenv.cfg").is_file() or (root / n / "bin").is_dir() or (root / n / "Scripts").is_dir()
+               for n in names)
+
+
+def _nonempty(p: Path) -> bool:
+    try:
+        return p.is_dir() and any(p.iterdir())
+    except OSError:
+        return False
+
+
+def _go_cache() -> Path:
+    mc = os.environ.get("GOMODCACHE")
+    if mc:
+        return Path(mc)
+    return Path((os.environ.get("GOPATH") or "").split(os.pathsep)[0] or Path.home() / "go") / "pkg" / "mod"
+
+
+def _cargo_registry() -> Path:
+    return Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo") / "registry"
+
+
+def missing_deps(root) -> list[dict]:
+    """N2: pure check, no install. One item {lock, command, tool} per lock or manifest file whose dependency folder
+    is missing. Presence checks: node_modules/ (npm, pnpm, yarn); .venv/ or venv/ (uv, poetry; a Poetry venv outside
+    the project gives a false WARN); a venv in the project or an active one (requirements); a non-empty Go module
+    cache or vendor/ (go.sum); target/ or the cargo registry (Cargo.lock)."""
+    root = Path(root)
+    out: list[dict] = []
+
+    def add(lock, command, tool):
+        out.append({"lock": lock, "command": command, "tool": tool})
+
+    def has(n):
+        return (root / n).is_file()
+    if has("package-lock.json") and not (root / "node_modules").is_dir():
+        add("package-lock.json", "npm ci", "npm")
+    if has("pnpm-lock.yaml") and not (root / "node_modules").is_dir():
+        add("pnpm-lock.yaml", "pnpm install --frozen-lockfile", "pnpm")
+    if has("yarn.lock") and not (root / "node_modules").is_dir():
+        try:
+            berry = "__metadata:" in (root / "yarn.lock").read_text(encoding="utf-8", errors="replace")[:4000]
+        except OSError:
+            berry = False
+        add("yarn.lock", "yarn install --immutable" if berry else "yarn install --frozen-lockfile", "yarn")
+    if has("uv.lock") and not _venv_in(root, (".venv", "venv")):
+        add("uv.lock", "uv sync", "uv")
+    if has("poetry.lock") and not _venv_in(root, (".venv", "venv")):
+        add("poetry.lock", "poetry install", "poetry")
+    reqs = sorted(p.name for p in root.glob("requirements*.txt") if p.is_file())
+    active = bool(os.environ.get("VIRTUAL_ENV")) or sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+    if reqs and not active and not _venv_in(root, (".venv", "venv", "env")):
+        for r in reqs:
+            add(r, f"pip install -r {r}", "python")
+    if has("go.sum") and not (_nonempty(_go_cache()) or (root / "vendor").is_dir()):
+        add("go.sum", "go mod download", "go")
+    if has("Cargo.lock") and not ((root / "target").is_dir() or _nonempty(_cargo_registry())):
+        add("Cargo.lock", "cargo fetch", "cargo")
+    return out
+
+
+_HINTS = {  # tool -> (windows, linux, macos)
+    "python": ("winget install -e --id Python.Python.3.12", "sudo apt install python3 python3-venv python3-pip",
+               "brew install python"),
+    "node": ("winget install -e --id OpenJS.NodeJS.LTS", "sudo apt install nodejs npm", "brew install node"),
+    "git": ("winget install -e --id Git.Git", "sudo apt install git", "brew install git"),
+    "go": ("winget install -e --id GoLang.Go", "sudo apt install golang-go", "brew install go"),
+    "uv": ("winget install -e --id astral-sh.uv", "curl -LsSf https://astral.sh/uv/install.sh | sh",
+           "brew install uv"),
+    "poetry": ("pipx install poetry", "pipx install poetry", "pipx install poetry"),
+    "cargo": ("winget install -e --id Rustlang.Rustup", "curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh",
+              "curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh"),
+    "pnpm": ("npm install -g pnpm", "npm install -g pnpm", "npm install -g pnpm"),
+    "yarn": ("npm install -g yarn", "npm install -g yarn", "npm install -g yarn"),
+}
+_HINTS["npm"] = _HINTS["node"]
+_HINTS["rust"] = _HINTS["cargo"]
+
+
+def system_tool_hint(tool: str, platform: str | None = None) -> str:
+    """N2: the exact install command of a system tool for this OS (`platform` is sys.platform; default the current).
+    Autopilot prints it and never runs it. '' for an unknown tool."""
+    row = _HINTS.get(str(tool).lower().strip())
+    if not row:
+        return ""
+    p = platform or sys.platform
+    return row[0] if p.startswith("win") else row[2] if p == "darwin" else row[1]
+
+
+def check_deps(cfg: Config) -> tuple[str, str, str] | None:
+    """N2: WARN row naming the lock files whose dependencies are not installed, with the command."""
+    miss = missing_deps(cfg.root)
+    if not miss:
+        return None
+    parts = [f"{m['lock']}: {m['command']}" + ("" if shutil.which(m["tool"]) or (m["tool"] == "python"
+             and (shutil.which("python") or shutil.which("python3"))) else f" (needs {m['tool']}: "
+             f"{system_tool_hint(m['tool'])})") for m in miss]
+    return (WARN, "dependencies", "not installed; run " + "; ".join(parts))
+
+
 def checks(cfg: Config) -> list[tuple[str, str, str]]:
     """(level, name, detail) per check. FAIL = the run would break; WARN = it runs, but something is missing."""
     out = [check_path()]
@@ -275,6 +376,7 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
         out.append((FAIL if miss else OK, "telegram chat", f"chat.enabled but {', '.join(miss)} not set" if miss
                     else "bot token and chat id set"))
 
+    out += [d for d in [check_deps(cfg)] if d]
     line = _config_load_line(cfg)
     if line:
         out.append((OK, "claude config", line + " (from the last session)"))
