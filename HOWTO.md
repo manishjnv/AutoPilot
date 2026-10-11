@@ -134,6 +134,12 @@ questions.
 
 When a run is active, Autopilot writes the idea to `docs/BACKLOG.md`. The run takes it at its next replan.
 
+## Install the dependencies of a project
+
+You do not install the project dependencies by hand. Before a run, Autopilot looks for them. If `node_modules/` or a virtual environment is missing, it installs them with no question. It uses `commands.setup` from `.agent/project.yaml`. If that setting is empty, it runs the standard command (for example `npm ci` or `uv sync`) and writes the command into `commands.setup`. The next run installs nothing.
+
+Autopilot never installs a system tool such as Node, Go or `uv`. If one is missing, it prints the exact command, for example `FAIL  npm is not installed. Install it with: sudo apt install nodejs npm`. Run that command yourself, then start again.
+
 ## Use a project that already exists
 
 1. Go to the folder of the project.

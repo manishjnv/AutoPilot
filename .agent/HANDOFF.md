@@ -1,13 +1,13 @@
 # Handoff
 
-Last completed: **P02-T01 — Detect missing project dependencies and the standard install command** (2026-10-11)
+Last completed: **P02-T02 — Preflight installs project dependencies** (2026-10-11)
 
-Added missing_deps, system_tool_hint and a 'dependencies' WARN doctor row to autopilot/doctor.py; new tests/test_deps.py covers every lock file, both OS hints and the doctor row. test_deps.py and test_doctor.py pass (29) and ruff is clean; the full suite and WSL script were not run.
+Preflight now installs missing project dependencies before a run: it uses commands.setup, or the standard command written back into project.yaml with a comment-preserving text edit. A missing system tool prints `FAIL  <tool> is not installed. Install it with: <hint>` and returns False without installing. Verified by three new tests with a fake npm on PATH (24 pass in tests/test_deps.py on Windows; 36 across deps, doctor and presets on WSL); ruff is clean.
 
-Files: .agent/DECISIONS.md, REFERENCE.md, autopilot/doctor.py, tests/test_deps.py
+Files: HOWTO.md, REFERENCE.md, autopilot/cli.py, tests/test_deps.py
 
 Follow-ups noted:
-- A Poetry venv outside the project gives a false WARN; consider poetry env info -p or POETRY_VIRTUALENVS_IN_PROJECT
-- Run the full pytest suite and the WSL script
+- Bug in cmd_init: the regex `(?ms)^commands:\n(?:[ \t]+.*\n)*` has re.S so `.*\n` eats the rest of project.yaml; after `ap init --stack X` everything after the commands block (agent:, scheduling:, ...) is lost
+- Run the full pytest suite and wsltest_self.sh (the script path was not found from Git Bash)
 
-Next planned task: P02-T02
+Next planned task: P03-T01
