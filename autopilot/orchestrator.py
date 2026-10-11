@@ -104,6 +104,17 @@ def model_rank(model: str) -> int:
     return next((i for i, name in enumerate(MODEL_ORDER) if name in m), 1)
 
 
+def own_fix(suggestion: str) -> tuple[str, str, str]:
+    """J14.6: a fix the diagnosis names that Autopilot can apply alone -> (model, prompt line, label); none = ("","","")."""
+    t = str(suggestion or "")
+    m = re.search(r"(?:retry on|model:)\s*(haiku|sonnet|opus)\b", t, re.I)
+    line = re.search(r"(?:prompt line|instruction):\s*(.+)", t, re.I)
+    short = re.search(r"shorter summary|call the final report once", t, re.I)
+    text = line.group(1).strip() if line else ("Write one short final report and call it once." if short else "")
+    model = m.group(1).lower() if m else ""
+    return model, text, " + ".join(x for x in (f"model {model}" if model else "", f"prompt line: {text}" if text else "") if x)
+
+
 def _one_line(x) -> str: return " ".join(str(x or "").split())
 
 
@@ -831,6 +842,7 @@ class Orchestrator:
         chain, chain_model = None, ""  # the last failed attempt's session, resumable by the next attempt
         risk = self.effective_risk(task)
         floor = model_rank(row["model"]) if attempts and row["model"] else -1  # U6: never route down
+        own_model, own_used = "", ""  # J14.6 own fix
         if floor >= 0 and self.state.get_meta(f"stepup:{task.id}", False):  # J14.5: the last attempt was cut or looped
             floor += 1
 
@@ -844,7 +856,8 @@ class Orchestrator:
                 self.state.set_task(task.id, status="pending")
                 raise Stop(f"phase {phase.id} budget ${per_phase} reached")
 
-            model = self.model_for(risk, attempts, floor)
+            model = own_model or self.model_for(risk, attempts, floor)
+            own_model = ""
             effort = self.cfg.get(f"models.effort.{risk}", "")
             base = self.git.start_branch(branch, self.main)
             res = None
@@ -920,7 +933,8 @@ class Orchestrator:
             if (self.cfg.get("unstick.enabled", True) and not self.state.get_meta(f"unstick:{task.id}", False)
                     and (agent_blocked or res.stuck or attempts >= int(self.cfg.get("unstick.after_attempts", 2)))):
                 kind, text, rep = self.unstick(task, phase, fail_err)
-                if kind == "owner":
+                fix_model, fix_line, fix_label = own_fix(rep.get("suggestion")) if kind != "skip" else ("", "", "")
+                if kind == "owner" and not fix_label:
                     self._park(task, branch, attempts, fail_err)
                     self.needs_you("task", f"{task.id} {task.title}", str(rep.get("question") or self.GENERIC_QUESTION),
                                    task_id=task.id, checked=str(rep.get("checked") or text),
@@ -931,6 +945,11 @@ class Orchestrator:
                     max_attempts = attempts + 1
                     label = "DIAGNOSIS" if kind == "technical" else "DECISION"
                     last_error = f"{fail_err}\n\n{label} from a separate review session (apply it):\n{text}"
+                    if fix_label:  # J14.6: apply the named fix as this one extra attempt; ask only if it fails too
+                        own_model, own_used = fix_model, fix_label
+                        last_error += f"\n\nEXTRA INSTRUCTION: {fix_line}" if fix_line else ""
+                        log.info("task %s own fix: %s", task.id, fix_label)
+                        self.state.event("own_fix", f"{task.id}: own fix: {fix_label}")
 
         self._park(task, branch, attempts, last_error or "")
         if extra:

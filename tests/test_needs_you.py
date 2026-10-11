@@ -264,3 +264,22 @@ def test_a_question_is_in_simple_words():
     one = explain({"checked": "", "suggestion": "Use Stripe", "blocks": "[]", "question": "Which one?", "why": "x"})
     assert one == ["- **The problem:** x", "- **The question:** Which one?",
                    "- **Suggestion from the agent:** Use Stripe", "- **What waits:** No task waits."]
+
+
+# ---------------------------------------------------------------- J14.6 own fix, J14.8 LEARNINGS
+def test_diagnosis_retry_on_model_runs_one_attempt_before_the_question(tmp_path):
+    root = make_project(tmp_path, phases_basic()[:1])
+    owner = dict(OWNER, suggestion="retry on opus, and call the final report once")
+    fake = FakeBackend(behaviours={"P01-T01": ["blocked", "ok"]}, unsticks={"P01-T01": owner})
+    orch = orch_for(root, fake)
+    orch.run()
+    models = [m for t, m in fake.calls if t == "P01-T01"]
+    assert len(models) == 2 and "opus" in models[1] and "opus" not in models[0]
+    assert "one short final report" in [p for t, p in fake.prompts if t == "P01-T01"][1]
+    assert orch.state.status_map()["P01-T01"] == "done" and not orch.state.decisions()
+    assert any("own fix: model opus" in m for m in events(orch, "own_fix"))
+
+
+def test_diagnosis_without_an_applicable_fix_asks_as_before(tmp_path):
+    root, fake, orch, outcome = parked_run(tmp_path)  # suggestion "Stripe": nothing to apply
+    assert [t for t, _ in fake.calls].count("P01-T01") == 1 and orch.state.decision("D-001")["status"] == "OPEN"
