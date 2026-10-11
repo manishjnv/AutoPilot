@@ -233,3 +233,32 @@ def test_parallel_gate_checks_reasons_too(tmp_path):
     orch.run()
     retries = [p for tid, p in be.prompts if "new file without a reason: src/" in p]
     assert retries and all(NEW_FILE_RULE in p for p in retries)
+
+
+# P09-T01: the template turns the guard on; a project.yaml without the key keeps it off
+def init_folder(root, stack):
+    from argparse import Namespace
+    from autopilot.cli import cmd_init
+    cmd_init(Namespace(path=str(root), stack=stack, name=None, force=False, quiet=True))
+
+
+def test_init_turns_the_guard_on_with_and_without_stack(tmp_path):
+    for i, stack in enumerate((None, "python")):
+        root = tmp_path / f"p{i}"
+        root.mkdir()
+        init_folder(root, stack)
+        assert Config.load(root).get("gate.new_file_reasons") is True
+        text = (root / ".agent" / "project.yaml").read_text(encoding="utf-8")
+        assert "N7: on in new projects; a project.yaml without this key has it off" in text
+
+
+def test_project_yaml_without_the_key_keeps_the_guard_off(tmp_path):
+    cfg = gate_repo(tmp_path, on=False)
+    (tmp_path / ".agent").mkdir()
+    (tmp_path / ".agent" / "project.yaml").write_text("gate:\n  test_globs: [\"tests/**\"]\n", encoding="utf-8")
+    loaded = Config.load(tmp_path)
+    assert not loaded.get("gate.new_file_reasons")
+    loaded.data["commands"]["test"] = cfg.data["commands"]["test"]
+    put(tmp_path, "NOTES2.md", "notes\n")
+    g = gate(loaded, {"status": "done", "summary": "add notes"})
+    assert not any("new file without a reason" in p for p in g.problems)

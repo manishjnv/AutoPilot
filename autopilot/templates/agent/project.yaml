@@ -45,7 +45,7 @@ gate:
     - "vitest.config.*"
     - "karma.conf.*"
     - "phpunit.xml*"
-  new_file_reasons: false # N7: true = a file added by a task (test files and .agent/ excepted) needs a reason in the
+  new_file_reasons: true # N7: on in new projects; a project.yaml without this key has it off. A file added by a task (test files and .agent/ excepted) needs a reason in the
                           # report field `new_files`, else the gate fails and the retry quotes the rule
 
 agent:

@@ -36,6 +36,7 @@ def load_yaml(path: Path) -> dict:
 def defaults() -> dict:
     d = load_yaml(TEMPLATES / "agent" / "project.yaml")
     d.setdefault("agent", {}).setdefault("backend", "claude_cli")  # N3: the template leaves it unset (preflight detects)
+    d.setdefault("gate", {})["new_file_reasons"] = False  # N7: on in the template (new projects) only; a missing key = off
     return d
 
 
