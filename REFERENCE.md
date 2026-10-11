@@ -145,6 +145,22 @@ and the project's own `.claude/settings.json` and `.mcp.json` also load. Thus a 
 Your own settings add cost and context to each session. To load them too, for example a proxy or an
 `apiKeyHelper`, set `agent.user_config: true`.
 
+Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
+`agent.model_map` gives the model option (`-m`, or `--model` for kiro, cursor and aider).
+
+| Preset | Runs | The prompt goes in |
+|---|---|---|
+| `codex` | `codex exec` | standard input |
+| `gemini` | `gemini -p` | standard input |
+| `opencode` | `opencode run` | standard input |
+| `kiro` | `kiro-cli chat --no-interactive --trust-all-tools` | standard input |
+| `cursor` | `cursor-agent -p --force --trust` | standard input |
+| `aider` | `aider --message-file ... --yes-always --no-auto-commits` | a temporary file outside the project |
+
+In your own `agent.command`, `{prompt_file}` gives the path of a temporary file with the prompt, and `{model_flag}`
+gives the model option. The prompt also goes in on standard input. The kiro and cursor presets approve all tools,
+so run them in a virtual machine or a container.
+
 When the `gh` CLI is logged in, each commit of Autopilot uses your GitHub no-reply address as the author and the
 committer. Your git settings do not change.
 
