@@ -62,7 +62,7 @@ def cmd_init(args):
         text = proj_path.read_text(encoding="utf-8")
         text = re.sub(r"(?m)^name:.*$", f"name: {name}", text, count=1)
         text = re.sub(r"(?m)^stack:[^#\n]*", f"stack: {stack}            ", text, count=1)
-        text = re.sub(r"(?ms)^commands:\n(?:[ \t]+.*\n)*", cmd_block, text, count=1)
+        text = re.sub(r"(?m)^commands:[ \t]*\n(?:[ \t]+[^\n]*\n)*", lambda m: cmd_block, text, count=1)
         proj_path.write_text(text, encoding="utf-8")
     # gitignore + CLAUDE.md pointer
     gi = root / ".gitignore"
