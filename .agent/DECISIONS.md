@@ -30,3 +30,4 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [P05-T02] The Linux/macOS/WSL README line uses `| bash`, not `| sh`: install.sh uses `set -o pipefail` and `$'\n'`, which dash rejects. HOWTO explains this and install.sh is unchanged.
 - [2026-10-11] [P06-T01] IDE block uses <!-- autopilot:begin --> markers; new Cursor/Kiro files get front matter first, existing files only get the block appended; skip if the begin marker is present — keeps the user's text byte-identical and init idempotent
 - [2026-10-11] [P06-T01] CLAUDE.md is not marked: the existing heading check stays, the snippet only gained the ap command lines
+- [2026-10-11] [D-001] It still fails after a diagnosis and a retry. How should we proceed? → Retry on sonnet. Call the final report once at the end. Keep all 12 tests in tests/test_adopt.py, add, do not remove.
