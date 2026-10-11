@@ -23,6 +23,7 @@ documents in the pack (PLAN.md, ROADMAP, TODO, notes).
    - 2-5 testable acceptance_criteria per task, files_in_scope globs, risk tier
      (critical/high for auth, payments, tenant isolation, crypto, data migrations)
    - explicit depends_on only where order inside a phase matters
+   - contract task: when two or more tasks in one phase touch the same module, type or API, write one small task first (interfaces, types, stubs, the shared helper's signature). Make the others depends_on it. Keep its files out of the other tasks' files_in_scope.
    - stable ids: P01-T01, P01-T02, ...
    - keep the author's phase structure and intent; do not invent unrelated features
 5. Validate your YAML mentally: unique ids, only known dependency ids, no cycles.

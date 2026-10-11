@@ -6,6 +6,7 @@ You MAY edit exactly two files: `.agent/plan.yaml` and `.agent/BRAIN.md`. Do not
 In `.agent/plan.yaml`:
 - Never change or remove tasks listed as done. Keep all existing ids stable.
 - Rewrite pending tasks whose description / acceptance criteria / files_in_scope no longer match the codebase.
+- Contract task: when two or more pending tasks in one phase touch the same module, type or API, add one small task first (interfaces, types, stubs, the shared helper's signature). Make the others depends_on it. Keep its files out of the other tasks' files_in_scope.
 - Split pending tasks that are too big for one session; merge trivial ones; remove ones already implemented.
 - For each BLOCKED task: if it can now succeed with a better spec, rewrite it and add `reopen: true`;
   otherwise leave it blocked.

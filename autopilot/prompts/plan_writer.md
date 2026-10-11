@@ -27,6 +27,7 @@ over many features.
 - Each phase has 2-5 tasks. Each task is small enough for ONE coding session (about 1-3 files of real logic) and has:
   a title, a risk (low | medium | high | critical; high or critical for auth, payments, crypto, data migrations),
   what to build, 2-5 testable acceptance criteria, and the files in scope.
+- Contract task: when two or more tasks in one phase touch the same module, type or API, write one small task first (interfaces, types, stubs, the shared helper's signature). Make the others depend on it. Keep its files out of the other tasks' files in scope.
 - A short **Definition of done**.
 
 ## The owner's idea
