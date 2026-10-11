@@ -1,14 +1,14 @@
 # Handoff
 
-Last completed: **P07-T01 — New-file rule and reasons in the commit message** (2026-10-11)
+Last completed: **P07-T02 — Gate: a new file with no reason gets a retry with the rule quoted** (2026-10-11)
 
-Added the NEW_FILE_RULE constant to gate.py and the same text, word for word, as a bullet in system.md. task.md now asks for an optional `new_files` [{path, reason}] report field, and the task report schema accepts it without requiring it. A new helper, new_file_lines(report) in orchestrator.py, adds one `new file <path>: <reason>` line per entry to the task commit message on both the sequential and the parallel path; it drops bad entries and keeps every reason on one line. The 5 new tests pass (one runs a fake command-backend agent end to end), 130 tests across the related files pass, and ruff is clean; the full suite was stopped at the 10-minute background limit and the WSL script was not run.
+I added missing_reasons(cfg, git, report) to gate.py. A file added in the staged diff (except test files, .agent/ and renames) with no non-empty new_files reason produces one gate problem that quotes NEW_FILE_RULE at the end. task_gate takes an optional report=None and runs the check only when a report is passed and gate.new_file_reasons is true; the orchestrator passes res.report at all three gate calls. Verified: the 14 new tests pass, 7 related test files gave 137 passed and 1 failure (a typo in my own new test, fixed, and the fixed test passed alone), the 6 large orchestrator test files gave 81 passed, and ruff is clean. The full suite was not run on WSL.
 
-Files: ARCHITECTURE.md, autopilot/gate.py, autopilot/orchestrator.py, autopilot/prompts/system.md, autopilot/prompts/task.md, autopilot/schemas.py, tests/test_new_file_gate.py
+Files: ARCHITECTURE.md, REFERENCE.md, autopilot/gate.py, autopilot/orchestrator.py, autopilot/templates/agent/project.yaml, tests/test_new_file_gate.py
 
 Follow-ups noted:
-- The full pytest suite was stopped at the 10-minute background limit before it finished; only 7 related test files ran here (130 passed). The orchestrator check run must confirm the rest.
 - Run the suite on WSL (docs/wsltest_self.sh, P07-T03); this session did not run it.
-- gate.py is outside the task's file list (by ADR 0004), so expect a scope warning.
+- To turn N7 on by default: make the test fakes report new_files, then set gate.new_file_reasons: true. The P08-T01 cmd_init commands-regex bug drops the whole gate: block from project.yaml at init, so ap init or adopt cannot write the setting into a new project until P08-T01 is fixed.
+- autopilot/templates/agent/project.yaml is outside the task's file list, so expect a scope warning.
 
-Next planned task: P07-T02
+Next planned task: P08-T01

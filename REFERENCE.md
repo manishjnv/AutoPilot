@@ -117,7 +117,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | Section | Controls | Important keys (default) |
 |---|---|---|
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
-| `gate` | The checks | `test_globs`, `ci_files`, `protected` |
+| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `false`) |
 | `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
 | `onboard` | Onboarding discovery pack | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | The network allowlist | `enabled` (false), `allowed_domains` |
@@ -190,6 +190,7 @@ The gate runs these guards on each task before the checks. A guard that finds a 
 | Protected file | A change to the plan, the settings, the questions file, the backlog, or a path in `gate.protected` |
 | Secret scan | An added line that looks like a key, a token, or a password |
 | Empty change | No changed files, unless the task has `allow_no_changes: true` |
+| New file | An added file with no reason in the report field `new_files`. Test files (`gate.test_globs`) and files in `.agent/` need no reason. A move or a rename needs no reason. The problem quotes the rule, and the retry prompt gets it. This guard runs only with `gate.new_file_reasons: true` |
 
 A task with `allow_test_changes: true` gets the test guards as warnings, not as failures. The paths of test files
 come from `gate.test_globs`.

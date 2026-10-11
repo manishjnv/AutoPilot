@@ -45,6 +45,8 @@ gate:
     - "vitest.config.*"
     - "karma.conf.*"
     - "phpunit.xml*"
+  new_file_reasons: false # N7: true = a file added by a task (test files and .agent/ excepted) needs a reason in the
+                          # report field `new_files`, else the gate fails and the retry quotes the rule
 
 agent:
   # backend: claude_cli   # claude_cli | command; unset = preflight writes the first agent CLI it finds on PATH (N3)
