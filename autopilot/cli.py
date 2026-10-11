@@ -72,9 +72,16 @@ def cmd_init(args):
             fh.write(snippet)
     cm = root / "CLAUDE.md"
     cm_snip = (TEMPLATES / "agent" / "CLAUDE.md.snippet").read_text(encoding="utf-8")
-    if not cm.exists() or "## Autopilot (autonomous sessions)" not in (t := cm.read_text(encoding="utf-8")) and "## AutoDev (autonomous sessions)" not in t:
+    if not cm.exists():
         with open(cm, "a", encoding="utf-8") as fh:
             fh.write(cm_snip)
+    elif "## Autopilot (autonomous sessions)" not in (t := cm.read_text(encoding="utf-8")) and "## AutoDev (autonomous sessions)" not in t:
+        with open(cm, "a", encoding="utf-8") as fh:
+            fh.write(cm_snip)
+    elif "ap status" not in t:  # P08-T02: an older Autopilot section gets only the two command lines, once
+        lines = cm_snip.rstrip("\n").splitlines()[-2:]
+        with open(cm, "a", encoding="utf-8") as fh:
+            fh.write(("" if t.endswith("\n") or not t else "\n") + "\n".join(lines) + "\n")
     write_ide_rules(root)  # N6
     print(f"\nstack: {stack}")
     if not getattr(args, "quiet", False):  # quickstart does these steps itself

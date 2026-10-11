@@ -145,3 +145,12 @@ def test_init_force_twice_keeps_one_commands_block(tmp_path):
     text = _init_python(tmp_path, force=True)
     assert text.count("\ncommands:") + text.startswith("commands:") == 1
     assert set(yaml.safe_load(text)) == set(first)
+
+
+def test_command_error_names_every_preset(tmp_path):
+    # P08-T02: the error lists every preset from PRESETS, not a fixed short list
+    err = next(e for e in cfg_with(tmp_path, {}).validate() if "needs agent.command or agent.preset" in e)
+    for name in PRESETS:
+        assert name in err
+    for name in ("kiro", "cursor", "aider"):
+        assert name in err
