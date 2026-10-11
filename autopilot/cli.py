@@ -321,6 +321,10 @@ def install_deps(cfg) -> bool:
     for m in miss:
         tool = m["tool"]
         if not (shutil.which(tool) or (tool == "python" and (shutil.which("python") or shutil.which("python3")))):
+            from .rights import install_system_tool  # N8: through the rights the installer took; never a question
+            if install_system_tool(tool, system_tool_hint(tool)):
+                print(f"ok    {tool} installed")
+                continue
             print(f"FAIL  {tool} is not installed. Install it with: {system_tool_hint(tool)}")
             return False
     setup = cfg.commands("setup")
@@ -1303,6 +1307,18 @@ def cmd_approve(args):
     return 0
 
 
+def cmd_uninstall(args):
+    """N8: `ap uninstall --rights` removes the scheduled task / the sudoers file the installer created."""
+    from .rights import remove_rights
+    if not getattr(args, "rights", False):
+        print("ap uninstall --rights   removes the rights the installer took (scheduled task / sudoers file)\n"
+              "uv tool uninstall dev-autopilot   removes Autopilot itself")
+        return 0
+    for line in remove_rights():
+        print(line)
+    return 0
+
+
 def cmd_mcp(args):
     from .mcp import serve
     serve(Path(args.path).resolve())
@@ -1475,6 +1491,8 @@ def main(argv=None):
     p = add("skip", cmd_skip, "skip task(s)"); p.add_argument("task_ids", nargs="+")
     p = add("approve", cmd_approve, "deploy an approved phase to prod"); p.add_argument("phase")
     add("mcp", cmd_mcp, "MCP server on stdin/stdout for IDE chats: ap_status, ap_next, ap_start, ap_stop, ap_answer")
+    p = add("uninstall", cmd_uninstall, "--rights: remove the scheduled task / sudoers file the installer created")
+    p.add_argument("--rights", action="store_true")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")

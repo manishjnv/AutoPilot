@@ -1,6 +1,8 @@
 # Autopilot installer for Windows (PowerShell 5.1 or 7). Options: -DryRun, -SkipLogin.
 # Env: AUTOPILOT_REF (git tag/branch to install), AUTOPILOT_DRY_RUN=1, AUTOPILOT_SKIP_LOGIN=1.
-# Safe to run twice. Needs administrator rights only if winget installs Git. Edits no profile or PATH setting.
+# Safe to run twice. One UAC prompt at most (N8): it installs Git when missing and creates the scheduled task
+# Autopilot-Setup (highest run level), so later runs install winget packages with no prompt. Edits no profile or
+# PATH setting. `ap uninstall --rights` removes the task.
 param([switch]$DryRun, [switch]$SkipLogin)
 $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
@@ -15,7 +17,7 @@ if ($Ref -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}\z' -or $Ref -match '\.\.')
     throw 'AUTOPILOT_REF must start with a letter or a digit, and may use only A-Z a-z 0-9 . _ / - (no "..", 100 characters at most).'
 }
 
-function Step($n, $name) { Write-Host "==> Step $n of 5: $name" }
+function Step($n, $name) { Write-Host "==> Step $n of 6: $name" }
 function Fail($n, $cmd) { Write-Host "FAILED: step $n. Run this by hand: $cmd"; throw "Step $n failed." }
 function Has($name) { [bool](Get-Command $name -ErrorAction SilentlyContinue) }
 # Run a native program; its error text must not stop the script (Windows PowerShell 5.1). No named parameter:
@@ -49,22 +51,46 @@ function Ensure($n, $name, $exe, $url) {
 }
 
 Refresh
+# N8: the one consent. Starting this script is the consent; nothing below asks again. One elevated PowerShell
+# (one UAC prompt) installs Git when missing and creates the scheduled task; later `ap` runs use the task.
+Write-Host 'This script installs: Git (winget, when missing), uv, Claude Code, Python 3.12 (when missing), Autopilot.'
+Write-Host 'Rights it takes: one administrator prompt now, and the scheduled task Autopilot-Setup (highest run level)'
+Write-Host 'so later runs install winget packages with no prompt. Remove it later with: ap uninstall --rights'
+$TaskName = 'Autopilot-Setup'
+$SetupDir = Join-Path $env:LOCALAPPDATA 'autopilot'
+$SetupScript = Join-Path $SetupDir 'setup.ps1'
+# The task runs this script as administrator: it installs the winget ids queued by `ap` (ids only, checked by pattern).
+$SetupBody = @'
+$q = Join-Path $env:LOCALAPPDATA 'autopilot\setup-queue.txt'
+if (-not (Test-Path $q)) { exit 0 }
+$ids = Get-Content $q | Where-Object { $_ -match '^[A-Za-z0-9][A-Za-z0-9.+_-]{1,99}$' } | Select-Object -Unique
+Remove-Item $q -Force
+foreach ($id in $ids) { winget install --id $id -e --source winget --silent --accept-package-agreements --accept-source-agreements }
+'@
+function HasTask { (schtasks /Query /TN $TaskName 2>$null) -and ($LASTEXITCODE -eq 0) }
+
 Step 1 'git'
-if (Has git) {
-    Write-Host "found: $(Ver git)"
-} else {
-    $cmd = 'winget install --id Git.Git -e --source winget'
-    Write-Host 'winget installs Git. Windows can ask for administrator rights.'
-    if ($DryRun) { Write-Host "would install. Command: $cmd" }
-    elseif (-not (Has winget)) { Fail 1 'install Git from https://git-scm.com/download/win, then run this script again' }
-    else {
-        Write-Host "run: $cmd"
-        Run winget install --id Git.Git -e --source winget | Out-Host
-        if ($LASTEXITCODE -ne 0) { Fail 1 $cmd }
-        Refresh
-        if (-not (Has git)) { Fail 1 "$cmd (then open a new terminal and run this script again)" }
-    }
-}
+$needGit = -not (Has git)
+if (-not $needGit) { Write-Host "found: $(Ver git)" }
+elseif (-not (Has winget)) { Fail 1 'install Git from https://git-scm.com/download/win, then run this script again' }
+$gitCmd = 'winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements'
+$taskCmd = "schtasks /Create /TN $TaskName /TR `"powershell -NoProfile -ExecutionPolicy Bypass -File $SetupScript`" /SC ONCE /ST 00:00 /RL HIGHEST /F"
+if ($DryRun) {
+    if ($needGit) { Write-Host "would install. Command: $gitCmd" }
+    Write-Host "would create the scheduled task (one administrator prompt). Command: $taskCmd"
+} elseif ($needGit -or -not (HasTask)) {
+    New-Item -ItemType Directory -Force $SetupDir | Out-Null
+    Set-Content -Path $SetupScript -Value $SetupBody -Encoding ASCII
+    $elev = @()
+    if ($needGit) { $elev += $gitCmd }
+    $elev += $taskCmd
+    $script = ($elev -join '; ') + '; exit $LASTEXITCODE'
+    Write-Host "run as administrator (one prompt): $script"
+    $p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $script
+    if ($p.ExitCode -ne 0) { Write-Host "the elevated step returned $($p.ExitCode); later runs print install commands instead" }
+    Refresh
+    if ($needGit -and -not (Has git)) { Fail 1 "$gitCmd (then open a new terminal and run this script again)" }
+} else { Write-Host "found: scheduled task $TaskName" }
 
 Ensure 2 'uv' 'uv' 'https://astral.sh/uv/install.ps1'
 Ensure 3 'Claude Code' 'claude' 'https://claude.ai/install.ps1'
@@ -115,8 +141,13 @@ else {
     }
 }
 
+Step 6 'rights for later installs'
+if ($DryRun) { Write-Host "would check: scheduled task $TaskName" }
+elseif (HasTask) { Write-Host "found: scheduled task $TaskName (undo: ap uninstall --rights)" }
+else { Write-Host "no scheduled task: later runs print the install command instead" }
+
 if (-not $DryRun) { Write-Host "Installed: $(Ver autopilot)" }
-Write-Host 'To uninstall, run: uv tool uninstall dev-autopilot'
+Write-Host 'To uninstall, run: uv tool uninstall dev-autopilot (and ap uninstall --rights)'
 $global:LASTEXITCODE = 0   # keep a native exit code from an earlier step out of the CI result
 Write-Host 'Done. Open a NEW terminal if `ap` is not found.'
 Write-Host 'Open a project folder and type `ap`.'

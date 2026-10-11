@@ -440,6 +440,8 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
 
     rc, txt = _run(["git", "--version"])
     out.append((OK if rc == 0 else FAIL, "git", txt.splitlines()[0] if rc == 0 and txt else "not found on PATH"))
+    from .rights import describe
+    out.append((OK, "rights", describe()))  # N8: what the installer took and how to undo it
     if cfg.get("git.push"):
         rc, url = _run(["git", "remote", "get-url", "origin"], cwd=cfg.root)
         out.append((OK if rc == 0 else FAIL, "git remote", url if rc == 0 else "git.push is on but there is no origin"))

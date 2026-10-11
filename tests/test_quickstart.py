@@ -162,9 +162,11 @@ def test_root_install_script_dry_run_changes_nothing(tmp_path):
     env = {"HOME": str(home), "PATH": str(empty)}
     p = subprocess.run([shutil.which("bash"), str(ROOT_INSTALL), "--dry-run"], capture_output=True, text=True, env=env)
     assert p.returncode == 0, p.stderr
-    for n in range(1, 6):
-        assert f"==> Step {n} of 5:" in p.stdout
-    assert p.stdout.count("would install") == 3 and "uv tool install" in p.stdout
+    for n in range(1, 7):
+        assert f"==> Step {n} of 6:" in p.stdout
+    assert p.stdout.count("would install") == 4 and "uv tool install" in p.stdout  # N8: git too (sudo, one consent)
+    assert "This script installs:" in p.stdout and "Rights it takes:" in p.stdout  # N8: the one consent list
+    assert "would write /etc/sudoers.d/autopilot" in p.stdout and "NOPASSWD" in p.stdout
     assert list(home.iterdir()) == []
 
 
@@ -429,5 +431,5 @@ def test_piped_install_sh_dry_run_runs_the_script(tmp_path):
     p = subprocess.run([shutil.which("bash")], input=ROOT_INSTALL.read_bytes(), capture_output=True, env=env)
     out = p.stdout.decode()
     assert p.returncode == 0, p.stderr.decode()
-    assert "==> Step 1 of 5:" in out and out.splitlines()[-1] == FINAL_LINE
+    assert "==> Step 1 of 6:" in out and out.splitlines()[-1] == FINAL_LINE
     assert list(home.iterdir()) == []
