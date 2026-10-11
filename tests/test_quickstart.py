@@ -285,9 +285,82 @@ def test_guided_start_now_runs_that_folder(tmp_path, monkeypatch, capsys):
     assert calls == [str((work / "a-todo-list-cli").resolve())]
 
 
+# ---- N4: plain `ap` in a folder with code and no .agent/ ----
+ADOPT_STUB = ("if sys.argv[1:2] == ['--version']: print('2.1.286 (Claude Code)')\n"
+              "elif sys.argv[1:2] == ['auth']: sys.exit(0)\n"
+              "else:\n"
+              "    import pathlib, yaml\n"
+              "    p = pathlib.Path('.agent/project.yaml')\n"
+              "    p.write_text(p.read_text().replace('  test: []', \"  test: ['true']\"))\n"
+              "    t = [{'id': f'P01-T0{i}', 'title': f's{i}', 'status': 'done', 'acceptance_criteria': ['ok']} for i in (1, 2)]\n"
+              "    t.append({'id': 'P01-T03', 'title': 'export csv', 'acceptance_criteria': ['csv']})\n"
+              "    pathlib.Path('.agent/plan.yaml').write_text(yaml.safe_dump({'version': 1, 'goal': 'g', 'phases': "
+              "[{'id': 'P01', 'title': 'All', 'goal': 'g', 'tasks': t}]}))\n"
+              "    print(json.dumps({'type': 'result', 'result': 'ok', 'session_id': 's1'}))\n")
+
+
+def adopt_folder(tmp_path, monkeypatch, answers, tty=True):
+    work, home = guided(tmp_path, monkeypatch, answers, tty=tty)
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, ADOPT_STUB))
+    (work / "app.py").write_text("print('hi')\n")
+    (work / "PLAN.md").write_text("# Plan\n- [x] one\n- [x] two\n- [ ] export csv\n")
+    return work
+
+
+def test_code_without_agent_dir_is_adopted_and_not_now_does_not_start(tmp_path, monkeypatch, capsys):
+    work = adopt_folder(tmp_path, monkeypatch, ["2"])
+    monkeypatch.setattr("autopilot.cli.cmd_run", lambda a: pytest.fail("the run started"))
+    assert cli_main([]) == 0
+    out = capsys.readouterr().out
+    assert (work / ".agent" / "project.yaml").exists() and (work / ".agent" / "plan.yaml").exists()
+    assert "done" in out and "P01-T03" in out and "  1  start now" in out
+    assert f"autopilot run -C {work.resolve()}" in out
+
+
+def test_code_without_agent_dir_start_now_runs_that_folder(tmp_path, monkeypatch, capsys):
+    work = adopt_folder(tmp_path, monkeypatch, ["1"])
+    calls = []
+    monkeypatch.setattr("autopilot.cli.cmd_run", lambda a: calls.append(a.path) or 0)
+    assert cli_main([]) == 0
+    assert calls == [str(work.resolve())]
+
+
+def test_empty_and_dotfile_folders_show_the_idea_prompt(tmp_path, monkeypatch, capsys):
+    work, _ = guided(tmp_path, monkeypatch, [""])
+    (work / ".git").mkdir()
+    assert cli_main([]) == 0
+    assert "What you can do next" in capsys.readouterr().out and not (work / ".agent").exists()
+
+
+def test_agent_folder_runs_no_onboarding(tmp_path, monkeypatch, capsys):
+    work = adopt_folder(tmp_path, monkeypatch, [])
+    (work / ".agent").mkdir()
+    (work / ".agent" / "project.yaml").write_text("name: x\n")
+    monkeypatch.setattr("autopilot.cli.cmd_onboard", lambda a: pytest.fail("onboarding ran"))
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("a question was asked"))
+    assert cli_main([]) == 0
+    assert "What you can do next" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("case", ["empty", "code", "agent"])
+def test_no_terminal_never_asks_in_any_case(tmp_path, monkeypatch, capsys, case):
+    work = adopt_folder(tmp_path, monkeypatch, [], tty=False)
+    if case == "empty":
+        for f in list(work.iterdir()):
+            f.unlink()
+    if case == "agent":
+        (work / ".agent").mkdir()
+        (work / ".agent" / "project.yaml").write_text("name: x\n")
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("a question was asked with no terminal"))
+    monkeypatch.setattr("autopilot.cli.cmd_onboard", lambda a: pytest.fail("onboarding ran"))
+    assert cli_main([]) == 0
+    assert "What you can do next" in capsys.readouterr().out
+    assert (work / ".agent").exists() == (case == "agent")
+
+
 def test_folder_safety(tmp_path, monkeypatch, capsys):
     work, home = guided(tmp_path, monkeypatch, [])
-    full = work / "full"
+    full = tmp_path / "full"  # N4: a file in the work folder would make it an adopt case
     full.mkdir()
     for n in range(12):
         (full / f"f{n}.txt").write_text("x")

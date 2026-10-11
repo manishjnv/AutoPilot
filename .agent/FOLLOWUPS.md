@@ -32,3 +32,5 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P06-T01] A project with both .kiro/ and AGENTS.md gets the instruction twice, because Kiro also reads AGENTS.md
 - [P04-T01] Wire adopt_summary into plain `ap` for the code-without-.agent case (next N4 step)
 - [P04-T01] The WSL script (docs/wsltest_self.sh) was not run; the full suite ran on Windows only
+- [P04-T02] The WSL script docs/wsltest_self.sh was not run; the tests ran on Windows only
+- [P04-T02] test_folder_safety was changed to create its `full` folder under tmp_path, because a file in the work folder now counts as the adopt case

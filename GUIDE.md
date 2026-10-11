@@ -82,7 +82,8 @@ This one command:
 4. Starts the build.
 
 > [!TIP]
-> To answer the same questions step by step, run `ap` with no arguments. If you have your own plan, see
+> To answer the same questions step by step, run `ap` with no arguments. In a folder that already has code, `ap` adopts it: it reads the code and the plan
+> documents, keeps finished work done and shows a short summary before it asks to start. If you have your own plan, see
 > [Use a project that already exists](HOWTO.md#use-a-project-that-already-exists).
 
 While the build runs:

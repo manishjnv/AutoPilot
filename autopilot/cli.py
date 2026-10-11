@@ -465,6 +465,46 @@ def guided_start() -> int:
         return 0
 
 
+def folder_case(root: Path) -> str:
+    """N4: what plain `ap` finds here: "agent" (.agent/project.yaml), "empty" (no entries but dotfiles, e.g. a bare
+    git repo) or "code" (files or documents, no project)."""
+    if (root / AGENT_DIR / "project.yaml").exists():
+        return "agent"
+    try:
+        return "code" if any(not x.name.startswith(".") for x in root.iterdir()) else "empty"
+    except OSError:
+        return "empty"
+
+
+def adopt_start(root: Path) -> int:
+    """N4: plain `autopilot` in a terminal, code and no .agent/: init, read-first onboarding, one-screen summary, start?"""
+    from .report import adopt_summary
+    if why := safe_folder(root):
+        print(f"not adopting this folder: {why}.")
+        return -1
+    try:
+        if not preflight(None):  # the login is checked before anything is created
+            return 1
+        print(f"Found a project without Autopilot in {root}. Reading it …")
+        cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False, quiet=True))
+        rc = cmd_onboard(argparse.Namespace(path=str(root), plan_doc=None, budget="15", run=False, idea=None))
+        if rc:
+            return rc
+        print("\n" + adopt_summary(root))
+        print("The build runs for hours. It uses your Claude plan.\nIt works without asking you.")
+        print("  1  start now\n  2  not now")
+        if input("> ").strip() == "1":
+            return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
+        print(f"Start later with: autopilot run -C {root}")
+        return 0
+    except KeyboardInterrupt:
+        print()
+        return 130
+    except EOFError:
+        print()
+        return 0
+
+
 def cmd_validate(args):
     root = Path(args.path).resolve()
     cfg = Config.load(root)
@@ -1345,8 +1385,8 @@ def main(argv=None):
             print("a run is active here; following it (Ctrl+C stops watching, not the run)\n")
             return cmd_watch(argparse.Namespace(path=".", lines=20))
         from .report import next_steps_text
-        if sys.stdin.isatty() and sys.stdout.isatty() and not (Path.cwd() / AGENT_DIR / "project.yaml").exists():
-            if (rc := guided_start()) >= 0:  # -1: no idea given, so the normal banner
+        if sys.stdin.isatty() and sys.stdout.isatty() and (case := folder_case(Path.cwd())) != "agent":
+            if (rc := adopt_start(Path.cwd().resolve()) if case == "code" else guided_start()) >= 0:  # -1: the normal banner
                 return rc
         print(f"autopilot {__version__}: builds your project with Claude Code, checks every step, never waits.")
         print(next_steps_text(Path.cwd()))
