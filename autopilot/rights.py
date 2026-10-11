@@ -91,12 +91,8 @@ def install_system_tool(tool: str, hint: str, platform: str | None = None, wait:
     print(f"install {tool}: {hint}")
     if hint.startswith("winget "):
         m = re.search(r"--id\s+(\S+)", hint)
-        if not m or not WINGET_ID.match(m.group(1)) or have_rights(p) != "task":
+        if not m or have_rights(p) != "task" or not queue_write(m.group(1)):
             return False
-        q = queue_path()
-        q.parent.mkdir(parents=True, exist_ok=True)
-        with open(q, "a", encoding="utf-8") as fh:
-            fh.write(m.group(1) + "\n")
         if run_proc(["schtasks", "/Run", "/TN", TASK], timeout=30).rc != 0:
             return False
         end = time.monotonic() + wait

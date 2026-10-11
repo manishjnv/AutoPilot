@@ -139,11 +139,11 @@ def out_of_scope(files: list[str], scope: list[str], extra: list[str] | None = N
     return [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
 
 
-def scope_additions(report, attempt: int = 1) -> tuple[list[str], list[str], list[str]]:
-    """O1: the report's `scope_additions` {"glob": "reason"}: only entries with a reason count, only from attempt 2
-    (the first try must stay in scope), at most SCOPE_MAX_ADDS. Returns (accepted globs, warnings, problems); every
-    accepted addition is a warning `scope added: <glob>: <reason>` that lands in the history file, PROOF.md and the
-    dashboard."""
+def scope_additions(report, attempt: int = 1, files: list[str] | None = None) -> tuple[list[str], list[str], list[str]]:
+    """O1: the report's `scope_additions` {"path": "reason"}: only entries with a reason count, only from attempt 2
+    (the first try must stay in scope), at most SCOPE_MAX_ADDS, and each key must be a changed file's exact path (no
+    glob: `*` would open the whole repository). Returns (accepted paths, warnings, problems); every accepted addition
+    is a warning `scope added: <file>: <reason>` that lands in the history file, PROOF.md and the dashboard."""
     adds = (report or {}).get("scope_additions") if isinstance(report, dict) else None
     pairs = [(str(k), str(v).strip()) for k, v in adds.items() if str(v or "").strip()] if isinstance(adds, dict) else []
     if not pairs:
@@ -152,6 +152,8 @@ def scope_additions(report, attempt: int = 1) -> tuple[list[str], list[str], lis
         return [], [], [f"scope_additions count only from attempt 2: {[k for k, _ in pairs]}. Leave the file unchanged."]
     if len(pairs) > SCOPE_MAX_ADDS:
         return [], [], [f"scope_additions: {len(pairs)} given, at most {SCOPE_MAX_ADDS}. Keep the task in its scope."]
+    if bad := [k for k, _ in pairs if k not in (files or [])]:
+        return [], [], [f"scope_additions must name a changed file exactly (no pattern): {bad}"]
     return [k for k, _ in pairs], [f"scope added: {k}: {v}" for k, v in pairs], []
 
 
@@ -353,7 +355,7 @@ def task_gate(cfg, git, task, report=None, attempt: int = 1) -> GateResult:
         gate.problems += missing_reasons(cfg, git, report, task)  # O3: task-declared files and dependencies
     if cfg.get("gate.file_growth"):  # O2: on in the template (new projects); a missing key = off
         gate.problems += file_growth(cfg, git)
-    extra, added, bad = scope_additions(report, attempt)
+    extra, added, bad = scope_additions(report, attempt, files)
     outside = out_of_scope(files, task.files_in_scope, extra)
     if (outside or bad) and cfg.get("gate.scope_fail", True):  # O1: a hard gate; `gate.scope_fail: false` = old warning
         gate.problems += bad + ([f"outside files_in_scope: {outside}. {SCOPE_HINT}"] if outside else [])

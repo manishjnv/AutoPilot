@@ -97,5 +97,9 @@ def test_install_scripts_take_the_rights_once():
     assert ps.count("-Verb RunAs") == 1  # one UAC prompt
     # N8: the task's script and queue live under ProgramData; the script is writable by Administrators (S-1-5-32-544) only
     assert "$env:ProgramData 'Autopilot'" in ps and "$env:ProgramData 'Autopilot\\setup-queue.txt'" in ps
-    assert "icacls '$SetupScript' /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' '*S-1-5-32-545:RX'" in ps
-    assert "$env:LOCALAPPDATA 'autopilot\\setup-queue" not in ps and "Set-Content -Path $SetupScript" not in ps
+    assert "Remove-Item -Recurse -Force '$SetupDir'" in ps and "icacls '$SetupDir' /setowner *S-1-5-32-544" in ps
+    assert "/grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX'" in ps
+    assert "FromBase64String('$SetupB64')" in ps and "SetupDraft" not in ps  # the body rides inside the elevated command
+    assert "icacls '$SetupQueue' /grant '*S-1-5-32-545:M'" in ps and "Clear-Content $q" in ps
+    assert "[regex]::Escape($SetupScript)" in ps  # an old task that points elsewhere is recreated
+    assert "$env:LOCALAPPDATA" not in ps
