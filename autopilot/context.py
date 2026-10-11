@@ -143,6 +143,34 @@ class ContextBuilder:
                       init=f"Run `{init}`." if init else "Work it out from the project brain, the README and the files.",
                       once="" if self.cfg.lean else ", then one variation", variation=VARIATION_STEP[self.cfg.lean])
 
+    def docs_prompt(self, phase, state) -> str:
+        """O11: one documentation session per phase: RCA entries for retried or repaired tasks, a README section per
+        feature, and DEVELOPING.md for a person."""
+        root, hist = self.cfg.root, self.cfg.get("docs.history_dir", ".agent/history")
+        rca, readme, dev = self.cfg.get("docs.rca", "docs/RCA.md"), "README.md", self.cfg.get("docs.developing", "docs/DEVELOPING.md")
+        retried, ids = [], []
+        for t in phase.tasks:
+            row = state.task(t.id)
+            if row and row["status"] == "done" and (int(row["attempts"] or 0) > 1 or phase.priority):
+                ids.append(t.id)
+                retried.append(f"### {t.id} {t.title} (attempts: {row['attempts']})\n"
+                               + read_capped(root / hist / phase.id / f"{t.id}.md", 2500, default="(no history file)"))
+        learned = [l for l in read_capped(self.ad / "LEARNINGS.md", 8000, tail=True, default="").splitlines()
+                   if any(f"[{i}]" in l for i in ids)]
+        feats = [f"`{f['id']}` {f['title']}: {f['journey']}" for f in phase.features]
+        feats += [f"`{t.id}` {t.title}: " + "; ".join(t.acceptance_criteria or [t.description or t.title])[:600]
+                  for t in phase.tasks if (state.task(t.id) or {"status": ""})["status"] == "done" and not phase.features]
+        readme_text = read_capped(root / readme, 20000, default="")
+        rca_text = read_capped(root / rca, 40000, default="")
+        return render("docs.md", phase_id=phase.id, phase_title=phase.title, readme=readme, rca=rca, developing=dev,
+                      retried="\n\n".join(retried) or "(none: every task passed first time)",
+                      learned=bullets(learned), features=bullets(feats),
+                      commands=yaml.safe_dump(self.cfg.get("commands") or {}, sort_keys=False).strip(),
+                      brain=read_capped(self.ad / "BRAIN.md", 4000),
+                      readme_headings=", ".join(l[3:].strip() for l in readme_text.splitlines() if l.startswith("## ")) or "(no README)",
+                      rca_ids=", ".join(re.findall(r"^## \S+ · (\S+)", rca_text, re.M)) or "(none)",
+                      developing_state="exists; update it" if (root / dev).exists() else "missing; create it")
+
     def research_prompt(self, task, topic: str) -> str:
         return render("research.md", topic=topic, task_id=task.id, task_title=task.title,
                       description=task.description or task.title,

@@ -24,6 +24,10 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - O10: lean profile on by default (one smoke test per criterion, changed-module tests per task, one retry, audits off, smaller prompt); `ap report --tokens`; `ap audit`.
 - J13: terminal window v2, sixteen rows (all phases, no wrapped row, real data with age and `stale`, no duplicates, honest task time and ETA with its basis, project rows, risk and tries, rate, file lines, issue reasons, step times, one meaning per colour, one headline, the bottom bar).
 - J12.9: the README says where the envguard numbers come from.
+- O11: one documentation session per closed phase writes the app's `docs/RCA.md` (retried tasks), a README section per feature and `docs/DEVELOPING.md`; it may touch only those files and `docs/`.
+- O1 (session 27): scope additions count from attempt 2, at most 3, exact file paths, and are recorded in the task history, PROOF.md and the dashboard.
+- N8 (session 27): the Windows task script lives in `%ProgramData%\Autopilot`, writable by Administrators only; the queue is checked before it is written; `ap uninstall --rights` removes the folder.
+- The first self-build state moved from the tracked root `.agent/` to `examples/self-build/`; a fresh clone starts clean.
 - 2026-10-11 **P01-T01** plan.yaml `status: done` marks finished work — Added optional task key `status` (only `done`) to plan.py with validation naming the task id. sync_plan records done tasks as done (note 'done before Autopilot') when the row is new or pending, and ne
 - 2026-10-11 **P01-T02** Discovery pack for onboarding — Added discovery_pack(root, cfg) in autopilot/context.py: git log, document tree with plan-file heads, stack files and one capped test run (timeout from onboard.test_timeout_sec, default 300), all capp
 - 2026-10-11 **P01-T03** Onboarding prompt: four adopt rules and the pack — onboard.md now carries a {{discovery}} section and the four adopt rules; cmd_onboard builds discovery_pack and passes it to render, and after the session warns with the names of new untracked files ou

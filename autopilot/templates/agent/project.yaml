@@ -207,6 +207,9 @@ docs:
   adr_dir: docs/adr       # architecture decision records (MADR) from the decide session
   status: docs/STATUS.md  # the plan as a checklist, regenerated at every commit ("" = off)
   backlog: docs/BACKLOG.md  # new ideas ("- " lines); one replan adds them to the plan ("" = off)
+  session: true           # O11: one session per closed phase writes the RCA entries of retried tasks, a README
+                          # section per feature and the file below; it may touch only those files and docs/
+  developing: docs/DEVELOPING.md  # how to run, test, deploy and extend, for a person (under 200 lines)
 
 quality:                  # one line per finished task (model, risk, attempts, reworked, tokens) in the events log
   every: 20               # after this many finished tasks, suggest model ladder changes from the data (0 = never)
