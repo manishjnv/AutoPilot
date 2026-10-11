@@ -119,7 +119,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
 | `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing) |
 | `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
-| `onboard` | The discovery pack of the onboarding session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
+| `onboard` | The discovery pack of the `onboard` session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | The network allowlist | `enabled` (false), `allowed_domains` |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
