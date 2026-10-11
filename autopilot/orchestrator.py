@@ -1754,7 +1754,7 @@ class Orchestrator:
         self._commit_main(f"[autopilot] close phase {phase.id} ({status})")
         self.notify.send("phase_done", f"{phase.id} {phase.title}: {status}. "
                                        f"{progress_line(self.plan, self.state.status_map())}. {note}")
-        self.sync_plan_source()  # N13: items added to the plan document meanwhile become tasks now
+        self.sync_plan_source(wait=False)  # N13: items added to the plan document meanwhile become tasks now
         if phase.priority:  # corrective phases don't count toward review cadence
             return
         closed = self.state.phases_closed()
@@ -1955,9 +1955,9 @@ class Orchestrator:
         self.state.set_meta("backlog_tried", items)  # a rejected import is tried again only once the backlog changes
         self.replan("backlog", backlog=items)
 
-    def sync_plan_source(self):
+    def sync_plan_source(self, wait: bool = True):
         """N13: the plan document (`plan_source:` in plan.yaml) changed since the last look -> one replan session with
-        the diff only. Same text = no session, no cost."""
+        the diff only. Same text = no session, no cost. `wait`: an interactive start waits for Enter (never mid-run)."""
         import difflib
         import hashlib
         import sys
@@ -1988,7 +1988,7 @@ class Orchestrator:
         n_dropped = sum(1 for i in before if i not in after or after[i].status == "dropped")
         line = f"Plan source changed: {n_new} new, {n_changed} changed, {n_dropped} dropped."
         log.info(line)
-        if sys.stdin.isatty() and sys.stdout.isatty():  # an interactive start waits; a detached run just starts
+        if wait and sys.stdin.isatty() and sys.stdout.isatty():  # an interactive start waits; a detached run just starts
             input(line + " Press Enter to continue. ")
 
     def replan(self, reason: str, backlog: list[str] | None = None, source_diff: str = "") -> bool:
