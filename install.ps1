@@ -67,7 +67,7 @@ $ids = Get-Content $q | Where-Object { $_ -match '^[A-Za-z0-9][A-Za-z0-9.+_-]{1,
 Remove-Item $q -Force
 foreach ($id in $ids) { winget install --id $id -e --source winget --silent --accept-package-agreements --accept-source-agreements }
 '@
-function HasTask { (schtasks /Query /TN $TaskName 2>$null) -and ($LASTEXITCODE -eq 0) }
+function HasTask { $null = Run schtasks /Query /TN $TaskName; $LASTEXITCODE -eq 0 }  # Run: stderr never stops the script
 
 Step 1 'git'
 $needGit = -not (Has git)
