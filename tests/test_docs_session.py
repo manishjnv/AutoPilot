@@ -24,11 +24,11 @@ def test_docs_session_writes_rca_readme_and_developing_once_per_phase(tmp_path):
     fake = FakeBackend(behaviours={"P01-T01": ["break", "ok"]})  # one retried task
     root, orch = run(tmp_path, fake)
     assert sum(1 for c in fake.calls if c[0] == "docs") == 2  # one per phase, not per task
-    rca = (root / "docs" / "RCA.md").read_text()
+    rca = (root / "docs" / "RCA.md").read_text(encoding="utf-8")
     assert rca.count("· P01-T01 ") == 1 and "P01-T02" not in rca and "P02-T01" not in rca
-    readme = (root / "README.md").read_text()
+    readme = (root / "README.md").read_text(encoding="utf-8")
     assert [readme.count(f"## {t}\n") for t in ("Check a file", "Scan a tree", "Report")] == [1, 1, 1]
-    dev = (root / "docs" / "DEVELOPING.md").read_text()
+    dev = (root / "docs" / "DEVELOPING.md").read_text(encoding="utf-8")
     assert dev.startswith("# Developing") and len(dev.splitlines()) < 200
     log = orch.git.run("log", "--format=%s", "--name-only")
     assert log.count("[autopilot] docs for phase") == 2 and "docs/DEVELOPING.md" in log and "docs/RCA.md" in log
@@ -48,7 +48,7 @@ def test_docs_session_secret_looking_prose_is_redacted_not_dropped(tmp_path):
     fake = FakeBackend(behaviours={"P01-T01": ["break", "ok"]})
     fake.docs_secret_line = True
     root, orch = run(tmp_path, fake)
-    rca = (root / "docs" / "RCA.md").read_text()
+    rca = (root / "docs" / "RCA.md").read_text(encoding="utf-8")
     assert "hunter2" not in rca and "(removed: it looked like a secret)" in rca and "· P01-T01 " in rca
     assert orch.git.is_clean() and not any("dropped" in e["message"] for e in orch.state.events(50) if e["kind"] == "docs")
 

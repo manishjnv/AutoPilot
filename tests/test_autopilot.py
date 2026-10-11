@@ -40,18 +40,18 @@ class FakeBackend:
             return SessionResult(ok=True, cost=0.1, report={"summary": "nothing", "files": []})
         rca, readme, dev = cwd / "docs" / "RCA.md", cwd / "README.md", cwd / "docs" / "DEVELOPING.md"
         rca.parent.mkdir(exist_ok=True)
-        text = rca.read_text() if rca.exists() else "# RCA log\n\n"
+        text = rca.read_text(encoding="utf-8") if rca.exists() else "# RCA log\n\n"
         for tid in re.findall(r"^### (\S+) .* \(attempts: \d+\)", prompt, re.M):
             if f"· {tid} " not in text:
                 text += f"## 2026-10-11 · {tid} fixed\n- Symptom: s\n- Root cause: r\n- Fix: f\n- Prevention: p\n\n"
                 if self.docs_secret_line:
                     text += '- Quoted: the test wrote password = "hunter2hunter2hunter2" and the gate refused it\n\n'
-        rca.write_text(text)
-        rd = readme.read_text() if readme.exists() else "# demo\n"
+        rca.write_text(text, encoding="utf-8")  # the real agent writes UTF-8; Windows defaults to cp1252
+        rd = readme.read_text(encoding="utf-8") if readme.exists() else "# demo\n"
         for title in re.findall(r"^- `\S+` ([^:]+):", prompt.split("### Features shipped")[1].split("## Output 3")[0], re.M):
             if f"## {title}\n" not in rd:
                 rd += f"\n## {title}\n\nYou can use it.\n"
-        readme.write_text(rd)
+        readme.write_text(rd, encoding="utf-8")
         if not dev.exists():
             dev.write_text("# Developing\n\n## Run\n\n## Test\n\n## Deploy\n\n## Extend\n")
         if self.docs_touches_code:
