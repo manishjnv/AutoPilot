@@ -243,7 +243,49 @@ def preflight(cfg) -> bool:
         if bad:
             print(f"FAIL  {bad[0][1]}: {bad[0][2]}")
             return False
+    return install_deps(cfg) if cfg is not None else True
+
+
+def install_deps(cfg) -> bool:
+    """N2: project dependencies install without a question; system tools never (the exact command is printed and the
+    run stops). Uses commands.setup when set; when empty, runs the standard command and writes it into commands.setup."""
+    from .doctor import missing_deps, system_tool_hint
+    from .gate import run_commands
+    miss = missing_deps(cfg.root)
+    if not miss:
+        return True
+    for m in miss:
+        tool = m["tool"]
+        if not (shutil.which(tool) or (tool == "python" and (shutil.which("python") or shutil.which("python3")))):
+            print(f"FAIL  {tool} is not installed. Install it with: {system_tool_hint(tool)}")
+            return False
+    setup = cfg.commands("setup")
+    cmds = setup or list(dict.fromkeys(m["command"] for m in miss))
+    note = logging.getLogger("autopilot.preflight")
+    for cmd in cmds:
+        print(f"setup {cmd}")
+        note.info("preflight: installing project dependencies: %s", cmd)
+        r = run_commands([cmd], cfg.root, int(cfg.get("verify_timeout_sec", 1200)))[0]
+        note.info("preflight: %s -> exit %s", cmd, r.rc)
+        if r.rc != 0:
+            print(f"FAIL  {cmd} failed (exit {r.rc}):\n{r.output[-1500:]}")
+            return False
+    if not setup:
+        remember_setup(cfg.root / AGENT_DIR / "project.yaml", cmds)
     return True
+
+
+def remember_setup(proj_path: Path, cmds: list[str]) -> None:
+    """N2: write `commands.setup` as a text edit, so the comments of project.yaml stay (same approach as cmd_init)."""
+    import re
+    text = proj_path.read_text(encoding="utf-8")
+    value = json.dumps(cmds)
+    new, n = re.subn(r"(?m)^([ \t]+setup:)[ \t]*\[\]", lambda m: f"{m.group(1)} {value}", text, count=1)
+    if not n:
+        new, n = re.subn(r"(?m)^(commands:[ \t]*(?:#.*)?)$", lambda m: f"{m.group(1)}\n  setup: {value}", text, count=1)
+    if n:
+        proj_path.write_text(new, encoding="utf-8")
+        print(f"setup saved in commands.setup of {proj_path.name}")
 
 
 def login_now() -> bool:

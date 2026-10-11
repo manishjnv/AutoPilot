@@ -94,3 +94,60 @@ def test_doctor_row_names_the_dependency_and_command(tmp_path):
     assert any(r[1] == "dependencies" and r[0] == WARN for r in checks(cfg))
     (tmp_path / "node_modules").mkdir()
     assert check_deps(cfg) is None
+
+
+# ---- N2: preflight installs project dependencies (a fake npm on PATH records each call)
+def node_project(tmp_path, monkeypatch, setup=None):
+    from autopilot.cli import main as cli_main
+    from autopilot.config import Config
+    assert cli_main(["init", "-C", str(tmp_path), "--stack", "generic"]) == 0
+    p = tmp_path / ".agent" / "project.yaml"
+    text = p.read_text(encoding="utf-8") + "\nagent:\n  backend: command\n"
+    if setup:
+        text = text.replace("  setup: []", f"  setup: [\"{setup}\"]", 1)
+    p.write_text(text, encoding="utf-8")
+    (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
+    bin_dir = tmp_path / "bin-example"
+    bin_dir.mkdir()
+    calls = tmp_path / "npm-calls.log"
+    (bin_dir / "npm").write_text(f'#!/bin/sh\necho "$@" >> "{calls}"\nmkdir -p node_modules\n', encoding="utf-8")
+    (bin_dir / "npm").chmod(0o755)
+    (bin_dir / "npm.cmd").write_text(f'@echo %* >> "{calls}"\r\n@mkdir node_modules\r\n', encoding="utf-8")
+    monkeypatch.setenv("PATH", str(bin_dir) + __import__("os").pathsep + __import__("os").environ["PATH"])
+    return Config.load(tmp_path), p, calls
+
+
+def test_preflight_installs_and_remembers_the_standard_command(tmp_path, monkeypatch):
+    from autopilot.cli import preflight
+    cfg, p, calls = node_project(tmp_path, monkeypatch)
+    before = p.read_text(encoding="utf-8")
+    assert preflight(cfg) is True
+    assert calls.read_text(encoding="utf-8").split() == ["ci"]
+    assert (tmp_path / "node_modules").is_dir()
+    text = p.read_text(encoding="utf-8")
+    assert '["npm ci"]' in text
+    assert "# Commands the orchestrator runs itself" in text and text.count("#") == before.count("#")
+    from autopilot.config import Config
+    assert Config.load(tmp_path).commands("setup") == ["npm ci"]
+    assert preflight(Config.load(tmp_path)) is True  # second run: nothing to install
+    assert len(calls.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_preflight_runs_commands_setup_when_set(tmp_path, monkeypatch):
+    from autopilot.cli import preflight
+    cfg, p, calls = node_project(tmp_path, monkeypatch, setup="npm install --no-audit")
+    assert preflight(cfg) is True
+    assert calls.read_text(encoding="utf-8").split() == ["install", "--no-audit"]
+    assert '["npm install --no-audit"]' in p.read_text(encoding="utf-8")
+
+
+def test_preflight_without_the_system_tool_prints_the_install_command(tmp_path, monkeypatch, capsys):
+    from autopilot.cli import preflight
+    cfg, p, calls = node_project(tmp_path, monkeypatch)
+    empty = tmp_path / "empty-bin-example"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    assert preflight(cfg) is False
+    out = capsys.readouterr().out
+    assert f"FAIL  npm is not installed. Install it with: {system_tool_hint('npm')}" in out
+    assert not calls.exists() and not (tmp_path / "node_modules").exists()
