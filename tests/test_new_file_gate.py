@@ -149,6 +149,28 @@ def test_new_file_with_reason_passes(tmp_path):
     assert g.ok and g.problems == [] and g.results and g.results[0].rc == 0
 
 
+def test_task_declared_new_file_passes_without_a_report_reason(tmp_path):  # O3
+    cfg = gate_repo(tmp_path)
+    put(tmp_path, "src/utils2.py", "def u():\n    return 2\n")
+    assert not gate(cfg, {"status": "done", "summary": "helper"}).ok
+    task = SimpleNamespace(allow_no_changes=False, allow_test_changes=False, files_in_scope=[], verify=[],
+                           new_files=["src/utils2.py"], new_deps=[])
+    assert task_gate(cfg, Git(cfg.root), task, report={"status": "done", "summary": "helper"}).ok
+
+
+def test_dependency_manifest_change_needs_a_declared_dependency(tmp_path):  # O3
+    cfg = gate_repo(tmp_path)
+    put(tmp_path, "package.json", '{"dependencies": {"left-pad": "1.0.0"}}\n')
+    sh(tmp_path, "add", "-A"), sh(tmp_path, "commit", "-qm", "manifest")
+    put(tmp_path, "package.json", '{"dependencies": {"left-pad": "1.0.0", "lodash": "4.0.0"}}\n')
+    g = gate(cfg, {"status": "done", "summary": "add lodash"})
+    assert not g.ok and any("dependency manifest changed without a declared dependency: package.json" in p for p in g.problems)
+    assert gate(cfg, {"status": "done", "summary": "x", "new_deps": [{"name": "lodash", "reason": "deep merge"}]}).ok
+    task = SimpleNamespace(allow_no_changes=False, allow_test_changes=False, files_in_scope=[], verify=[],
+                           new_files=[], new_deps=["lodash"])
+    assert task_gate(cfg, Git(cfg.root), task, report={"status": "done", "summary": "x"}).ok
+
+
 def test_test_file_agent_file_and_rename_need_no_reason(tmp_path):
     cfg = gate_repo(tmp_path)
     put(tmp_path, "tests/test_parser.py", "def test_p():\n    assert True\n")

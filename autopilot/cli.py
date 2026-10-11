@@ -58,6 +58,9 @@ def cmd_init(args):
         preset = load_yaml(TEMPLATES / "presets" / f"{stack}.yaml")
         name = args.name or (proj.get("name") if proj.get("name") not in (None, "my-project") else root.name)
         commands = {**(proj.get("commands") or {}), **preset.get("commands", {})}
+        if stack == "python" and not shutil.which("ruff"):  # O2: one linter, decided here, never `ruff || flake8`
+            commands["lint"] = ["python -m flake8 ."] if shutil.which("flake8") else []
+            print("lint:    " + (commands["lint"][0] if commands["lint"] else "none (install ruff for a lint gate)"))
         cmd_block = yaml.safe_dump({"commands": commands}, sort_keys=False, width=200).rstrip() + "\n"
         text = proj_path.read_text(encoding="utf-8")
         text = re.sub(r"(?m)^name:.*$", f"name: {name}", text, count=1)
@@ -85,6 +88,9 @@ def cmd_init(args):
     write_ide_rules(root)  # N6
     from .mcp import register  # N9
     register(root)
+    from .gate import write_baseline  # O2: file sizes on day one, so only new growth fails the gate
+    if not (ad / "quality_baseline.json").exists():
+        print(f"create   {AGENT_DIR}/quality_baseline.json ({write_baseline(root)} files)")
     print(f"\nstack: {stack}")
     if not getattr(args, "quiet", False):  # quickstart does these steps itself
         print("next:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"

@@ -35,6 +35,8 @@ class Task:
     reopen: bool = False
     owner_only: bool = False       # needs the owner (credentials, accounts): never run in the agent loop
     status: str = ""               # N1: "done" = the work exists already (code or git log); sync_plan records it
+    new_files: list[str] = field(default_factory=list)  # O3: files this task may add without a report reason
+    new_deps: list[str] = field(default_factory=list)   # O3: dependencies this task may add (manifest edits allowed)
 
 
 INFRA_TYPES = ("deploy", "cloudflare", "email", "custom")
@@ -157,6 +159,8 @@ class Plan:
                     reopen=bool(t.get("reopen", False)),
                     owner_only=bool(t.get("owner_only", False)),
                     status=status,
+                    new_files=[str(x) for x in _as_list(t.get("new_files"))],
+                    new_deps=[str(x) for x in _as_list(t.get("new_deps"))],
                 ))
             infra = _infra(pid, p.get("infra"), errors)
             for t in tasks if infra.get("steps") else []:  # K: the decide session writes an ADR before the work

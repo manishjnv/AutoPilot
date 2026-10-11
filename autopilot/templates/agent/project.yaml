@@ -48,7 +48,11 @@ gate:
     - "karma.conf.*"
     - "phpunit.xml*"
   new_file_reasons: true # N7: on in new projects; a project.yaml without this key has it off. A file added by a task (test files and .agent/ excepted) needs a reason in the
-                          # report field `new_files`, else the gate fails and the retry quotes the rule
+                          # report field `new_files`, else the gate fails and the retry quotes the rule. O3: the task may declare
+                          # `new_files` and `new_deps`; a dependency manifest change without a declared dependency fails
+  file_growth: true       # O2: a code file may not grow past 400 lines or 25 percent in one task (whichever is larger),
+                          # measured against `.agent/quality_baseline.json` from `autopilot init`; the retry says "split, do not grow"
+  scope_fail: true        # O1: a changed file outside the task's files_in_scope fails the gate (false = warn only)
 
 agent:
   # backend: claude_cli   # claude_cli | command; unset = preflight writes the first agent CLI it finds on PATH (N3)

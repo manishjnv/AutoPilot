@@ -156,7 +156,7 @@ def test_escalation_can_be_turned_off(tmp_path):
 
 def test_load_bearing_scope_uses_the_high_ladder(tmp_path):
     phases = [{"id": "P01", "title": "One", "tasks": [
-        {"id": "P01-T01", "title": "auth", "risk": "low", "files_in_scope": ["src/auth/**"]}]}]
+        {"id": "P01-T01", "title": "auth", "risk": "low", "files_in_scope": ["src/auth/**", "src/**"]}]}]  # O1: the fake writes src/
     _, _, fake = run(tmp_path, phases, Behave(["ok"]), {**NO_AUDIT, "escalate": {"load_bearing": ["src/auth/**"]}})
     assert models_used(fake) == ["opus"] and fake.reqs[0].effort == "medium"  # high ladder + high-risk effort
 

@@ -71,6 +71,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
   "followups": ["work you noticed that is out of scope for this task"],
   "new_files": [{"path": "src/new_module.py", "reason": "why no existing file can own this content"}],
   "scope_additions": {"src/other.py": "why this file outside the task scope had to change (omit when none)"},
+  "new_deps": [{"name": "package", "reason": "why no installed dependency does this (omit when none)"}],
   "rca": {"symptom": "...", "root_cause": "...", "fix": "file:line — what changed", "prevention": "the test or check that stops a repeat"},
   "blocker": "only when status is blocked"
 }

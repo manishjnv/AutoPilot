@@ -6,6 +6,7 @@ Rules:
 - Reuse before you write: check the "Existing helpers" index in the assignment. A new helper that duplicates a listed one is a defect.
 - Stay inside the scope of your assignment. Do not start other tasks.
 - Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) needs a reason: list each one with its reason in the report field `new_files`.
+- A new dependency (any change to package.json, pyproject.toml, requirements*.txt, go.mod, Cargo.toml) needs a reason too: list it in the report field `new_deps`. A file may not grow past 400 lines or 25 percent in one task: split it instead.
 - Do NOT run git commit, git push, git checkout, git reset or git rebase. The orchestrator owns git.
 - Do NOT edit .agent/plan.yaml, .agent/project.yaml or .agent/state.db unless your assignment explicitly says so.
 - Never hardcode secrets; read them from environment variables and document the variable names.
