@@ -28,3 +28,5 @@ Reported by sessions; consumed by the auditor and replanner.
 - [P05-T02] Run Vale (CI or locally) to confirm the new README and HOWTO text passes; it was not run because vale is not installed here
 - [P05-T02] The README says Codex, Gemini and OpenCode work through presets, but the honest-limits list names six runners without OpenCode; decide whether OpenCode belongs in the supported list
 - [P05-T02] Refresh the HOWTO checksums when the first release tag is made (P05-T03)
+- [P06-T01] An existing CLAUDE.md that already has the Autopilot heading does not get the new ap command lines
+- [P06-T01] A project with both .kiro/ and AGENTS.md gets the instruction twice, because Kiro also reads AGENTS.md

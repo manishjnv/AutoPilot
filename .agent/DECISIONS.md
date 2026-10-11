@@ -28,3 +28,5 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [P05-T01] Python install is part of step 4 (still 5 steps) and its dry-run text avoids the words 'would install' — existing tests count exactly 3 of them
 - [2026-10-11] [P05-T01] The Python install uses `uv python install 3.12`; the check looks for python3, python (and py on Windows) with version >= 3.10
 - [2026-10-11] [P05-T02] The Linux/macOS/WSL README line uses `| bash`, not `| sh`: install.sh uses `set -o pipefail` and `$'\n'`, which dash rejects. HOWTO explains this and install.sh is unchanged.
+- [2026-10-11] [P06-T01] IDE block uses <!-- autopilot:begin --> markers; new Cursor/Kiro files get front matter first, existing files only get the block appended; skip if the begin marker is present — keeps the user's text byte-identical and init idempotent
+- [2026-10-11] [P06-T01] CLAUDE.md is not marked: the existing heading check stays, the snippet only gained the ap command lines
