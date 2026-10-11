@@ -39,3 +39,4 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [P07-T01] NEW_FILE_RULE lives in gate.py and system.md repeats it word for word; a test checks that the two match. P07-T02 should import the constant and must not copy the text.
 - [2026-10-11] [P07-T01] new_file_lines(report) in orchestrator.py is the only builder of commit lines for both commit paths. It keeps only dict entries with a non-empty path, joins whitespace into one line, cuts the reason at 300 characters and uses '(no reason given)' when the reason is empty, because text-only backends do not check reports against the schema.
 - [2026-10-11] [P07-T01] The schema field new_files is optional (not in the required list), so old reports stay valid.
+- [2026-10-11] [P07-T02] ADR: A: missing_reasons(cfg, git, report) helper in gate.py, called from task_gate(..., report=None) → docs/adr/0005-missing-reasons-helper-in-gate-py-with-an-optional.md
