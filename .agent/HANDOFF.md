@@ -1,14 +1,14 @@
 # Handoff
 
-Last completed: **P05-T01 — Install scripts: Python when missing, `ap` on PATH, one final line** (2026-10-11)
+Last completed: **P05-T02 — README: one install line per system and honest limits** (2026-10-11)
 
-install.sh and install.ps1 now run `uv python install 3.12` only when no Python >= 3.10 is found (command printed in dry-run), check that `ap` is on PATH after the install, and end with exactly: Open a project folder and type `ap`. Two new tests in tests/test_quickstart.py (text checks for both scripts, plus a bash --dry-run test that runs on WSL) pass without any skip marker. tests/test_quickstart.py passes on WSL (22 passed) and ruff is clean. The full WSL suite was not re-run after this retry.
+README.md now shows one Windows install line and one macOS/Linux/WSL line (`| bash`), then "Open a project folder and type `ap`.", plus an honest-limits section naming Replit, the Kiro and Cursor chat panels and the six CLI runners. The manual install steps moved to a new HOWTO.md section "Install by hand". Four new tests in tests/test_quickstart.py cover the install lines, the limits, the relative links, and a piped bash dry-run of install.sh. The full WSL suite passes (576 tests) and ruff is clean. Vale was not run because it is not installed here.
 
-Files: .agent/LEARNINGS.md, HOWTO.md, install.ps1, install.sh, tests/test_quickstart.py
+Files: .vale/styles/config/vocabularies/Autopilot/accept.txt, HOWTO.md, README.md, tests/test_quickstart.py
 
 Follow-ups noted:
-- The bash dry-run test returns early on Windows or without bash instead of skipping; it really runs only on WSL/Linux
-- HOWTO.md pins install.sh and install.ps1 SHA-256 values to an old commit; refresh them when the first release tag is made
-- install.yml (protected) could also run `ap --version` in the real-install step
+- Run Vale (CI or locally) to confirm the new README and HOWTO text passes; it was not run because vale is not installed here
+- The README says Codex, Gemini and OpenCode work through presets, but the honest-limits list names six runners without OpenCode; decide whether OpenCode belongs in the supported list
+- Refresh the HOWTO checksums when the first release tag is made (P05-T03)
 
-Next planned task: P05-T02
+Next planned task: P06-T01

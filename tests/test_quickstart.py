@@ -313,3 +313,48 @@ def test_a_missing_login_stops_before_anything_is_created(tmp_path, monkeypatch,
     work, _ = guided(tmp_path, monkeypatch, ["an app", "", "", "2"], auth=1)
     assert cli_main([]) == 1
     assert not (work / "an-app").exists()
+
+
+# ---- P05-T02: README install lines, honest limits, links ----
+README = ROOT_INSTALL.with_name("README.md")
+RUNNERS = ("Claude Code", "kiro-cli", "cursor-agent", "codex", "gemini", "aider")
+
+
+def test_readme_has_one_install_line_per_system():
+    text = README.read_text(encoding="utf-8")
+    win = "irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 | iex"
+    nix = "curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash"
+    assert text.count(win) == 1 and text.count(nix) == 1
+    assert "install.ps1 | iex" not in text.replace(win, "") and "install.sh | " not in text.replace(nix, "")
+    assert text.index(win) < text.index(nix) < text.index(FINAL_LINE)
+    assert "Open a project folder and type `ap`." in text
+
+
+def test_readme_honest_limits_name_the_gaps_and_the_runners():
+    text = README.read_text(encoding="utf-8")
+    section = text[text.index("## Honest limits"):text.index("**After the run:**")]
+    for name in ("Replit", "Kiro", "Cursor", *RUNNERS):
+        assert name in section, name
+
+
+def test_readme_relative_links_point_to_existing_files():
+    import re
+    text = README.read_text(encoding="utf-8")
+    targets = {m for m in re.findall(r"\]\(([^)\s]+)\)", text) if "://" not in m and not m.startswith("mailto:")}
+    assert targets
+    missing = [t for t in sorted(targets) if not (README.parent / t.split("#", 1)[0]).exists()]
+    assert missing == []
+
+
+def test_piped_install_sh_dry_run_runs_the_script(tmp_path):
+    """P05-T02: the README line `curl ... | bash` runs the script; here the script arrives on stdin, as in the pipe."""
+    if sys.platform == "win32" or not shutil.which("bash"):
+        return  # the text checks cover the README; the piped run needs a POSIX bash (WSL runs it)
+    home, empty = tmp_path / "home", tmp_path / "empty"
+    home.mkdir(), empty.mkdir()
+    env = {"HOME": str(home), "PATH": str(empty), "AUTOPILOT_DRY_RUN": "1"}
+    p = subprocess.run([shutil.which("bash")], input=ROOT_INSTALL.read_bytes(), capture_output=True, env=env)
+    out = p.stdout.decode()
+    assert p.returncode == 0, p.stderr.decode()
+    assert "==> Step 1 of 5:" in out and out.splitlines()[-1] == FINAL_LINE
+    assert list(home.iterdir()) == []
