@@ -865,8 +865,11 @@ class Orchestrator:
             self.state.set_task(task.id, attempts=attempts, model=model)
             self.git.normalize_after_session(branch, base)
             agent_blocked = False
+            cut = bool((res.timed_out or res.stuck) and self.git.staged_files())  # J14.3: a cut session keeps its diff
+            if cut:
+                log.info("task %s: session cut (%s); its diff is gated first", task.id, res.error[:120])
 
-            if not res.ok:
+            if not res.ok and not cut:
                 last_error = f"agent session failed ({model}): {res.error}"
             elif str(res.report.get("status", "done")).lower() == "blocked":
                 agent_blocked = True
@@ -901,6 +904,10 @@ class Orchestrator:
                         self.git.checkout_main(self.main)
                 else:
                     last_error = gate.report()
+                    if cut:  # the diff and the gate text become the retry input; nothing is thrown away
+                        last_error = (f"session cut ({res.error[:200]}); its diff failed the gate:\n{gate.report()}\n\n"
+                                      f"Diff of the cut session (start from it, do not rewrite):\n"
+                                      f"{self.git.run('diff', '--cached', check=False)[:8000]}")
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
             chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
             why = self.escalation(res)

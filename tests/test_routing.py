@@ -75,6 +75,13 @@ class Behave(Recorder):
             if act == "timeout":
                 self.calls.append(("P01-T01", req.model))
                 return SessionResult(ok=False, error="session timed out after 1s", timed_out=True)
+            if act in ("cut-green", "cut-red"):  # J14.3: the session is cut, but it left a diff behind
+                self.calls.append(("P01-T01", req.model))
+                (Path(req.cwd) / "src").mkdir(exist_ok=True)
+                (Path(req.cwd) / "src" / "P01-T01.txt").write_text("impl P01-T01\n")
+                if act == "cut-red":
+                    (Path(req.cwd) / "BROKEN").write_text("x")
+                return SessionResult(ok=False, error="stuck: repeated the same action 4 times", stuck=True)
             if act == "big":
                 self.calls.append(("P01-T01", req.model))
                 for i in range(7):
@@ -110,6 +117,19 @@ LOW_HAIKU = {**NO_AUDIT, "models": {"ladder": {"low": ["haiku", "haiku", "sonnet
 def test_cut_session_on_haiku_retries_on_sonnet(tmp_path):
     _, _, fake = run(tmp_path, one_phase("low"), Behave(["timeout", "ok"]), LOW_HAIKU)
     assert models_used(fake) == ["haiku", "sonnet"]
+
+
+def test_cut_session_with_a_green_diff_is_done_without_a_retry(tmp_path):
+    orch, outcome, fake = run(tmp_path, one_phase("low"), Behave(["cut-green", "ok"]), LOW_HAIKU)
+    assert outcome == "plan complete" and models_used(fake) == ["haiku"]
+    assert orch.state.task("P01-T01")["status"] == "done"
+
+
+def test_cut_session_with_a_red_diff_feeds_the_retry(tmp_path):
+    _, outcome, fake = run(tmp_path, one_phase("low"), Behave(["cut-red", "ok"]), LOW_HAIKU)
+    assert outcome == "plan complete" and models_used(fake) == ["haiku", "sonnet"]  # red diff: one retry, stepped up
+    retry = [p for t, p in fake.prompts if t == "P01-T01"][-1]  # the cut attempt records no prompt
+    assert "session cut" in retry and "Diff of the cut session" in retry and "P01-T01.txt" in retry
 
 
 def test_plain_test_failure_on_haiku_stays_on_haiku(tmp_path):
