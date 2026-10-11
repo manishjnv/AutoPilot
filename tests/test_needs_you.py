@@ -99,6 +99,22 @@ def test_owner_decision_parks_task_and_run_continues(tmp_path):
     assert "D-001 · P01-T01 a · DONE" in (root / "docs" / "NEEDS-YOU.md").read_text(encoding="utf-8")
 
 
+def test_open_question_does_not_stop_other_ready_work(tmp_path):
+    phases = [{"id": "P01", "title": "One", "tasks": [
+        {"id": "P01-T01", "title": "a", "risk": "low", "acceptance_criteria": ["x"]},
+        {"id": "P01-T02", "title": "b", "risk": "low"},
+        {"id": "P01-T03", "title": "c", "risk": "low"}]}]
+    root = make_project(tmp_path, phases, {"needs_you": {"wait": False}})
+    fake = FakeBackend(behaviours={"P01-T01": ["blocked"]}, unsticks={"P01-T01": OWNER})
+    sleeps = []
+    orch = orch_for(root, fake, sleep=sleeps.append)
+    assert orch.run().startswith("stalled: waiting on 1 decisions")
+    st = orch.state.status_map()
+    assert st["P01-T01"] == "blocked" and st["P01-T02"] == "done" and st["P01-T03"] == "done"
+    assert orch.state.decision("D-001")["status"] == "OPEN"
+    assert sleeps == []                                                     # never waited for the owner
+
+
 def test_answer_without_arguments(tmp_path, monkeypatch, capsys):
     (tmp_path / "a").mkdir()
     empty = make_project(tmp_path / "a", phases_basic())
