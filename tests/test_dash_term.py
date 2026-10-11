@@ -2,7 +2,8 @@ import re
 
 import pytest
 
-from autopilot.dash_term import frame, normalize
+from autopilot.dash_term import COLOUR_MEANING, frame, normalize, status_bar
+from autopilot.plain import COLORS
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 SIZES = [(100, 24), (120, 30), (133, 37), (190, 50)]
@@ -108,7 +109,7 @@ def test_long_text_cut():
 
 def test_status_bar_last():
     out = frame(data(), 120, 30)
-    assert "Task 21/21" in out[-1] and out[-1].startswith(" Task") and "csv2json" not in out[-1]  # J13/14: seven keys
+    assert "Task 21/21" in out[-1] and out[-1].startswith(" csv2json")  # J13/13: the bar names the project first
     assert "5h 12%" in out[-1]
 
 
@@ -160,7 +161,7 @@ def test_size():
 def test_usage_levels():
     d = data()
     d["usage"].update(five=0.05, week=0.74, context=0.95)
-    assert "[32m" in line_with(d, "5h")
+    assert "[35m" in line_with(d, "5h")
     assert "[33m" in line_with(d, "Week")
     assert "[31m" in line_with(d, "Context ")
 
@@ -229,7 +230,8 @@ def test_group_rule_lines():
         assert line == f"│ ── {title} " + "─" * (28 - len(title)) + " │"
     assert out[1].startswith("│ Project  : csv2json")  # the status group has no rule
     assert not any(x.strip("│ ") in ("", "Now", "Size") for x in out[1:20])  # no blank line, no title line
-    assert "\x1b[1m" in line_with(data(), "── Now", rows=40) and "\x1b[2m── " in line_with(data(), "── Now", rows=40)
+    assert "\x1b[2m── " in line_with(data(), "── Now", rows=40)
+    assert "\x1b[1m" not in line_with(data(), "── Now", rows=40)  # J13/10: the rule is not the headline
 
 
 def test_warned_task_ids_below_the_count():
@@ -337,8 +339,9 @@ def test_no_value_appears_in_two_panels():
     for k in keys:
         n = sum(bool(re.search(k, t)) for t in texts)
         assert n <= 1, (k, n)
-    for k in ("NAMEZ", "BRANCHZ", "ELAPSEDZ", "COMMITZ", "NOWZ", "MODELZ"):  # the bar repeats nothing outside the seven
+    for k in ("ELAPSEDZ", "COMMITZ", "NOWZ"):  # the bar repeats only the seven, and the keys that row 13 names
         assert k not in bar
+    assert "NAMEZ" in bar and "BRANCHZ" in bar and "MODELZ" in bar and "Try 2/3" in bar and "Q 159" in bar and "5s" in bar
     assert "ETAZ" in bar and "TOKZ" in bar and "$83.17" in bar and "5h 79%" in bar and "Blocked 147" in bar
 
 
@@ -367,7 +370,43 @@ def test_next_step_line_at_the_bottom_of_issues():
     d = data(next=[("ap watch", "see the build"), ("ap stop", "stop the build")])
     out = strip(frame(d, 120, 40))
     assert out[-3][-30:] == "│ " + "Run: ap watch".ljust(26) + " │"
-    assert "[36m" in line_with(d, "Run: ap watch", rows=40)
+    assert "[97m" in line_with(d, "Run: ap watch", rows=40)
     assert "ap stop" not in "\n".join(out)  # one line only
     assert "Run: ap watch" not in "\n".join(frame(d, 120, 24))  # no free row: no line
     assert "Run: ap" not in right(frame(data(), 120, 40))  # no data: no line
+
+
+def test_bar_at_80_100_120_160_never_wraps_and_keeps_the_left():
+    d = data(asof={"age": 3, "stopped": ""})
+    d["project"].update(state="Code", name="autopilot-self")
+    d["usage"].update(five=0.06, cost=4.55, tokens_text="7.5M")
+    full = frame(d, 160, 30)[-1]
+    assert full.split("│")[0].strip() == "autopilot-self" and "Code" in full and "Try 2/3" in full
+    for cols in (80, 100, 120, 160):
+        bar = status_bar(normalize(d), cols, False)
+        assert len(bar) == cols and "\n" not in bar and bar.startswith(" autopilot-self")
+        assert "Code" in bar and "Task 21/21" in bar and "Blocked 1" in bar and "3s" in bar
+    assert "Q 1" not in status_bar(normalize(d), 80, False) and "Opus" not in status_bar(normalize(d), 80, False)
+    assert "Try 2/3" not in status_bar(normalize(d), 80, False)
+    assert "$4.55" in status_bar(normalize(d), 160, False) and "$4.55" not in status_bar(normalize(d), 100, False)
+
+
+def test_bar_colours_state_five_hour_blocked_cost_age():
+    d = data(asof={"age": 40, "stopped": ""})
+    d["project"]["state"] = "Commit"
+    d["usage"].update(five=0.8)
+    bar = status_bar(normalize(d), 160, True)
+    assert "\x1b[36mMerge" in bar and "\x1b[33m5h 80%" in bar and "\x1b[31mBlocked 1" in bar and "\x1b[31mQ 1" in bar
+    assert "\x1b[35m$8.41" in bar and "\x1b[33m40s" in bar and "\x1b[34mHaiku" in bar
+    d["project"]["status"] = "finished"
+    assert "Stopped" in status_bar(normalize(d), 160, False)
+
+
+def test_every_colour_has_one_meaning_and_only_the_headline_is_bold():
+    d = data(asof={"age": 40, "stopped": ""}, phases=PHASES)
+    out = "".join(frame(d, 190, 60, True))
+    names = {v: k for k, v in COLORS.items()}
+    used = set(re.findall(r"\x1b\[([0-9;]+)m", out)) - {"0"}
+    assert used and all(names[c] in COLOUR_MEANING for c in used), used
+    assert "1;36" not in used and len(COLOUR_MEANING) == len(set(COLOUR_MEANING))
+    assert out.count("\x1b[1m") == 1 and "Task 21 of 21: Force replacement" in out  # the Now headline

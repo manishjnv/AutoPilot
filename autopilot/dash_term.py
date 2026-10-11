@@ -11,9 +11,13 @@ from .plain import paint
 
 MIN_COLS, MIN_ROWS = 100, 24
 LEFT_W, RIGHT_W = 36, 30
-STATUS = {"done": ("✓", "Complete", "green"), "running": ("▶", "In progress", "green"),
+STATUS = {"done": ("✓", "Complete", "green"), "running": ("▶", "In progress", "cyan"),
           "blocked": ("✗", "Blocked", "red"), "pending": ("○", "Pending", "dim")}
-KIND = {"heading": "bold", "goal": "dim", "good": "green", "bad": "red", "note": "yellow", "wait": "dim"}
+KIND = {"heading": "value", "goal": "dim", "good": "green", "bad": "red", "note": "yellow", "wait": "dim"}
+# J13/9: one colour, one meaning, on every screen. "bold" is only the Now headline; "value" is bright white, not bold.
+COLOUR_MEANING = {"green": "done or ok", "cyan": "running now", "yellow": "warning", "red": "blocked or failed",
+                  "magenta": "cost and usage", "blue": "model name", "dim": "label, border, pending or zero",
+                  "value": "a value the eye lands on", "bold": "the one headline"}
 
 
 def clean(x) -> str:
@@ -65,10 +69,10 @@ def box(title: str, lines: list, w: int, h: int, color: bool, note=None) -> list
     sits at the right end of the title bar when it fits."""
     title = cut(title, w - 6)
     if note and note[0] and w - 7 - len(title) - len(note[0]) >= 1:
-        top = [("┌─ ", "dim"), (title, "bold"), (" " + "─" * (w - 7 - len(title) - len(note[0])) + " ", "dim"),
+        top = [("┌─ ", "dim"), (title, None), (" " + "─" * (w - 7 - len(title) - len(note[0])) + " ", "dim"),
                note, (" ┐", "dim")]
     else:
-        top = [("┌─ ", "dim"), (title, "bold"), (" " + "─" * (w - 5 - len(title)) + "┐", "dim")]
+        top = [("┌─ ", "dim"), (title, None), (" " + "─" * (w - 5 - len(title)) + "┐", "dim")]
     out = [render(top, color)]
     for line in (list(lines) + [""] * h)[:h - 2]:
         out.append(render([("│ ", "dim"), *fit_segs(line, w - 4), (" │", "dim")], color))
@@ -100,7 +104,7 @@ def level_bar(share, n: int = 10) -> list:
     """The same bar as segments; the filled blocks are green below 70%, yellow below 90%, red above."""
     s = num(share) or 0.0
     k, pct = max(round(s * n), 1 if s > 0 else 0), round(s * 100)  # a small value still shows one block
-    return [("█" * k, "green" if pct < 70 else "yellow" if pct < 90 else "red"), ("░" * (n - k) + f" {pct}%", None)]
+    return [("█" * k, "magenta" if pct < 70 else "yellow" if pct < 90 else "red"), ("░" * (n - k) + f" {pct}%", None)]
 
 
 def alert(n: int, style: str):
@@ -142,7 +146,7 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     def text(t, style=None, indent=""):
         return [[(indent + x, style)] for x in wrap2(t, w - 4 - len(indent))]
 
-    def rule(title, style="bold"):
+    def rule(title, style=None):
         """The first line of a titled group: the title in a line of the full inner width."""
         return [("── ", "dim"), (title, style), (" " + "─" * max(w - 8 - len(title), 0), "dim")]
     status = row("Project", p["name"]) + row("Branch", p["branch"])  # the state lives in the title and the bar
@@ -151,19 +155,20 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     groups = [status + row("Started", p["started"][:16]) + row("Elapsed", p["elapsed"])]
     if ny:
         n = max(count(pr.get("questions")), len(ny))
-        groups.append([rule("! Questions for you", "bold yellow"),
+        groups.append([rule("! Questions for you", "yellow"),
                        f"{n} questions wait for you." if n > 1 else "1 question waits for you.",
-                       *text(ny[0]["title"]), [("Run: ", None), ("ap answer", "cyan")]])
+                       *text(ny[0]["title"]), [("Run: ", None), ("ap answer", "value")]])
     if now and (now["title"] or now["model"] or count(now["n"])):
         n, total, tries = count(now["n"]), count(pr.get("total")), count(now["attempt"])
         g = [rule("Now")]
-        if n:
-            g.append([("Task ", None), (f"{n} of {total}" if total else str(n), "count")])
-        g += text(now["title"])
+        # J13/10: the one bold headline of the screen: 'Task 7 of 17: title'
+        head = (f"Task {n} of {total}" if total else f"Task {n}") if n else ""
+        g += [[(x, "bold")] for x in wrap2(f"{head}: {now['title']}" if head and now["title"] else head or now["title"],
+                                           w - 4)]
         if n and tries:
             g.append([(f"Try {tries}" + (f" of {now['max_attempts']}" if count(now["max_attempts"]) else ""),
                        TRY.get(tries, "red"))])
-        groups.append(g + (row("Task time", now["time"]) if n else []) + row("Model", now["model"]))
+        groups.append(g + (row("Task time", now["time"]) if n else []) + row("Model", now["model"], "blue"))
     if p["next"]:
         groups.append([rule("Next"), *text(p["next"])])
     if size:
@@ -199,7 +204,7 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
         g = [rule("Phases")]
         for x in ph[start:start + k]:
             sym, _, st = STATUS.get(x["status"], STATUS["pending"])
-            g.append([(sym, st), f" {x['id']} ", (f"{x['done']}/{x['total']}", "count" if x["done"] else "dim")])
+            g.append([(sym, st), f" {x['id']} ", (f"{x['done']}/{x['total']}", "value" if x["done"] else "dim")])
         if k < len(ph):
             g.append([(f"… {len(ph) - k} more", "dim")])
         rows += g
@@ -214,9 +219,9 @@ def cnt(n: int, style=None):
 def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     pr, u, f, why = d["progress"], d["usage"], d["files"], d["blocked_why"]
     prog = [bar(d["share"]),
-            [cnt(count(pr.get("done")), "count"), " done · ", cnt(count(pr.get("working")), "count"), " working"],
-            [alert(count(pr.get("blocked")), "red"), " blocked · ", cnt(count(pr.get("waiting")), "count"), " waiting"],
-            [(f"{count(pr.get('phases_done'))} of {count(pr.get('phases_total'))}", "count"), " phases"]]
+            [cnt(count(pr.get("done")), "value"), " done · ", cnt(count(pr.get("working")), "value"), " working"],
+            [alert(count(pr.get("blocked")), "red"), " blocked · ", cnt(count(pr.get("waiting")), "value"), " waiting"],
+            [(f"{count(pr.get('phases_done'))} of {count(pr.get('phases_total'))}", "value"), " phases"]]
     use = []
     for label, key in (("5h", "five"), ("Week", "week"), ("Context", "context")):
         if num(u.get(key)) is not None:
@@ -225,9 +230,10 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
             use.append([(f"Resets in {u['reset_in']}", "dim")])
     if u["tokens_text"]:
         use.append(f"Tokens  {u['tokens_text']}")
-    use += [f"{m['name']:<9}{m['tokens_text']:>6} {round((num(m['share']) or 0) * 100):>3}%" for m in u["models"]]
+    use += [[(f"{m['name']:<9}", "blue"), f"{m['tokens_text']:>6} {round((num(m['share']) or 0) * 100):>3}%"]
+            for m in u["models"]]
     if u["cost_text"]:
-        use.append(f"Cost    {u['cost_text']}")
+        use.append(["Cost    ", (u["cost_text"], "magenta")])
     use.append(f"Rate    {u['rate'] or '—'}")
     issues = []  # the counts of blocked and questions live in Progress and in the question group
     if why:
@@ -256,7 +262,7 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
         if i == len(boxes) - 1 or left - need < 3:  # the last box that fits takes the spare rows
             need = left
         if title == "Issues" and tip and len(lines) < need - 2:  # the next step in the last row, only with a free row
-            lines = lines + [""] * (need - 3 - len(lines)) + [[("Run: ", None), (tip, "cyan")]]
+            lines = lines + [""] * (need - 3 - len(lines)) + [[("Run: ", None), (tip, "value")]]
         out += box(title, lines, w, need, color, asof_note(d, False))
         left -= need
     return out + [" " * w] * left
@@ -282,7 +288,7 @@ def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     for t in tasks[start:start + room]:
         sym, word, st = STATUS.get(t["status"], ("○", t["status"] or "Pending", "dim"))
         rows.append(line(t["n"], t["title"], f"{sym} {word}", t["time"], t["detail"],
-                         "bold" if t["status"] == "running" else None, st, t["risk"][:4] or "—", t["tries"] or "—"))
+                         "value" if t["status"] == "running" else None, st, t["risk"][:4] or "—", t["tries"] or "—"))
     if other:
         rows.append(line("", "Other: decide, research, docs, audit, waits", "", other, "", "dim", "dim"))
     return box("Tasks", rows, w, h, color, asof_note(d, False))
@@ -303,19 +309,37 @@ def live_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
 
 
 def status_bar(d: dict, cols: int, color: bool) -> str:
-    p, pr, u = d["project"], d["progress"], d["usage"]
-    total, active = count(pr.get("total")), count(pr.get("active"))
+    """J13/13: project │ branch │ state │ task │ progress │ left │ 5h │ model │ blocked │ tok │ cost │ age. Under 100
+    columns only the core items stay; then items drop from the right, the data age last. Wide cells are never wrapped."""
+    p, pr, u, now, a = d["project"], d["progress"], d["usage"], d["now"] or {}, d["asof"]
+    wide = cols >= MIN_COLS
+    total, active, blocked, five = count(pr.get("total")), count(pr.get("active")), count(pr.get("blocked")), num(u.get("five"))
     task = f"Task {active}/{total}" if active > 0 else f"Done {count(pr.get('done'))}/{total}"
-    blocked = count(pr.get("blocked"))
-    five = num(u.get("five"))
-    parts = [(task if total else "", "count"),
-             (bar(d["share"]) if pr else "", None), (f"Left{':' if p['eta'].startswith('after') else ''} {p['eta']}" if p["eta"] else "", None),
-             (f"Blocked {blocked}" if pr else "", "red" if blocked > 0 else "dim"),
-             (f"Tok {u['tokens_text']}" if u["tokens_text"] else "", None), (u["cost_text"], None),
-             (f"5h {round(five * 100)}%" if five is not None else "", None)]
+    if wide and active > 0 and count(now.get("attempt")) and count(now.get("max_attempts")):
+        task += f" Try {count(now['attempt'])}/{count(now['max_attempts'])}"
+    st = p["state"]
+    state = ("Stopped", "dim") if p["status"] and p["status"] != "running" or a and a["stopped"] else \
+        (({"Commit": "Merge", "Block": "Wait"}.get(st, st)), "cyan")
+    age = (f"{a['age']}s" if a["age"] < 60 else f"{a['age'] // 60}m", "yellow" if a["age"] > 30 else "dim") \
+        if a and a["age"] is not None and not a["stopped"] else ("", None)
+    q = count(pr.get("questions"))
+    blk = [(f"Blocked {blocked}", "red" if blocked > 0 else "dim")] + ([(" ", None), (f"Q {q}", "red" if q > 0 else "dim")] if wide else [])
+    # (cells, core): core items stay under 100 columns
+    items = [([(p["name"], None)], True), ([(p["branch"], None)], False), ([state], True),
+             ([(task, "value")] if total else [], True), ([(bar(d["share"]), None)] if pr else [], True),
+             ([(f"Left{':' if p['eta'].startswith('after') else ''} {p['eta']}", None)] if p["eta"] else [], True),
+             ([(f"5h {round(five * 100)}%", "yellow" if five >= 0.75 else None)] if five is not None else [], False),
+             ([(now.get("model") or p["model"], "blue")], False), (blk if pr else [], True),
+             ([(f"Tok {u['tokens_text']}", None)] if u["tokens_text"] else [], False),
+             ([(u["cost_text"], "magenta")], False), ([age], True)]
+    items = [(c, core) for c, core in items if (core or wide) and c and c[0][0]]
+    tail = [items.pop()] if age[0] else []  # the data age drops last
+    while sum(sum(len(t) for t, _ in c) + 3 for c, _ in items + tail) - 2 > cols and len(items) > 1:
+        # from the right; the items that stay under 100 columns go last
+        items.pop(next((i for i in range(len(items) - 1, 0, -1) if not items[i][1]), len(items) - 1))
     line = [(" ", None)]
-    for t, st in (x for x in parts if x[0]):
-        line += ([(" │ ", "dim")] if len(line) > 1 else []) + [(t, st)]
+    for c, _ in items + tail:
+        line += ([(" │ ", "dim")] if len(line) > 1 else []) + c
     return render(fit_segs(line, cols), color)
 
 
@@ -346,7 +370,7 @@ def normalize(data) -> dict:
     size = data.get("size") if isinstance(data.get("size"), dict) else None
     return {
         "project": {**{k: clean(p.get(k)) for k in ("name", "branch", "model", "started", "status", "tone", "stale",
-                                                    "state_words", "elapsed", "eta", "next", "last_commit",
+                                                    "state_words", "state", "elapsed", "eta", "next", "last_commit",
                                                     "last_commit_age", "other", "runner", "login", "resets",
                                                     "last_error")},
                     "stale_min": count(p.get("stale_min"))},

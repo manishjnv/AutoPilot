@@ -306,7 +306,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "name": str(cfg.get("name", root.name)), "branch": main, "commit": facts["commit"],
             "last_commit": _first(facts["subject"], 60),
             "last_commit_age": _dur(time.time() - facts["stamp"]) if 0 < facts["stamp"] <= time.time() else "",
-            "model": name(run.get("model")) if live else "",
+            "model": name(run.get("model")) if live else "", "state": str(run.get("state") or "") if live else "",
             "runner": runner, "login": str(login or "—"),  # the CLI version and the plan are not stored: a dash, no call
             "resets": f"{dt.datetime.fromtimestamp(float(five['reset'])):%H:%M}" if five else "—",
             "last_error": _first(broken["last_error"], 70) if broken else "—",
