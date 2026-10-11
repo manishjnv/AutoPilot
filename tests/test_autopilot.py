@@ -31,6 +31,7 @@ class FakeBackend:
         self.failing_features = set()        # feature ids the functional check reports as failing
         self.docs_writes = True              # O11: the docs session writes the three files (False = report only)
         self.docs_touches_code = False       # O11: the docs session also edits a code file (the gate must drop it)
+        self.docs_secret_line = False        # O11: the RCA quotes a line that looks like a secret (redacted, kept)
 
     def _docs(self, cwd, prompt):
         """O11: a deterministic documentation session: one RCA entry per retried task (never twice), one README
@@ -43,6 +44,8 @@ class FakeBackend:
         for tid in re.findall(r"^### (\S+) .* \(attempts: \d+\)", prompt, re.M):
             if f"· {tid} " not in text:
                 text += f"## 2026-10-11 · {tid} fixed\n- Symptom: s\n- Root cause: r\n- Fix: f\n- Prevention: p\n\n"
+                if self.docs_secret_line:
+                    text += '- Quoted: the test wrote password = "hunter2hunter2hunter2" and the gate refused it\n\n'
         rca.write_text(text)
         rd = readme.read_text() if readme.exists() else "# demo\n"
         for title in re.findall(r"^- `\S+` ([^:]+):", prompt.split("### Features shipped")[1].split("## Output 3")[0], re.M):

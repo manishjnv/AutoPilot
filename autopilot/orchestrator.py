@@ -1843,6 +1843,16 @@ class Orchestrator:
                            phase=phase.id, label=f"docs {phase.id}")
         files = self.git.staged_files()
         bad = [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
+        for f in files:  # prose about secrets (an RCA of a scanner) can look like one: redact the line, keep the docs
+            p = self.root / f
+            try:
+                text = p.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if (clean := redact_secrets(text)) != text:
+                p.write_text(clean, encoding="utf-8")
+                log.info("docs session for %s: a line in %s looked like a secret and was redacted", phase.id, f)
+        files = self.git.staged_files()  # re-stage the redacted text
         bad += scan_secrets(self.git.staged_added_lines())
         if not res.ok or bad:
             why = "; ".join(map(str, bad))[:300] or (res.error or "")[:300]

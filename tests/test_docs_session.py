@@ -44,6 +44,15 @@ def test_docs_session_that_edits_code_is_dropped(tmp_path):
     assert orch.git.is_clean()
 
 
+def test_docs_session_secret_looking_prose_is_redacted_not_dropped(tmp_path):
+    fake = FakeBackend(behaviours={"P01-T01": ["break", "ok"]})
+    fake.docs_secret_line = True
+    root, orch = run(tmp_path, fake)
+    rca = (root / "docs" / "RCA.md").read_text()
+    assert "hunter2" not in rca and "(removed: it looked like a secret)" in rca and "· P01-T01 " in rca
+    assert orch.git.is_clean() and not any("dropped" in e["message"] for e in orch.state.events(50) if e["kind"] == "docs")
+
+
 def test_docs_session_off_by_config(tmp_path):
     fake = FakeBackend()
     run(tmp_path, fake, {"docs": {"session": False}})
