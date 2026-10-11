@@ -158,6 +158,8 @@ writes it: `claude`, `kiro-cli`, `cursor-agent`, `codex`, `gemini`, `aider`. It 
 PATH)`. For `claude` it writes `backend: claude_cli`; for a different CLI, `backend: command` and the preset. When it
 finds no CLI, it prints the install command of Claude Code and stops. A value that you set is never changed.
 
+Runner login: before the first session, preflight checks that the configured runner is logged in with its own subscription (`claude auth status`, `codex login status`, `cursor-agent status`, `kiro-cli whoami`), with a 20 second limit and no prompt. A failed check prints the one login command (for example `codex login`) and stops. Autopilot never opens a browser and never reads a credential file. Runners that need an API key (`gemini`, `aider`, `opencode`) are not supported.
+
 Python setup: preflight never runs a bare `pip install` on the system Python. When a `requirements*.txt` file has no
 environment, preflight runs `python -m venv .venv`, then installs with the `.venv` Python. An active venv
 (`VIRTUAL_ENV`) or a project venv (`.venv`, `venv`, `env`) is used as is. `commands.setup` stores these commands.

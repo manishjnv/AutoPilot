@@ -171,6 +171,31 @@ def test_preflight_writes_kiro_and_keeps_comments(tmp_path, monkeypatch, capsys)
     assert preflight(cfg) is True and pj.read_text(encoding="utf-8") == text  # second run: no change
 
 
+# ---- N10: login preflight per runner (subscription login only)
+def test_preflight_stops_with_the_login_line_when_the_runner_is_logged_out(tmp_path, monkeypatch, capsys):
+    root, pj = init_project(tmp_path)
+    pj.write_text(pj.read_text(encoding="utf-8") + "agent:\n  backend: command\n  preset: codex\n", encoding="utf-8")
+    only_path(monkeypatch, tmp_path, fake_bin(tmp_path, codex="out"))
+    assert preflight(Config.load(root)) is False
+    out = capsys.readouterr().out
+    assert "FAIL  runner login: codex is not logged in: run `codex login`" in out
+    assert calls(tmp_path, "codex") == [["login", "status"]]  # the check only; never the login itself
+
+
+def test_preflight_passes_a_logged_in_runner_and_names_api_key_runners(tmp_path, monkeypatch, capsys):
+    from autopilot.doctor import WARN, check_runner_login
+    root, pj = init_project(tmp_path)
+    pj.write_text(pj.read_text(encoding="utf-8") + "agent:\n  backend: command\n  preset: codex\n", encoding="utf-8")
+    only_path(monkeypatch, tmp_path, fake_bin(tmp_path, codex="in"))
+    monkeypatch.setattr("autopilot.cli.install_deps", lambda cfg: True)
+    assert preflight(Config.load(root)) is True
+    assert "runner login: codex logged in" in capsys.readouterr().out
+    cfg = Config.load(root)
+    cfg.data["agent"]["preset"] = "gemini"
+    level, _, detail = check_runner_login(cfg)
+    assert level == WARN and "needs an API key, not supported" in detail
+
+
 @pytest.mark.parametrize("agent", ["agent:\n  backend: claude_cli\n", "agent:\n  backend: command\n  preset: codex\n",
                                    "agent:\n  preset: gemini   # no backend: left alone\n"])
 def test_preflight_never_changes_a_set_runner(tmp_path, monkeypatch, agent):

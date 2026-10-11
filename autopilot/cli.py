@@ -286,7 +286,7 @@ def write_plan(root: Path, idea: str, budget: str) -> Path | None:
 def preflight(cfg) -> bool:
     """Before quickstart or a run: fix the machine where possible (PATH, the claude CLI), then make sure the agent CLI
     can start. False = it can't, and the reason is printed."""
-    from .doctor import FAIL, autofix, check_claude, check_path
+    from .doctor import FAIL, autofix, check_claude, check_path, check_runner_login
     if cfg is not None and not runner_set(cfg.root):
         if not pick_runner(cfg.root):
             return False
@@ -301,6 +301,11 @@ def preflight(cfg) -> bool:
             bad = [r for r in check_claude(cfg) if r[0] == FAIL]
         if bad:
             print(f"FAIL  {bad[0][1]}: {bad[0][2]}")
+            return False
+    elif cfg is not None:  # N10: the other runner's own subscription login, before the first session
+        level, name, detail = check_runner_login(cfg)
+        print(f"{level:<5} {name}: {detail}")
+        if level == FAIL:
             return False
     return install_deps(cfg) if cfg is not None else True
 
