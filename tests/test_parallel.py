@@ -75,6 +75,46 @@ def test_merge_conflict_goes_back_to_the_queue_and_is_redone(tmp_path):
     assert "merge conflict with work merged in parallel" in fake.prompts[-1][1]
 
 
+CLASH_CMD = ("python -c \"import pathlib,sys; a=pathlib.Path('src/P01-T01.txt'); b=pathlib.Path('src/P01-T02.txt'); "
+             "bad=a.exists() and b.exists() and b.read_text().startswith('impl'); "
+             "print('test_no_clash FAILED') if bad else None; sys.exit(1 if bad else 0)\"")
+
+
+class Together2(Together):
+    """O8: each task passes alone; with the other it fails. The redo of T02 writes other content."""
+
+    def run(self, req):
+        res = super().run(req)
+        if "implement task P01-T02" in req.prompt and sum(1 for c in self.calls if c[0] == "P01-T02") > 1:
+            (Path(req.cwd) / "src" / "P01-T02.txt").write_text("redo\n")
+        return res
+
+
+def test_merge_is_gated_on_the_merged_tree_and_a_clash_goes_back(tmp_path):
+    fake = Together2(2)
+    root = make_project(tmp_path, independent(2), {**PAR, "commands": {"test": [CLASH_CMD]}})
+    orch = Orchestrator(root, backend=fake, sleep=lambda s: None)
+    assert orch.run() == "plan complete"
+    t2 = [c for c in fake.calls if c[0] == "P01-T02"]
+    assert len(t2) == 2 and orch.state.task("P01-T02")["attempts"] == 2  # parallel try bounced, serial redo
+    assert "redo it on top of the current main" in fake.prompts[-1][1] and "test_no_clash FAILED" in fake.prompts[-1][1]
+    assert "repair main" not in git(root, "log", "--format=%s")  # main was never red
+
+
+def test_a_red_batch_takes_the_last_task_off_main(tmp_path):
+    root = make_project(tmp_path, independent(2), {**PAR, "commands": {"test": [CLASH_CMD]}})
+    orch = Orchestrator(root, backend=Together2(2), sleep=lambda s: None)
+    orch.run()
+    t = orch.plan.task_by_id["P01-T02"]
+    before = orch.git.head()
+    (root / "src" / "P01-T02.txt").write_text("impl P01-T02\n")  # the clash lands on main
+    orch.git.commit_all("clash")
+    orch.landed = [(t, before)]
+    assert orch._revert_red_batch() is True and orch.git.head() == before
+    row = orch.state.task("P01-T02")
+    assert row["status"] == "pending" and "test_no_clash FAILED" in row["last_error"]
+
+
 def test_gate_failure_in_a_worktree_retries_serially(tmp_path):
     fake = Together(2, behaviours={"P01-T02": ["break", "ok"]})
     _, orch, outcome = run(tmp_path, independent(2), fake)

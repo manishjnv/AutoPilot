@@ -1302,7 +1302,7 @@ class Orchestrator:
         self.window_gate("task", "")
         self._journal(current="parallel: " + ", ".join(t.id for t in tasks), state="Code", task="")
         base, config_before = self.git.ref(self.main), self.git.config_text()
-        jobs = []
+        jobs, self.landed = [], []  # landed: (task, main before its merge) in merge order
         for t in tasks:
             path, branch = self._worktree_root() / t.id, f"autopilot/{t.id}"
             self.git.add_worktree(path, branch, self.main)
@@ -1363,9 +1363,10 @@ class Orchestrator:
                     merged += 1
             finally:
                 self.git.drop_worktree(path, branch)
-        # each gate saw only its own change: changes that pass alone can still break together, so check main once
-        if merged > 1 and not self.ensure_main_green():
+        # O8: each merge was gated on top of main already; one full check at the end takes any red task off main
+        if merged > 1 and not self._revert_red_batch() and not self.ensure_main_green():
             self.start_main_red()
+        self._push()
         if limited:
             self.backoff(limited)
 
@@ -1383,20 +1384,51 @@ class Orchestrator:
         files, summary = wt.staged_files(), str(res.report.get("summary", "")).strip()
         wt.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}{new_file_lines(res.report)}\n\n"
                       f"model: {model}, attempt 1 (parallel)")
+        # O8: merge into a temporary branch cut from the current main, gate that merged tree, then fast-forward main
+        tmp, tpath = f"autopilot/merge-{task.id}", Path(str(path) + "-merge")
+        before = self.git.head()
         try:
-            sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
-        except GitError as exc:
-            return f"merge conflict with work merged in parallel; redo it on top of the current main: {exc}"
+            self.git.add_worktree(tpath, tmp, self.main)
+            try:
+                Git(tpath).run("merge", "-q", "--no-ff", "-m", f"[autopilot] merge {task.id}: {task.title}", branch)
+            except GitError as exc:
+                Git(tpath).run("merge", "--abort", check=False)
+                return f"merge conflict with work merged in parallel; redo it on top of the current main: {exc}"
+            merged = main_gate(Config(tpath, self.cfg.data))
+            if not merged.ok:
+                return ("the checks fail on the merged result (this change on top of the current main); redo it on "
+                        "top of the current main:\n" + merged.report())
+            self.git.checkout_main(self.main)
+            self.git.run("merge", "-q", "--ff-only", tmp)
+            sha = self.git.head()
+        finally:
+            self.git.drop_worktree(tpath, tmp)
+        self.landed.append((task, before))
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
         nxt = self.plan.next_ready(self.state.status_map(), self.cfg.get("scheduling.phase_dependency", "soft"))
         self.docs.task_done(task, phase, res.report, model=model, attempt=1, cost=self.state.cost(task_id=task.id),
                             gate_warnings=gate.warnings, files=files, next_task=nxt.id if nxt else None)
         self.docs.status(self.plan, self.state.status_map())
         self.git.commit_all(f"[autopilot] docs for {task.id}: {task.title}")
-        self._push()
         self._quality(task, model)
         log.info("task %s done in parallel (%s)", task.id, model)
         return ""
+
+    def _revert_red_batch(self) -> bool:
+        """O8: while the checks on main fail, take the last task of the batch off main (main goes back to before its
+        merge), put it back in the queue with the failing output, and check again. True = main is green."""
+        while True:
+            gate = main_gate(self.cfg)
+            if gate.ok:
+                return True
+            if not self.landed:
+                return False
+            task, before = self.landed.pop()
+            self.git.reset_hard(before)
+            self.state.set_task(task.id, status="pending", commit_sha=None, finished_at=None,
+                                last_error=("merged with the other tasks of the batch, the checks on main failed; "
+                                            "redo it on top of the current main:\n" + gate.report())[-6000:])
+            log.info("parallel: %s taken off main, the checks failed with it", task.id)
 
     # ------------------------------------------------------------------ P4: PR mode
     def _gh(self, *args: str, check: bool = True, timeout: float = 120):
