@@ -175,6 +175,35 @@ def test_root_install_script_rejects_a_bad_ref(tmp_path):
     assert p.returncode == 2
 
 
+# ---- N5: Python when missing, `ap` on PATH, one final line ----
+FINAL_LINE = "Open a project folder and type `ap`."
+ROOT_INSTALL_PS1 = ROOT_INSTALL.with_name("install.ps1")
+
+
+def test_install_scripts_install_python_only_when_missing_and_check_ap():
+    for script in (ROOT_INSTALL, ROOT_INSTALL_PS1):
+        text = script.read_text(encoding="utf-8")
+        assert "uv python install" in text and "3, 10" in text, script.name
+        assert "ap is on PATH" in text, script.name
+        last = [x for x in text.rstrip().splitlines() if x.strip() not in ("", "}", 'main "$@"')][-1]
+        assert last.endswith(FINAL_LINE + "'"), script.name
+    sh = ROOT_INSTALL.read_text(encoding="utf-8")
+    assert sh.index("if pyok;") < sh.index("uv python install 3.12 ||")
+    assert "have ap" in sh and "Command: $pycmd" in sh
+
+
+def test_root_install_dry_run_ends_with_the_one_final_line(tmp_path):
+    if sys.platform == "win32" or not shutil.which("bash"):
+        return  # the text checks above cover the scripts; the dry run needs a POSIX bash (WSL runs it)
+    home, empty = tmp_path / "home", tmp_path / "empty"
+    home.mkdir(), empty.mkdir()
+    p = subprocess.run([shutil.which("bash"), str(ROOT_INSTALL), "--dry-run"], capture_output=True, text=True,
+                       env={"HOME": str(home), "PATH": str(empty)})
+    assert p.returncode == 0, p.stderr
+    assert p.stdout.splitlines()[-1] == FINAL_LINE
+    assert "Command: uv python install 3.12" in p.stdout and "would check: ap is on PATH" in p.stdout
+
+
 # ---- H5: the guided start (plain `autopilot` in a terminal, no project here) ----
 PLAN_STUB = ("if sys.argv[1:2] == ['--version']: print('2.1.286 (Claude Code)')\n"
              "elif sys.argv[1:2] == ['auth']: sys.exit(AUTH)\n"
@@ -256,9 +285,82 @@ def test_guided_start_now_runs_that_folder(tmp_path, monkeypatch, capsys):
     assert calls == [str((work / "a-todo-list-cli").resolve())]
 
 
+# ---- N4: plain `ap` in a folder with code and no .agent/ ----
+ADOPT_STUB = ("if sys.argv[1:2] == ['--version']: print('2.1.286 (Claude Code)')\n"
+              "elif sys.argv[1:2] == ['auth']: sys.exit(0)\n"
+              "else:\n"
+              "    import pathlib, yaml\n"
+              "    p = pathlib.Path('.agent/project.yaml')\n"
+              "    p.write_text(p.read_text().replace('  test: []', \"  test: ['true']\"))\n"
+              "    t = [{'id': f'P01-T0{i}', 'title': f's{i}', 'status': 'done', 'acceptance_criteria': ['ok']} for i in (1, 2)]\n"
+              "    t.append({'id': 'P01-T03', 'title': 'export csv', 'acceptance_criteria': ['csv']})\n"
+              "    pathlib.Path('.agent/plan.yaml').write_text(yaml.safe_dump({'version': 1, 'goal': 'g', 'phases': "
+              "[{'id': 'P01', 'title': 'All', 'goal': 'g', 'tasks': t}]}))\n"
+              "    print(json.dumps({'type': 'result', 'result': 'ok', 'session_id': 's1'}))\n")
+
+
+def adopt_folder(tmp_path, monkeypatch, answers, tty=True):
+    work, home = guided(tmp_path, monkeypatch, answers, tty=tty)
+    monkeypatch.setenv("AUTOPILOT_CLAUDE_BIN", stub_claude(tmp_path, ADOPT_STUB))
+    (work / "app.py").write_text("print('hi')\n")
+    (work / "PLAN.md").write_text("# Plan\n- [x] one\n- [x] two\n- [ ] export csv\n")
+    return work
+
+
+def test_code_without_agent_dir_is_adopted_and_not_now_does_not_start(tmp_path, monkeypatch, capsys):
+    work = adopt_folder(tmp_path, monkeypatch, ["2"])
+    monkeypatch.setattr("autopilot.cli.cmd_run", lambda a: pytest.fail("the run started"))
+    assert cli_main([]) == 0
+    out = capsys.readouterr().out
+    assert (work / ".agent" / "project.yaml").exists() and (work / ".agent" / "plan.yaml").exists()
+    assert "done" in out and "P01-T03" in out and "  1  start now" in out
+    assert f"autopilot run -C {work.resolve()}" in out
+
+
+def test_code_without_agent_dir_start_now_runs_that_folder(tmp_path, monkeypatch, capsys):
+    work = adopt_folder(tmp_path, monkeypatch, ["1"])
+    calls = []
+    monkeypatch.setattr("autopilot.cli.cmd_run", lambda a: calls.append(a.path) or 0)
+    assert cli_main([]) == 0
+    assert calls == [str(work.resolve())]
+
+
+def test_empty_and_dotfile_folders_show_the_idea_prompt(tmp_path, monkeypatch, capsys):
+    work, _ = guided(tmp_path, monkeypatch, [""])
+    (work / ".git").mkdir()
+    assert cli_main([]) == 0
+    assert "What you can do next" in capsys.readouterr().out and not (work / ".agent").exists()
+
+
+def test_agent_folder_runs_no_onboarding(tmp_path, monkeypatch, capsys):
+    work = adopt_folder(tmp_path, monkeypatch, [])
+    (work / ".agent").mkdir()
+    (work / ".agent" / "project.yaml").write_text("name: x\n")
+    monkeypatch.setattr("autopilot.cli.cmd_onboard", lambda a: pytest.fail("onboarding ran"))
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("a question was asked"))
+    assert cli_main([]) == 0
+    assert "What you can do next" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("case", ["empty", "code", "agent"])
+def test_no_terminal_never_asks_in_any_case(tmp_path, monkeypatch, capsys, case):
+    work = adopt_folder(tmp_path, monkeypatch, [], tty=False)
+    if case == "empty":
+        for f in list(work.iterdir()):
+            f.unlink()
+    if case == "agent":
+        (work / ".agent").mkdir()
+        (work / ".agent" / "project.yaml").write_text("name: x\n")
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("a question was asked with no terminal"))
+    monkeypatch.setattr("autopilot.cli.cmd_onboard", lambda a: pytest.fail("onboarding ran"))
+    assert cli_main([]) == 0
+    assert "What you can do next" in capsys.readouterr().out
+    assert (work / ".agent").exists() == (case == "agent")
+
+
 def test_folder_safety(tmp_path, monkeypatch, capsys):
     work, home = guided(tmp_path, monkeypatch, [])
-    full = work / "full"
+    full = tmp_path / "full"  # N4: a file in the work folder would make it an adopt case
     full.mkdir()
     for n in range(12):
         (full / f"f{n}.txt").write_text("x")
@@ -284,3 +386,48 @@ def test_a_missing_login_stops_before_anything_is_created(tmp_path, monkeypatch,
     work, _ = guided(tmp_path, monkeypatch, ["an app", "", "", "2"], auth=1)
     assert cli_main([]) == 1
     assert not (work / "an-app").exists()
+
+
+# ---- P05-T02: README install lines, honest limits, links ----
+README = ROOT_INSTALL.with_name("README.md")
+RUNNERS = ("Claude Code", "kiro-cli", "cursor-agent", "codex", "gemini", "aider")
+
+
+def test_readme_has_one_install_line_per_system():
+    text = README.read_text(encoding="utf-8")
+    win = "irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 | iex"
+    nix = "curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash"
+    assert text.count(win) == 1 and text.count(nix) == 1
+    assert "install.ps1 | iex" not in text.replace(win, "") and "install.sh | " not in text.replace(nix, "")
+    assert text.index(win) < text.index(nix) < text.index(FINAL_LINE)
+    assert "Open a project folder and type `ap`." in text
+
+
+def test_readme_honest_limits_name_the_gaps_and_the_runners():
+    text = README.read_text(encoding="utf-8")
+    section = text[text.index("## Honest limits"):text.index("**After the run:**")]
+    for name in ("Replit", "Kiro", "Cursor", *RUNNERS):
+        assert name in section, name
+
+
+def test_readme_relative_links_point_to_existing_files():
+    import re
+    text = README.read_text(encoding="utf-8")
+    targets = {m for m in re.findall(r"\]\(([^)\s]+)\)", text) if "://" not in m and not m.startswith("mailto:")}
+    assert targets
+    missing = [t for t in sorted(targets) if not (README.parent / t.split("#", 1)[0]).exists()]
+    assert missing == []
+
+
+def test_piped_install_sh_dry_run_runs_the_script(tmp_path):
+    """P05-T02: the README line `curl ... | bash` runs the script; here the script arrives on stdin, as in the pipe."""
+    if sys.platform == "win32" or not shutil.which("bash"):
+        return  # the text checks cover the README; the piped run needs a POSIX bash (WSL runs it)
+    home, empty = tmp_path / "home", tmp_path / "empty"
+    home.mkdir(), empty.mkdir()
+    env = {"HOME": str(home), "PATH": str(empty), "AUTOPILOT_DRY_RUN": "1"}
+    p = subprocess.run([shutil.which("bash")], input=ROOT_INSTALL.read_bytes(), capture_output=True, env=env)
+    out = p.stdout.decode()
+    assert p.returncode == 0, p.stderr.decode()
+    assert "==> Step 1 of 5:" in out and out.splitlines()[-1] == FINAL_LINE
+    assert list(home.iterdir()) == []

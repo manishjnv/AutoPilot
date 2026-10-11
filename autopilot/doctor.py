@@ -16,9 +16,9 @@ OK, WARN, FAIL = "ok", "WARN", "FAIL"
 NOTIFY_ENVS = ("telegram_token_env", "slack_webhook_env", "webhook_env", "ntfy_topic_env")
 
 
-def _run(cmd: list[str], cwd=None) -> tuple[int, str]:
+def _run(cmd: list[str], cwd=None, timeout: float = 30) -> tuple[int, str]:
     try:
-        p = run_proc(cmd, cwd=cwd, timeout=30)
+        p = run_proc(cmd, cwd=cwd, timeout=timeout)
     except OSError as exc:
         return 127, str(exc)
     return p.rc, (p.stdout + p.stderr).strip()
@@ -40,9 +40,9 @@ def other_auth(cfg) -> str:
     return name or ("usage.billing: api" if cfg is not None and cfg.get("usage.billing") == "api" else "")
 
 
-def check_login(binary: str, version: tuple, cfg) -> tuple[str, str, str]:
+def check_login(binary: str, version: tuple, cfg, timeout: float = 30) -> tuple[str, str, str]:
     """H2: FAIL only when a login is surely missing: a CLI that has `auth status`, and no other way to pay."""
-    rc, out = _run([binary, "auth", "status"])  # documented from 2.1.268: exit 0 = logged in
+    rc, out = _run([binary, "auth", "status"], timeout=timeout)  # documented from 2.1.268: exit 0 = logged in
     other = other_auth(cfg)
     if rc == 0:
         # only the sure case: a claude.ai login (not a key, not a gateway) on the free plan, and no other way to pay
@@ -55,6 +55,53 @@ def check_login(binary: str, version: tuple, cfg) -> tuple[str, str, str]:
     if other:
         return WARN, "claude login", f"not logged in; sessions use {other}"
     return FAIL, "claude login", f"not logged in: {LOGIN_FIX}"
+
+
+# N3: agent CLIs in the order preflight tries them -> (binary, backend choice, read-only status argv or None,
+# documented key variables). A key variable counts first: no process to start. Never a `login` argument here.
+LOGIN_TIMEOUT = 10
+RUNNERS = (
+    ("claude", "claude_cli", None, OTHER_AUTH),
+    ("kiro-cli", "kiro", ("whoami",), ("KIRO_API_KEY",)),
+    ("cursor-agent", "cursor", ("status",), ("CURSOR_API_KEY",)),
+    ("codex", "codex", ("login", "status"), ("CODEX_API_KEY",)),
+    ("gemini", "gemini", None, ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
+    ("aider", "aider", None, ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY",
+                              "DEEPSEEK_API_KEY")),
+)
+# exit codes of the status commands are not documented: a logged-out CLI may still exit 0
+LOGGED_OUT = re.compile(r"not (logged|signed) in|not authenticated|unauthenticated|logged out|no (active )?"
+                        r"(session|credentials)|please (log|sign) ?in", re.I)
+
+
+def _logged_in(path: str, binary: str, status: tuple | None, keys: tuple, env: dict) -> bool:
+    """N3: True when a key variable is set (only its presence is read), or the status command exits 0 within
+    LOGIN_TIMEOUT without logged-out wording. A timeout or a program that does not start counts as logged out."""
+    if any(env.get(k) for k in keys):
+        return True
+    if binary == "claude":
+        return check_login(path, (0, 0, 0), None, timeout=LOGIN_TIMEOUT)[0] == OK
+    if not status:
+        return False
+    try:
+        p = run_proc([path, *status], env=dict(env), timeout=LOGIN_TIMEOUT)
+    except OSError:
+        return False
+    return p.rc == 0 and not p.timed_out and not LOGGED_OUT.search(p.stdout + p.stderr)
+
+
+def detect_runner(env=None) -> str | None:
+    """N3: the backend choice (`claude_cli`, or a preset name) of the first agent CLI on PATH that is installed and
+    logged in, in RUNNERS order; None when there is none. Read-only: never starts a login."""
+    env = dict(os.environ if env is None else env)
+    path = next((v for k, v in env.items() if k.upper() == "PATH"), "")
+    if not path:
+        return None
+    for binary, backend, status, keys in RUNNERS:
+        exe = shutil.which(binary, path=path)
+        if exe and _logged_in(exe, binary, status, keys, env):
+            return backend
+    return None
 
 
 def check_claude(cfg=None) -> list[tuple[str, str, str]]:
@@ -235,6 +282,107 @@ def check_user_guards(cfg: Config) -> tuple[str, str, str] | None:
             "Autopilot sessions do not load them. To keep them, set agent.user_config: true")
 
 
+def _venv_in(root: Path, names=(".venv",)) -> bool:
+    return any((root / n / "pyvenv.cfg").is_file() or (root / n / "bin").is_dir() or (root / n / "Scripts").is_dir()
+               for n in names)
+
+
+def _nonempty(p: Path) -> bool:
+    try:
+        return p.is_dir() and any(p.iterdir())
+    except OSError:
+        return False
+
+
+def _go_cache() -> Path:
+    mc = os.environ.get("GOMODCACHE")
+    if mc:
+        return Path(mc)
+    return Path((os.environ.get("GOPATH") or "").split(os.pathsep)[0] or Path.home() / "go") / "pkg" / "mod"
+
+
+def _cargo_registry() -> Path:
+    return Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo") / "registry"
+
+
+def missing_deps(root) -> list[dict]:
+    """N2: pure check, no install. One item {lock, command, tool} per lock or manifest file whose dependency folder
+    is missing. Presence checks: node_modules/ (npm, pnpm, yarn); .venv/ or venv/ (uv, poetry; a Poetry venv outside
+    the project gives a false WARN); a venv in the project or an active one (requirements); a non-empty Go module
+    cache or vendor/ (go.sum); target/ or the cargo registry (Cargo.lock)."""
+    root = Path(root)
+    out: list[dict] = []
+
+    def add(lock, command, tool):
+        out.append({"lock": lock, "command": command, "tool": tool})
+
+    def has(n):
+        return (root / n).is_file()
+    if has("package-lock.json") and not (root / "node_modules").is_dir():
+        add("package-lock.json", "npm ci", "npm")
+    if has("pnpm-lock.yaml") and not (root / "node_modules").is_dir():
+        add("pnpm-lock.yaml", "pnpm install --frozen-lockfile", "pnpm")
+    if has("yarn.lock") and not (root / "node_modules").is_dir():
+        try:
+            berry = "__metadata:" in (root / "yarn.lock").read_text(encoding="utf-8", errors="replace")[:4000]
+        except OSError:
+            berry = False
+        add("yarn.lock", "yarn install --immutable" if berry else "yarn install --frozen-lockfile", "yarn")
+    if has("uv.lock") and not _venv_in(root, (".venv", "venv")):
+        add("uv.lock", "uv sync", "uv")
+    if has("poetry.lock") and not _venv_in(root, (".venv", "venv")):
+        add("poetry.lock", "poetry install", "poetry")
+    reqs = sorted(p.name for p in root.glob("requirements*.txt") if p.is_file())
+    active = bool(os.environ.get("VIRTUAL_ENV")) or sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+    if reqs and not active and not _venv_in(root, (".venv", "venv", "env")):
+        for r in reqs:
+            add(r, f"pip install -r {r}", "python")
+    if has("go.sum") and not (_nonempty(_go_cache()) or (root / "vendor").is_dir()):
+        add("go.sum", "go mod download", "go")
+    if has("Cargo.lock") and not ((root / "target").is_dir() or _nonempty(_cargo_registry())):
+        add("Cargo.lock", "cargo fetch", "cargo")
+    return out
+
+
+_HINTS = {  # tool -> (windows, linux, macos)
+    "python": ("winget install -e --id Python.Python.3.12", "sudo apt install python3 python3-venv python3-pip",
+               "brew install python"),
+    "node": ("winget install -e --id OpenJS.NodeJS.LTS", "sudo apt install nodejs npm", "brew install node"),
+    "git": ("winget install -e --id Git.Git", "sudo apt install git", "brew install git"),
+    "go": ("winget install -e --id GoLang.Go", "sudo apt install golang-go", "brew install go"),
+    "uv": ("winget install -e --id astral-sh.uv", "curl -LsSf https://astral.sh/uv/install.sh | sh",
+           "brew install uv"),
+    "poetry": ("pipx install poetry", "pipx install poetry", "pipx install poetry"),
+    "cargo": ("winget install -e --id Rustlang.Rustup", "curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh",
+              "curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh"),
+    "pnpm": ("npm install -g pnpm", "npm install -g pnpm", "npm install -g pnpm"),
+    "yarn": ("npm install -g yarn", "npm install -g yarn", "npm install -g yarn"),
+}
+_HINTS["npm"] = _HINTS["node"]
+_HINTS["rust"] = _HINTS["cargo"]
+
+
+def system_tool_hint(tool: str, platform: str | None = None) -> str:
+    """N2: the exact install command of a system tool for this OS (`platform` is sys.platform; default the current).
+    Autopilot prints it and never runs it. '' for an unknown tool."""
+    row = _HINTS.get(str(tool).lower().strip())
+    if not row:
+        return ""
+    p = platform or sys.platform
+    return row[0] if p.startswith("win") else row[2] if p == "darwin" else row[1]
+
+
+def check_deps(cfg: Config) -> tuple[str, str, str] | None:
+    """N2: WARN row naming the lock files whose dependencies are not installed, with the command."""
+    miss = missing_deps(cfg.root)
+    if not miss:
+        return None
+    parts = [f"{m['lock']}: {m['command']}" + ("" if shutil.which(m["tool"]) or (m["tool"] == "python"
+             and (shutil.which("python") or shutil.which("python3"))) else f" (needs {m['tool']}: "
+             f"{system_tool_hint(m['tool'])})") for m in miss]
+    return (WARN, "dependencies", "not installed; run " + "; ".join(parts))
+
+
 def checks(cfg: Config) -> list[tuple[str, str, str]]:
     """(level, name, detail) per check. FAIL = the run would break; WARN = it runs, but something is missing."""
     out = [check_path()]
@@ -275,6 +423,7 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
         out.append((FAIL if miss else OK, "telegram chat", f"chat.enabled but {', '.join(miss)} not set" if miss
                     else "bot token and chat id set"))
 
+    out += [d for d in [check_deps(cfg)] if d]
     line = _config_load_line(cfg)
     if line:
         out.append((OK, "claude config", line + " (from the last session)"))

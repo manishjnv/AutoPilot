@@ -18,10 +18,11 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot quickstart --idea "text"` | Claude writes `PLAN.md` from your idea first. The text can also be a file |
 | `autopilot quickstart --plan-doc FILE` | Makes the tasks from a different plan file |
 | `autopilot quickstart -C myapp --idea "text" --run` | Makes the folder `myapp`, writes the plan, makes the tasks, checks your computer, and starts the run |
-| `autopilot init [--stack X]` | Makes `.agent/` only. `quickstart` does this for you |
-| `autopilot onboard [--plan-doc FILE]` | One session writes `BRAIN.md`, the commands and `plan.yaml`. With no file, it reads the repository |
+| `autopilot init [--stack X]` | Makes `.agent/` only. `quickstart` does this for you. It also adds one short Autopilot block (`ap status`, `ap next`, `ap start`; no plan files, change the plan with `ap change`) to `CLAUDE.md` and to the rule file of each IDE it finds: `.cursor/` gets `.cursor/rules/autopilot.mdc`, `.kiro/` gets `.kiro/steering/autopilot.md`, `.vscode/` gets `.github/copilot-instructions.md`, and `GEMINI.md` and `AGENTS.md` get the block at the end. The block has begin and end marker comments. A second `init` finds the marker and writes nothing. Your own text is never changed |
+| `autopilot onboard [--plan-doc FILE]` | One session writes `BRAIN.md`, the commands and `plan.yaml`. With no file, it reads the repository. The session gets a discovery pack (git log, documents, stack files, one test run) and four rules: read first, mark existing work `status: done`, link documents, keep file names. New files outside `.agent/` and `CLAUDE.md` are named in a warning |
 | `autopilot validate` | Checks `project.yaml` and `plan.yaml` for errors |
-| `autopilot doctor [--fix]` | Checks the Claude CLI and its login, git, `gh`, the sandbox tools, the alerts, and the settings. A missing login is a `FAIL`. `--fix` repairs what needs no person |
+| `autopilot doctor [--fix]` | Checks the Claude CLI and its login, git, `gh`, the sandbox tools, the alerts, the settings, and project dependencies that are not installed (a `WARN` with the install command). A missing login is a `FAIL`. `--fix` repairs what needs no person |
+| `autopilot run` (and `start`, `quickstart`) preflight | Before the first session, Autopilot checks the project dependencies (`node_modules/`, a virtual environment, the Go and Cargo caches). If some are missing, it runs `commands.setup`. When `commands.setup` is empty, it runs the standard command (for example `npm ci`) and writes it into `commands.setup` of `project.yaml`. The comments in the file stay. A failed install prints the command and the end of its output, and the run does not start. If the system tool is not installed (for example `npm`), Autopilot never installs it. It prints `FAIL  <tool> is not installed. Install it with: <command>` and stops |
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
 | `autopilot run` | Builds until the completion audit passes |
 | `autopilot start` | Starts or continues the build in the background. It is the same as `run --clear-stop --detach` |
@@ -94,6 +95,8 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `logs/` | The log, the session logs, and the crash reports | No |
 | `STOP` | The stop flag from `autopilot stop` | No |
 
+**Task key `status` in `plan.yaml`:** `status: done` says the work exists already (in the code or the git log). When the task is new, or still pending, Autopilot records it as done with the note `done before Autopilot`. It never changes a task that is running, blocked, skipped or done. If you remove the key later, the task stays done. Any other value is an error that names the task.
+
 **In `docs/` of your project:**
 
 | File | Content |
@@ -114,8 +117,9 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | Section | Controls | Important keys (default) |
 |---|---|---|
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
-| `gate` | The checks | `test_globs`, `ci_files`, `protected` |
-| `agent` | The agent CLI | `backend` (`claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
+| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing) |
+| `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
+| `onboard` | Onboarding discovery pack | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | The network allowlist | `enabled` (false), `allowed_domains` |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
@@ -141,6 +145,28 @@ and the project's own `.claude/settings.json` and `.mcp.json` also load. Thus a 
 Your own settings add cost and context to each session. To load them too, for example a proxy or an
 `apiKeyHelper`, set `agent.user_config: true`.
 
+Runner detection: when the project's own `.agent/project.yaml` sets no `agent.backend`, `agent.command` or
+`agent.preset`, preflight (before `ap run` and `ap onboard`) detects the first installed, logged-in CLI in this order and
+writes it: `claude`, `kiro-cli`, `cursor-agent`, `codex`, `gemini`, `aider`. It prints `runner: <name> (found on
+PATH)`. For `claude` it writes `backend: claude_cli`; for a different CLI, `backend: command` and the preset. When it
+finds no CLI, it prints the install command of Claude Code and stops. A value that you set is never changed.
+
+Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
+`agent.model_map` gives the model option (`-m`, or `--model` for kiro, cursor and aider).
+
+| Preset | Runs | The prompt goes in |
+|---|---|---|
+| `codex` | `codex exec` | standard input |
+| `gemini` | `gemini -p` | standard input |
+| `opencode` | `opencode run` | standard input |
+| `kiro` | `kiro-cli chat --no-interactive --trust-all-tools` | standard input |
+| `cursor` | `cursor-agent -p --force --trust` | standard input |
+| `aider` | `aider --message-file ... --yes-always --no-auto-commits` | a temporary file outside the project |
+
+In your own `agent.command`, `{prompt_file}` gives the path of a temporary file with the prompt, and `{model_flag}`
+gives the model option. The prompt also goes in on standard input. The kiro and cursor presets approve all tools,
+so run them in a virtual machine or a container.
+
 When the `gh` CLI is logged in, each commit of Autopilot uses your GitHub no-reply address as the author and the
 committer. Your git settings do not change.
 
@@ -164,6 +190,7 @@ The gate runs these guards on each task before the checks. A guard that finds a 
 | Protected file | A change to the plan, the settings, the questions file, the backlog, or a path in `gate.protected` |
 | Secret scan | An added line that looks like a key, a token, or a password |
 | Empty change | No changed files, unless the task has `allow_no_changes: true` |
+| New file | An added file with no reason in the report field `new_files`. Test files (`gate.test_globs`) and files in `.agent/` need no reason. A move or a rename needs no reason. The problem quotes the rule, and the retry prompt gets it. This guard runs when `gate.new_file_reasons` is `true`. It is `true` in new projects and off when the key is missing |
 
 A task with `allow_test_changes: true` gets the test guards as warnings, not as failures. The paths of test files
 come from `gate.test_globs`.

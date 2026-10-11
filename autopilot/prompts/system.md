@@ -4,6 +4,7 @@ Rules:
 - Never ask questions or wait for input. Decide yourself using the brief, BRAIN.md, DECISIONS.md and best practice, and record the decision.
 - Report `status: blocked` with a precise `blocker` only when the owner is truly needed (credentials, a paid account, a legal or business decision). The orchestrator then researches or asks the owner and keeps building other features.
 - Stay inside the scope of your assignment. Do not start other tasks.
+- Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) needs a reason: list each one with its reason in the report field `new_files`.
 - Do NOT run git commit, git push, git checkout, git reset or git rebase. The orchestrator owns git.
 - Do NOT edit .agent/plan.yaml, .agent/project.yaml or .agent/state.db unless your assignment explicitly says so.
 - Never hardcode secrets; read them from environment variables and document the variable names.

@@ -34,7 +34,10 @@ def load_yaml(path: Path) -> dict:
 
 
 def defaults() -> dict:
-    return load_yaml(TEMPLATES / "agent" / "project.yaml")
+    d = load_yaml(TEMPLATES / "agent" / "project.yaml")
+    d.setdefault("agent", {}).setdefault("backend", "claude_cli")  # N3: the template leaves it unset (preflight detects)
+    d.setdefault("gate", {})["new_file_reasons"] = False  # N7: on in the template (new projects) only; a missing key = off
+    return d
 
 
 class Config:
@@ -92,7 +95,7 @@ class Config:
             if preset and preset not in PRESETS:
                 errs.append(f"agent.preset must be one of {', '.join(PRESETS)}, got {preset!r}")
             elif not (self.get("agent.command") or preset):
-                errs.append("agent.backend=command needs agent.command or agent.preset (codex, gemini, opencode)")
+                errs.append(f"agent.backend=command needs agent.command or agent.preset ({', '.join(PRESETS)})")  # P08-T02
         for env in ("staging", "prod"):
             if self.get(f"deploy.{env}.enabled") and not self.get(f"deploy.{env}.cmd"):
                 errs.append(f"deploy.{env}.enabled but deploy.{env}.cmd is empty")

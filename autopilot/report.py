@@ -487,6 +487,43 @@ def next_steps_text(root, running: bool | None = None) -> str:
     return "\nWhat you can do next:\n" + "\n".join(f"  {t}" for t in next_steps(root, running)) + "\n"
 
 
+# ---------- N4: one screen after an adopt ----------
+def adopt_summary(root, max_phases: int = 12) -> str:
+    """N4: what is done, what is open, the next task and the owner tasks, in at most about 20 plain lines. Works
+    before the state DB exists: the status then comes from plan.yaml (`status: done`, N1). Never creates the DB."""
+    from pathlib import Path
+
+    from . import AGENT_DIR
+    from .plan import Plan
+    from .state import State
+    root = Path(root)
+    plan = Plan.load(root / AGENT_DIR / "plan.yaml")
+    status = {t.id: t.status or "pending" for t in plan.all_tasks()}
+    if (root / AGENT_DIR / "state.db").exists():
+        db = State(root / AGENT_DIR / "state.db")
+        try:
+            status.update({k: v for k, v in db.status_map().items() if k in status})
+        finally:
+            db.close()
+    tasks = plan.all_tasks()
+    done = [t for t in tasks if status.get(t.id) == "done"]
+    nxt = plan.next_ready(status)
+    owner = [t.id for t in tasks if t.owner_only and status.get(t.id) != "done"]
+    lines = [f"Project: {root.name}",
+             f"Done: {len(done)} of {len(tasks)} tasks. Open: {len(tasks) - len(done)}."]
+    if plan.phases:
+        lines.append("Phases:")
+        for p in plan.phases[:max_phases]:
+            n = sum(1 for t in p.tasks if status.get(t.id) == "done")
+            lines.append(f"  {p.id} {p.title[:40]}: {n} of {len(p.tasks)} done")
+        if len(plan.phases) > max_phases:
+            lines.append(f"  ... and {len(plan.phases) - max_phases} more phases")
+    lines.append(f"Next: {nxt.id} {nxt.title}" if nxt else "Next: none. Every task is done or waits for a blocked one.")
+    if owner:
+        lines.append(f"Waits for you (owner tasks): {', '.join(owner)}.")
+    return "\n".join(lines) + "\n"
+
+
 # ---------- live view: `autopilot watch` and the "Now" section of the status page ----------
 def run_journal(root) -> dict:
     from pathlib import Path

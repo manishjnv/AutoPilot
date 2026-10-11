@@ -13,6 +13,9 @@ fail() { echo "FAILED: step $1. Run this by hand: $2" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 ver() { local v; v=$("$1" --version 2>&1) || true; echo "${v%%$'\n'*}"; }
 
+# A Python >= 3.10 on PATH (N5)
+pyok() { local p; for p in python3 python; do have "$p" && "$p" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1 && return 0; done; return 1; }
+
 # ensure <n> <name> <program> <fixed install command>
 ensure() {
   step "$1" "$2"
@@ -57,6 +60,14 @@ main() {
   ensure 3 "Claude Code" claude "curl --proto '=https' --tlsv1.2 -fsSL https://claude.ai/install.sh | bash"
 
   step 4 Autopilot
+  # N5: Autopilot cannot run without Python 3.10 or newer. This is the one system install; uv installs it for this user.
+  pycmd="uv python install 3.12"
+  if pyok; then echo "found: $(have python3 && ver python3 || ver python)"
+  elif [ "$dry" = 1 ]; then echo "would run (no Python 3.10 or newer found). Command: $pycmd"
+  else
+    echo "run: $pycmd"
+    uv python install 3.12 || fail 4 "$pycmd"
+  fi
   addr="git+https://github.com/manishjnv/AutoPilot@$ref"
   if have autopilot || { have uv && uv tool list 2>/dev/null | grep dev-autopilot >/dev/null; }; then
     echo "found: $(have autopilot && ver autopilot || echo dev-autopilot)"
@@ -68,6 +79,9 @@ main() {
     uv tool install "$addr" || fail 4 "uv tool install \"$addr\""
     have autopilot || fail 4 "uv tool install \"$addr\""
   fi
+  if [ "$dry" = 1 ]; then echo "would check: ap is on PATH"
+  elif have ap; then echo "found: ap"
+  else fail 4 "uv tool install --reinstall \"$addr\" (then make sure $HOME/.local/bin is on PATH)"; fi
 
   step 5 "login check"
   if [ "$skip" = 1 ]; then echo "skipped (--skip-login)"
@@ -79,8 +93,9 @@ main() {
   fi
 
   [ "$dry" = 1 ] || echo "Installed: $(ver autopilot)"
-  echo "Done. Open a NEW terminal, then run: autopilot"
   echo "To uninstall, run: uv tool uninstall dev-autopilot"
+  echo "Done. Open a NEW terminal if \`ap\` is not found."
+  echo 'Open a project folder and type `ap`.'
 }
 
 main "$@"

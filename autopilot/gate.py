@@ -43,6 +43,10 @@ PLACEHOLDER_RX = re.compile(r"(?i)example|placeholder|change_?me|dummy|fake|samp
 SKIP_HINT = (" (skips are not allowed, `skipif` on a platform condition too: make the test run on this machine, "
              "or test the behavior another way and list the gap under followups)")
 FAKE_HINT = " (test data? use a value containing example, dummy or fake)"
+# N7: the new-file rule; system.md repeats it word for word and the gate (P07-T02) quotes it in the retry
+# (only with `gate.new_file_reasons: true`)
+NEW_FILE_RULE = ("Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) "
+                 "needs a reason: list each one with its reason in the report field `new_files`.")
 SETTINGS_FILES = {"pyproject.toml", "setup.cfg", "package.json", "tox.ini", "pytest.ini"}
 SETTINGS_REMOVED_RX = re.compile(r'addopts|testpaths|python_files|"test"\s*:|testMatch|testPathIgnorePatterns')
 SETTINGS_ADDED_RX = re.compile(r"--ignore|--deselect|(^|\s)-k\s|testPathIgnorePatterns|modulePathIgnorePatterns|"
@@ -194,7 +198,25 @@ def test_tamper(cfg, git, allow: bool = False) -> list[str]:
 test_tamper.__test__ = False  # stop pytest collecting it when imported into test modules
 
 
-def task_gate(cfg, git, task) -> GateResult:
+def _norm(path) -> str:
+    return str(path).replace("\\", "/").strip().removeprefix("./")
+
+
+def missing_reasons(cfg, git, report) -> list[str]:
+    """N7: files added in the staged diff (test files, .agent/ and renames excepted) need a `new_files` reason."""
+    tests = cfg.get("gate.test_globs") or TEST_GLOBS
+    added = git.run("-c", "core.quotepath=false", "diff", "--cached", "--name-only", "--diff-filter=A", "-M").splitlines()
+    entries = report.get("new_files") if isinstance(report, dict) else None
+    reasons = {_norm(e["path"]) for e in (entries if isinstance(entries, list) else [])
+               if isinstance(e, dict) and str(e.get("path") or "").strip() and str(e.get("reason") or "").strip()}
+    bare = [p for p in added if p and not _match(p, tests) and not p.startswith(".agent/") and p not in reasons]
+    if not bare:
+        return []
+    paths = ", ".join(bare[:20]) + (f", and {len(bare) - 20} more" if len(bare) > 20 else "")
+    return [f"new file without a reason: {paths}. {NEW_FILE_RULE}"]  # the rule last: the retry keeps the tail
+
+
+def task_gate(cfg, git, task, report=None) -> GateResult:
     """Run on the task branch with the agent's changes staged."""
     gate = GateResult(ok=True)
     files = git.staged_files()
@@ -205,6 +227,8 @@ def task_gate(cfg, git, task) -> GateResult:
         gate.problems.append(f"session modified protected files: {touched_protected}")
     (gate.warnings if task.allow_test_changes else gate.problems).extend(test_tamper(cfg, git, task.allow_test_changes))
     gate.problems += scan_secrets(git.staged_added_lines())
+    if report is not None and cfg.get("gate.new_file_reasons"):  # N7: P07-T02; None = old callers, no check
+        gate.problems += missing_reasons(cfg, git, report)
     gate.warnings += [f"outside files_in_scope: {f}" for f in out_of_scope(files, task.files_in_scope)]
     if not gate.problems:
         gate.results = run_commands(verify_commands(cfg, task.verify), cfg.root,
