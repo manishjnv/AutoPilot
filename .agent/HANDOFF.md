@@ -1,13 +1,13 @@
 # Handoff
 
-Last completed: **P04-T01 — One-screen adopt summary: done, open, next** (2026-10-11)
+Last completed: **P04-T02 — Plain `ap`: adopt a project that has code and no .agent/** (2026-10-11)
 
-Added adopt_summary(root) in autopilot/report.py: from plan.yaml, or the state DB when it exists, it prints done/open counts, per-phase progress, the next ready task and open owner-only tasks, in at most about 20 plain lines. Four new tests in tests/test_adopt.py cover counts, the line limit with no escape codes, the no-state-DB case and owner tasks. The full pytest run on this machine exited 0 (2 skipped, no failures; the pass count line was not printed). Lint gate is clean.
+Plain `ap` in a terminal now decides the case from the folder. An empty folder or one with only dotfiles gets the idea prompt. A folder with code and no .agent/project.yaml is adopted: preflight, quiet init, onboarding with no plan doc, adopt_summary, then the 1/2 start choice. A folder with .agent/ keeps the old banner behavior. Verified by new tests for all three cases, including no questions without a terminal; the quickstart and adopt tests pass (30 passed, 3 skipped), ruff clean, WSL script not run.
 
-Files: autopilot/report.py, tests/test_adopt.py
+Files: GUIDE.md, README.md, autopilot/cli.py, tests/test_quickstart.py
 
 Follow-ups noted:
-- Wire adopt_summary into plain `ap` for the code-without-.agent case (next N4 step)
-- The WSL script (docs/wsltest_self.sh) was not run; the full suite ran on Windows only
+- The WSL script docs/wsltest_self.sh was not run; the tests ran on Windows only
+- test_folder_safety was changed to create its `full` folder under tmp_path, because a file in the work folder now counts as the adopt case
 
-Next planned task: P04-T02
+Next planned task: P07-T01

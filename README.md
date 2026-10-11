@@ -85,7 +85,9 @@ macOS, Linux or WSL:
 curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash
 ```
 
-Open a project folder and type `ap`.
+Open a project folder and type `ap`. In an empty folder, `ap` asks for your idea. In a folder with code and no
+`.agent/`, `ap` reads the code and the documents, shows what is done and what is open, and asks to start. In an
+Autopilot project, it continues.
 
 The script installs what is missing: git, uv, Claude Code, Python 3.10 or newer, and Autopilot. You need a paid
 Claude plan or an API key. The free Claude plan cannot use Claude Code. `ap` is the short name of `autopilot`.

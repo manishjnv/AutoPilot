@@ -33,3 +33,5 @@ Every session reads the latest entries so later work stays consistent with earli
 - [2026-10-11] [D-001] It still fails after a diagnosis and a retry. How should we proceed? → Retry on sonnet. Call the final report once at the end. Keep all 12 tests in tests/test_adopt.py, add, do not remove.
 - [2026-10-11] [P04-T01] adopt_summary reads plan.yaml and only opens state.db when it exists, so it never creates a DB — keeps a plain adopt side-effect free
 - [2026-10-11] [P04-T01] adopt_summary emits no color; no escape codes by construction — color can be added later behind a parameter
+- [2026-10-11] [P04-T02] folder_case(root) in cli.py returns agent, empty or code; entries that start with a dot do not count as content, so a bare git repo is empty — matches the 'only dotfiles / bare git repo' rule
+- [2026-10-11] [P04-T02] adopt_start refuses to adopt the home folder or a filesystem root (safe_folder) and falls back to the banner — sessions run without prompts, so the folder must be safe
