@@ -105,7 +105,7 @@ your IDE or terminal.
   uses the one that is installed and logged in. To choose one, set `agent.backend` in `.agent/project.yaml`.
 - **Not supported:** Replit has no CLI that Autopilot can call. The Kiro and Cursor chat panels have none either.
   Use the `kiro-cli` or `cursor-agent` CLI instead.
-- **Approve-all presets:** `kiro` (`--trust-all-tools`), `cursor` (`--force`) and `gemini` (yolo) approve every tool,
+- **Approve-all presets:** `kiro` (`--trust-all-tools`), `cursor` (`--force`) and `gemini` (`yolo`) approve every tool,
   not only the worktree. They never ran live. See [SECURITY.md](SECURITY.md).
 - **Where you watch:** run `ap watch` in the terminal of your IDE, or open the status page in your browser.
 

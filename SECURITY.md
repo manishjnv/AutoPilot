@@ -34,7 +34,7 @@ Three presets let the agent run every tool without a prompt. This is not limited
 |---|---|---|
 | `kiro` | `--trust-all-tools` | Every tool, with no prompt. |
 | `cursor` | `--force` | Every command, with no prompt. |
-| `gemini` | `--approval-mode=yolo` (yolo mode) | Every tool, with no prompt. |
+| `gemini` | `--approval-mode=yolo` (`yolo` mode) | Every tool, with no prompt. |
 
 - The worktree is the only boundary. The agent can still reach files and the network outside it.
 - These three presets never ran live. Autopilot wrote them from the vendor docs.

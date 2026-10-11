@@ -29,7 +29,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot watch` | Follows a run live. A large terminal window shows a dashboard. It has panels for the project, the tasks, the live output, the progress, the usage, the files, and the issues. A small window shows the scrolling view with a status panel at the bottom. Ctrl+C stops the watch, not the run |
 | `autopilot watch --scroll` | Shows the scrolling view in plain words, also in a large window |
 | `autopilot watch --detail` | Shows each technical log line as it is |
-| `autopilot mcp` | Runs an MCP server on stdin and stdout. Its tools are `ap_status`, `ap_next`, `ap_start`, `ap_stop` and `ap_answer`. Each tool runs the `ap` command of the same name and returns its text. `init` adds the server to `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kilocode/mcp.json` and `.junie/mcp/mcp.json` when they exist |
+| `autopilot mcp` | Runs an MCP server on `stdin` and `stdout`. Its tools are `ap_status`, `ap_next`, `ap_start`, `ap_stop` and `ap_answer`. Each tool runs the `ap` command of the same name and returns its text. `init` adds the server to `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kilocode/mcp.json` and `.junie/mcp/mcp.json` when they exist |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
 | `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
@@ -164,8 +164,8 @@ finds no CLI, it prints the install command of Claude Code and stops. A value th
 Runner login: before the first session, preflight checks that the configured runner is logged in with its own subscription (`claude auth status`, `codex login status`, `cursor-agent status`, `kiro-cli whoami`), with a 20 second limit and no prompt. A failed check prints the one login command (for example `codex login`) and stops. Autopilot never opens a browser and never reads a credential file. Runners that need an API key (`gemini`, `aider`, `opencode`) are not supported.
 
 Python setup: preflight never runs a bare `pip install` on the system Python. When a `requirements*.txt` file has no
-environment, preflight runs `python -m venv .venv`, then installs with the `.venv` Python. An active venv
-(`VIRTUAL_ENV`) or a project venv (`.venv`, `venv`, `env`) is used as is. `commands.setup` stores these commands.
+environment, preflight runs `python -m venv .venv`, then installs with the `.venv` Python. An active environment
+(`VIRTUAL_ENV`) or a project environment (`.venv`, `venv`, `env`) is used as is. `commands.setup` stores these commands.
 
 Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
 `agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor` and `aider` presets).
