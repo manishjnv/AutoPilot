@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
 
 # ponytail: set this to the release tag when the first tag is made
-$DefaultRef = 'main'
+$DefaultRef = 'v0.3.0'
 
 if ($env:AUTOPILOT_DRY_RUN -eq '1') { $DryRun = $true }
 if ($env:AUTOPILOT_SKIP_LOGIN -eq '1') { $SkipLogin = $true }

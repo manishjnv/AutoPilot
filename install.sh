@@ -7,7 +7,7 @@ set -eu
 set -o pipefail
 
 # ponytail: set this to the release tag when the first tag is made
-DEFAULT_REF=main
+DEFAULT_REF=v0.3.0
 
 step() { echo "==> Step $1 of 6: $2"; }
 fail() { echo "FAILED: step $1. Run this by hand: $2" >&2; exit 1; }

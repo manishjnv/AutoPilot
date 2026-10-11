@@ -6,6 +6,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-12
+
 - P10 pull-back fixes: venv install, presets security note, context imports, copilot file rule, git discard lock retry, doctor package row, parked-task test.
 - J14: short questions, own fix first, repeated report is not stuck, a cut session keeps its diff.
 - N5.1: `scripts/bump.py`, this changelog, release workflow, install scripts pinned to a tag, `ap --version` with commit.
