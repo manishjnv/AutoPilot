@@ -405,9 +405,9 @@ def test_readme_has_one_install_line_per_system():
     assert "Open a project folder and type `ap`." in text
 
 
-def test_readme_honest_limits_name_the_gaps_and_the_runners():
-    text = README.read_text(encoding="utf-8")
-    section = text[text.index("## Honest limits"):text.index("**After the run:**")]
+def test_howto_limits_name_the_gaps_and_the_runners():  # session 28: the section moved from the README to HOWTO
+    text = (README.parent / "HOWTO.md").read_text(encoding="utf-8")
+    section = text[text.index("## Limits and supported agent CLIs"):text.index("## Use a different agent CLI")]
     for name in ("Replit", "Kiro", "Cursor", *RUNNERS):
         assert name in section, name
 
