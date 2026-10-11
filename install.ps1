@@ -70,6 +70,21 @@ Ensure 2 'uv' 'uv' 'https://astral.sh/uv/install.ps1'
 Ensure 3 'Claude Code' 'claude' 'https://claude.ai/install.ps1'
 
 Step 4 'Autopilot'
+# N5: Autopilot cannot run without Python 3.10 or newer. This is the one system install; uv installs it for this user.
+function PyOk {
+    foreach ($p in 'python3', 'python', 'py') {
+        if (Has $p) { $null = Run $p -c 'import sys; sys.exit(sys.version_info < (3, 10))'; if ($LASTEXITCODE -eq 0) { return $true } }
+    }
+    $false
+}
+$pycmd = 'uv python install 3.12'
+if (PyOk) { Write-Host 'found: Python 3.10 or newer' }
+elseif ($DryRun) { Write-Host "would run (no Python 3.10 or newer found). Command: $pycmd" }
+else {
+    Write-Host "run: $pycmd"
+    Run uv python install 3.12 | Out-Host
+    if ($LASTEXITCODE -ne 0) { Fail 4 $pycmd }
+}
 $addr = "git+https://github.com/manishjnv/AutoPilot@$Ref"
 if ((Has autopilot) -or ((Has uv) -and ("$(Run uv tool list)" -match 'dev-autopilot'))) {
     $v = if (Has autopilot) { Ver autopilot } else { 'dev-autopilot' }
@@ -84,6 +99,9 @@ if ((Has autopilot) -or ((Has uv) -and ("$(Run uv tool list)" -match 'dev-autopi
     Refresh
     if (-not (Has autopilot)) { Fail 4 "uv tool install `"$addr`"" }
 }
+if ($DryRun) { Write-Host 'would check: ap is on PATH' }
+elseif (Has ap) { Write-Host 'found: ap' }
+else { Fail 4 "uv tool install --reinstall `"$addr`" (then make sure $env:USERPROFILE\.localin is on PATH)" }
 
 Step 5 'login check'
 if ($SkipLogin) { Write-Host 'skipped (-SkipLogin)' }
@@ -98,6 +116,7 @@ else {
 }
 
 if (-not $DryRun) { Write-Host "Installed: $(Ver autopilot)" }
-Write-Host 'Done. Open a NEW terminal, then run: autopilot'
 Write-Host 'To uninstall, run: uv tool uninstall dev-autopilot'
 $global:LASTEXITCODE = 0   # keep a native exit code from an earlier step out of the CI result
+Write-Host 'Done. Open a NEW terminal if `ap` is not found.'
+Write-Host 'Open a project folder and type `ap`.'

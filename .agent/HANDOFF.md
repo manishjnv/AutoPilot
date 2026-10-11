@@ -1,14 +1,14 @@
 # Handoff
 
-Last completed: **P03-T03 — Preflight writes the detected runner to project.yaml** (2026-10-11)
+Last completed: **P05-T01 — Install scripts: Python when missing, `ap` on PATH, one final line** (2026-10-11)
 
-preflight(cfg) now reads the raw project.yaml. When it sets no backend, command or preset, preflight calls detect_runner and writes backend/preset as a comment-keeping text edit that is parse-checked before the write. It prints `runner: <binary> (found on PATH)`, or prints the Claude Code install command and the supported CLIs and returns False when none is found. The template backend line is commented out and config.defaults() keeps claude_cli as the in-memory default. 8 new tests, including a smoke test where a fake kiro-cli runs one task to done through the Orchestrator; WSL suite 570 passed, ruff clean.
+install.sh and install.ps1 now run `uv python install 3.12` only when no Python >= 3.10 is found (command printed in dry-run), check that `ap` is on PATH after the install, and end with exactly: Open a project folder and type `ap`. Two new tests in tests/test_quickstart.py (text checks for both scripts, plus a bash --dry-run test that runs on WSL) pass without any skip marker. tests/test_quickstart.py passes on WSL (22 passed) and ruff is clean. The full WSL suite was not re-run after this retry.
 
-Files: .agent/DECISIONS.md, .agent/HANDOFF.md, HOWTO.md, REFERENCE.md, autopilot/cli.py, autopilot/config.py, autopilot/templates/agent/project.yaml, tests/test_runner_detect.py
+Files: .agent/LEARNINGS.md, HOWTO.md, install.ps1, install.sh, tests/test_quickstart.py
 
 Follow-ups noted:
-- ap init writes a short project.yaml without an agent: block, so the runner lines are appended as a new block at the end of the file
-- doctor.checks still shows the claude rows for a project with no runner set before its first preflight
-- config.py was edited (one line in defaults(), as the ADR says) although it was not in the listed files
+- The bash dry-run test returns early on Windows or without bash instead of skipping; it really runs only on WSL/Linux
+- HOWTO.md pins install.sh and install.ps1 SHA-256 values to an old commit; refresh them when the first release tag is made
+- install.yml (protected) could also run `ap --version` in the real-install step
 
-Next planned task: P04-T01
+Next planned task: P05-T02
