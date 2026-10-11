@@ -9,6 +9,21 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - P10 pull-back fixes: venv install, presets security note, context imports, copilot file rule, git discard lock retry, doctor package row, parked-task test.
 - J14: short questions, own fix first, repeated report is not stuck, a cut session keeps its diff.
 - N5.1: `scripts/bump.py`, this changelog, release workflow, install scripts pinned to a tag, `ap --version` with commit.
+- N8: one consent at install start, then zero questions: the installer lists what it installs and the rights it takes; one UAC prompt (scheduled task `Autopilot-Setup`) or one sudo (`/etc/sudoers.d/autopilot`); a later run installs a missing system tool through those rights; `ap doctor` lists them; `ap uninstall --rights` removes them.
+- N9: `ap mcp`, a stdlib MCP server with `ap_status`, `ap_next`, `ap_start`, `ap_stop`, `ap_answer`; `ap init` registers it in the project MCP files.
+- N10: login preflight per runner, subscription login only; a failed check prints the one login command and stops; API-key runners are listed as not supported.
+- N12: parallel tasks on by default (3 with a test command in direct mode), collision avoidance by `files_in_scope`, batch of 1 under 25 percent of the usage window, worktree setup time logged.
+- N13: plan source sync at start and at every phase close; new roadmap items become tasks with no command; `status: dropped`.
+- O1: `files_in_scope` is a hard gate; `scope_additions` in the report; `ap validate` warns on an empty scope.
+- O2: `ruff check .` alone (flake8 only when ruff is absent); file-growth budget (400 lines or 25 percent per task) against `.agent/quality_baseline.json`.
+- O3: a new file the task declares passes; a dependency manifest change needs `new_deps` on the task or in the report.
+- O5: contract-first task rule in the planner prompts.
+- O6: helper index (`autopilot/repomap.py`) in every task prompt: reuse before you write.
+- O7: a review verdict is required (one retry, then fail); the checklist gains placement and reuse.
+- O8: a parallel merge is gated on the merged result; a red suite after a batch reverts the last merged task.
+- O10: lean profile on by default (one smoke test per criterion, changed-module tests per task, one retry, audits off, smaller prompt); `ap report --tokens`; `ap audit`.
+- J13: terminal window v2, sixteen rows (all phases, no wrapped row, real data with age and `stale`, no duplicates, honest task time and ETA with its basis, project rows, risk and tries, rate, file lines, issue reasons, step times, one meaning per colour, one headline, the bottom bar).
+- J12.9: the README says where the envguard numbers come from.
 - 2026-10-11 **P01-T01** plan.yaml `status: done` marks finished work — Added optional task key `status` (only `done`) to plan.py with validation naming the task id. sync_plan records done tasks as done (note 'done before Autopilot') when the row is new or pending, and ne
 - 2026-10-11 **P01-T02** Discovery pack for onboarding — Added discovery_pack(root, cfg) in autopilot/context.py: git log, document tree with plan-file heads, stack files and one capped test run (timeout from onboard.test_timeout_sec, default 300), all capp
 - 2026-10-11 **P01-T03** Onboarding prompt: four adopt rules and the pack — onboard.md now carries a {{discovery}} section and the four adopt rules; cmd_onboard builds discovery_pack and passes it to render, and after the session warns with the names of new untracked files ou
