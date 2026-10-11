@@ -100,7 +100,7 @@ def write_ide_rules(root):
         targets.append((root / ".cursor" / "rules" / "autopilot.mdc", "---\ndescription: Autopilot project rules\nalwaysApply: true\n---\n"))
     if (root / ".kiro").is_dir():
         targets.append((root / ".kiro" / "steering" / "autopilot.md", "---\ninclusion: always\n---\n"))
-    if (root / ".vscode").is_dir():
+    if (root / ".vscode").is_dir() and (root / ".github").is_dir():  # P10-T06: VS Code alone is not Copilot
         targets.append((root / ".github" / "copilot-instructions.md", ""))
     for name in ("GEMINI.md", "AGENTS.md"):
         if (root / name).is_file():

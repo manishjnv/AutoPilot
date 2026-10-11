@@ -31,6 +31,7 @@ def test_agents_md_user_text_unchanged(tmp_path):
 def test_kiro_vscode_gemini(tmp_path):
     (tmp_path / ".kiro").mkdir()
     (tmp_path / ".vscode").mkdir()
+    (tmp_path / ".github").mkdir()
     (tmp_path / "GEMINI.md").write_text("mine\n", encoding="utf-8")
     init(tmp_path)
     k = (tmp_path / ".kiro" / "steering" / "autopilot.md").read_text(encoding="utf-8")
@@ -38,6 +39,22 @@ def test_kiro_vscode_gemini(tmp_path):
     assert "ap start" in (tmp_path / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
     g = (tmp_path / "GEMINI.md").read_text(encoding="utf-8")
     assert g.startswith("mine\n") and g.count("autopilot:begin") == 1
+
+
+def test_vscode_alone_makes_no_copilot_file(tmp_path):
+    (tmp_path / ".vscode").mkdir()
+    init(tmp_path)
+    assert not (tmp_path / ".github").exists()
+
+
+def test_vscode_with_github_block_once(tmp_path):
+    (tmp_path / ".vscode").mkdir()
+    (tmp_path / ".github").mkdir()
+    init(tmp_path)
+    f = tmp_path / ".github" / "copilot-instructions.md"
+    t = f.read_text(encoding="utf-8")
+    init(tmp_path)
+    assert f.read_text(encoding="utf-8") == t and t.count("autopilot:begin") == 1
 
 
 def test_no_marker_only_claude_md(tmp_path):
