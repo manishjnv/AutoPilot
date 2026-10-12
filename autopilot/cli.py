@@ -1439,6 +1439,26 @@ def cmd_uninstall(args, spawn=None):
     from .rights import have_rights, remove_rights
     from .upgrade import detect_install, spawn_after_exit
     dry = getattr(args, "dry_run", False)
+    if getattr(args, "steps", False):  # Q12: undo each finished setup step, last first
+        from . import steps as st
+        from .install_errors import capture
+        plan = st.undo_plan()
+        if not plan:
+            print("No finished setup steps are recorded: nothing to undo.")
+            return 0
+        for name, what in plan:
+            print(("would " if dry else "") + f"{name}: {what}")
+            if dry or not (what.startswith(("rm ", "npm ", "brew ", "winget ", "Remove-Item"))):
+                continue
+            if capture(f"undo {name}", what, shell=True) != 0:
+                return 1
+        if not dry:
+            from .profile import update
+            st.reset()
+            update({"install": {}})
+            for f in ("runner",):
+                (_recent_file().with_name(f)).unlink(missing_ok=True)
+        return 0
     if getattr(args, "all", False):
         say = (lambda s: print(("would " if dry else "") + s))
         if have_rights():
@@ -1651,6 +1671,7 @@ def main(argv=None):
     add("mcp", cmd_mcp, "MCP server on stdin/stdout for IDE chats: ap_status, ap_next, ap_start, ap_stop, ap_answer")
     p = add("uninstall", cmd_uninstall, "--rights: remove the rights the installer took; --all: remove Autopilot from this PC")
     p.add_argument("--rights", action="store_true"); p.add_argument("--all", action="store_true")
+    p.add_argument("--steps", action="store_true", help="undo each finished `ap setup` step, last first (the runner CLI, the choice)")
     p.add_argument("--dry-run", action="store_true", help="list the steps, change nothing")
     from .upgrade import cmd_install, cmd_upgrade
     p = add("upgrade", cmd_upgrade, "get the newest Autopilot; --check only prints")
@@ -1668,6 +1689,7 @@ def main(argv=None):
     p.add_argument("--yes", action="store_true", help="take the default answer")
     p.add_argument("--skip-login", action="store_true", help="do not check or start a login")
     p.add_argument("--skip-probe", action="store_true", help="do not send the one test prompt (CI)")
+    p.add_argument("--reset", action="store_true", help="forget the finished steps and start over")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")

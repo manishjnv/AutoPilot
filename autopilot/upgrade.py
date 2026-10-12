@@ -36,9 +36,14 @@ def checkout_root(file=None) -> Path | None:
 
 
 def detect_install(file=None, which=shutil.which, run=run_proc) -> str:
-    """'editable' (git checkout), 'uv' (a uv tool) or 'pip'."""
+    """'editable' (git checkout), 'uv' (a uv tool) or 'pip'. Q12: the method that `ap setup` recorded in the machine
+    profile decides first (`uv` or `pip`), so upgrade and uninstall use the command that matches how it was installed."""
     if checkout_root(file):
         return "editable"
+    from .steps import recorded_method
+    rec = recorded_method("autopilot")
+    if rec in ("uv", "pip") and (rec == "pip" or which("uv")):
+        return rec
     if which("uv"):
         try:
             if "dev-autopilot" in run(["uv", "tool", "list"], timeout=30).stdout:

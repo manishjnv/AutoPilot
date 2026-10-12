@@ -234,16 +234,49 @@ def three_lines(step: str, text: str, log: Path, platform: str | None = None, cm
             f"        Run by hand: {fix or cmd or '(see the log)'}  -- details: {log}"]
 
 
+DROPPED = re.compile(r"curl: \((?:7|18|28|52|55|56)\)|ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|connection (?:was )?(?:reset|closed|dropped)|"
+                     r"0x80072EFE|0x80072EE2|early EOF|unexpected disconnect", re.IGNORECASE)
+RETRY_WAIT = 5      # Q12: seconds of backoff before the one retry on a dropped connection
+HEARTBEAT = 10      # Q12: one dot every this many seconds while a silent installer runs
+
+
+def _beat(say, every: float, done):
+    """The heartbeat of a silent installer: one line, then one dot every `every` seconds until `done` is set. The dots go
+    to the terminal itself (not through `say`, which is one line per call); a test reads the line through `say`."""
+    say("downloading, up to 2 minutes")
+    while not done.wait(every):
+        sys.stdout.write(".")
+        sys.stdout.flush()
+
+
 def capture(step: str, cmd, *, shell: bool = False, env: dict | None = None, timeout: float = 900, run=run_proc,
-            say=print, platform: str | None = None, home: Path | None = None, cwd=None) -> int:
+            say=print, platform: str | None = None, home: Path | None = None, cwd=None, retry: bool = False,
+            sleep=None, heartbeat: float = 0) -> int:
     """Run one install step. Output goes to the log only; on a failure the three lines go to the screen. Returns the
-    exit code (127 when the program cannot start)."""
+    exit code (127 when the program cannot start). Q12: `retry=True` runs it once more after RETRY_WAIT seconds when the
+    first run died on a dropped connection (before the error line); `heartbeat` > 0 prints a line and a dot every that
+    many seconds while the step is silent."""
+    import threading
+    import time
+    sleep = sleep or time.sleep
     shown = cmd if isinstance(cmd, str) else " ".join(cmd)
-    try:
-        p = run(cmd, shell=shell, env=env, timeout=timeout, cwd=cwd)
-        rc, text = p.rc, (p.stdout or "") + (p.stderr or "")
-    except OSError as exc:
-        rc, text = 127, str(exc)
+    for attempt in (1, 2):
+        done = threading.Event()
+        if heartbeat:
+            threading.Thread(target=_beat, args=(say, heartbeat, done), daemon=True).start()
+        try:
+            p = run(cmd, shell=shell, env=env, timeout=timeout, cwd=cwd)
+            rc, text = p.rc, (p.stdout or "") + (p.stderr or "")
+        except OSError as exc:
+            rc, text = 127, str(exc)
+        finally:
+            done.set()
+        if rc != 0 and retry and attempt == 1 and (DROPPED.search(text) or rc in (7, 18, 28, 52, 55, 56)):
+            log_raw(step, shown, rc, text, env, home)
+            say(f"The connection dropped. One more try in {RETRY_WAIT} seconds.")
+            sleep(RETRY_WAIT)
+            continue
+        break
     log = log_raw(step, shown, rc, text, env, home)
     if rc != 0:
         for line in three_lines(step, text, log, platform, shown, rc):

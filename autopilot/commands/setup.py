@@ -13,13 +13,14 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .. import AGENT_DIR, profile
+from .. import AGENT_DIR, profile, steps
 from ..doctor import RUNNERS, Runner, _logged_in, runner
 from ..install_errors import (
     EXIT_CHOICE,
     EXIT_FAILED,
     EXIT_OK,
     EXIT_USAGE,
+    HEARTBEAT,
     capture,
     explain,
     log_path,
@@ -192,12 +193,20 @@ def install_runner(row: Runner, *, env: dict, platform: str | None, run=run_proc
         say(f"{row.name} has no install script on this system. Download it here, then run `ap setup` again: {cmd.split()[0]}")
         return EXIT_CHOICE
     say(f"install   {row.name}: {cmd}")
+    # Q12: a checksum is checked only when the vendor publishes one for a file. These routes run the vendor's script
+    # straight from the network, so there is no file to hash; the line says so.
+    say(f"checksum  {row.name}: not verifiable (the vendor publishes no checksum for this install script)")
     shell_cmd = (["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd]
                  if os_name(platform) == "windows" else ["bash", "-o", "pipefail", "-c", cmd])
-    rc = capture(f"install {row.name}", shell_cmd, env=env, run=run, say=say, platform=platform, home=home)
+    method = steps.method_of(cmd)
+    rc = capture(f"install {row.name}", shell_cmd, env=env, run=run, say=say, platform=platform, home=home, retry=True,
+                 heartbeat=HEARTBEAT)
     if rc != 0 and row.npm and shutil.which("npm", path=env.get("PATH")):
         say(f"install   {row.name}: trying the npm route: {row.npm}")
-        rc = capture(f"install {row.name} (npm)", row.npm, shell=True, env=env, run=run, say=say, platform=platform, home=home)
+        rc = capture(f"install {row.name} (npm)", row.npm, shell=True, env=env, run=run, say=say, platform=platform, home=home, retry=True)
+        method = "npm"
+    if rc == 0:
+        steps.remember_method(row.key, method, home)  # Q12: `ap upgrade` and `ap uninstall` use the matching command
     return EXIT_OK if rc == 0 else EXIT_FAILED
 
 
@@ -262,9 +271,12 @@ def write_verified(root: Path | None, date: str, home: Path | None = None) -> No
 
 def run_setup(root: Path | None = None, *, dry_run: bool = False, wanted: str = "", yes: bool = False,
               skip_login: bool = False, skip_probe: bool = False, env: dict | None = None, home: Path | None = None,
-              platform: str | None = None, which=None, run=run_proc, ask=None, say=print, login=None) -> int:
+              platform: str | None = None, which=None, run=run_proc, ask=None, say=print, login=None,
+              reset: bool = False) -> int:
     """The whole command. Every dependency can be replaced by a test (fake PATH, fake run, fake terminal)."""
     env = dict(os.environ if env is None else env)
+    if reset and not dry_run:  # Q12: forget every finished step and start over
+        say("reset     the finished steps are forgotten" if steps.reset(home) else "reset     there were no finished steps")
     wanted = wanted or env.get("AUTOPILOT_RUNNER", "")
     s = scan(env, home, which, run)
     row, rc = (default_runner(s), EXIT_OK) if dry_run and not wanted else choose(s, wanted=wanted, yes=yes, ask=ask, say=say)
@@ -288,26 +300,48 @@ def run_setup(root: Path | None = None, *, dry_run: bool = False, wanted: str = 
         return EXIT_CHOICE
     exe = next(exe for r, exe, _ in s.runners if r is row)
     logged = next(ok for r, _, ok in s.runners if r is row)
+    # Q12: finished steps print as `done` and are not run again; a record only counts while its fact is still true.
+    rows = steps.load(home)
+    from .. import __version__
+    steps.record("autopilot", "done", f"Autopilot {__version__}", home)  # this process is the proof
+    say(f"done      autopilot: Autopilot {__version__}")
+    for name, still in ("uv", bool(s.tools.get("uv"))), ("python", bool(s.tools.get("python3") or s.tools.get("python"))):
+        if still:  # a program that is found is a finished step, with or without an earlier record
+            steps.record(name, "done", s.tools.get(name) or s.tools.get("python3") or s.tools.get("python") or "found", home)
+            say(f"done      {name}: {s.tools.get(name) or s.tools.get('python3') or s.tools.get('python')}")
+    if exe and steps.is_done(rows, "runner"):
+        say(steps.done_line(rows, "runner"))
+    elif exe:
+        steps.record("runner", "done", f"{row.name} found at {exe}", home)
     if not exe:
         rc = install_runner(row, env=env, platform=platform, run=run, say=say, home=home)
         if rc != EXIT_OK:
+            steps.record("runner", "failed", f"{row.name} install failed", home)
             return rc
         path = env.get("PATH", "") + os.pathsep + str(Path(home or Path.home()) / ".local" / "bin")
         exe = row.which(path) or ""
         if not exe:
+            steps.record("runner", "failed", f"{row.binary} is not on PATH", home)
             say(f"FAILED  {row.name} installed, but `{row.binary}` is not on PATH yet. Open a new terminal, then run `ap setup` again.")
             say(f"        details: {log_path(home)}")
             return EXIT_FAILED
+        steps.record("runner", "done", f"{row.name} installed ({steps.recorded_method(row.key, home) or 'native'})", home)
         logged = _logged_in(exe, row, {**env, "PATH": path})
     if logged:
+        if steps.is_done(rows, "login") and exe:
+            say(steps.done_line(rows, "login"))
         say(f"login     {row.name}: logged in")
+        steps.record("login", "done", f"{row.name} logged in", home)
     elif skip_login:
         say(f"login     {row.name}: not logged in (skipped). Run `{row.login}` before the first build.")
     else:
         say(f"login     {row.name}: not logged in. Run `{row.login}`, then start the build. You need {row.plan}.")
         if login is not None and login(row):  # Q13: every runner; the address and code are printed as text
             logged = _logged_in(exe, row, {**env, "PATH": env.get("PATH", "") + os.pathsep + str(Path(home or Path.home()) / ".local" / "bin")})
+            if logged:
+                steps.record("login", "done", f"{row.name} logged in", home)
     remember_choice(root, row, say)
+    steps.record("config", "done", f"{row.name} written to the project and to ~/.autopilot/runner", home)
     from ..rights import describe
     say(f"rights    {describe(platform)}")
     if skip_probe:
@@ -315,22 +349,27 @@ def run_setup(root: Path | None = None, *, dry_run: bool = False, wanted: str = 
     if not logged:
         say("probe     skipped: log in first, then run `ap setup` again to prove the runner answers.")
         return EXIT_OK
+    if steps.is_done(rows, "probe") and profile.read(home).get("verified"):
+        say(steps.done_line(rows, "probe"))
+        return EXIT_OK
     say(f"probe     {row.name}: sending one prompt, up to {PROBE_TIMEOUT} seconds")
     ok, sentence, fix = probe(row, exe, env={**env, "CI": "1"}, run=run, platform=platform)
     if ok:
         date = datetime.date.today().isoformat()
         write_verified(root, date, home)
+        steps.record("probe", "done", f"{row.name} answered ready", home)
         say(f"verified  {row.name}: answered ready ({date})")
         return EXIT_OK
+    steps.record("probe", "failed", sentence, home)
     say(f"FAILED  probe {row.name}")
     say(f"        {sentence}")
     say(f"        Run by hand: {fix or 'ap doctor --runner'}")
     return EXIT_FAILED
-
 
 def cmd_setup(args) -> int:
     from ..cli import login_now
     root = Path(args.path).resolve() if getattr(args, "path", None) else Path.cwd()
     return run_setup(root, dry_run=getattr(args, "dry_run", False), wanted=getattr(args, "runner", "") or "",
                      yes=getattr(args, "yes", False), skip_login=getattr(args, "skip_login", False),
-                     skip_probe=getattr(args, "skip_probe", False), login=login_now)
+                     skip_probe=getattr(args, "skip_probe", False), login=login_now,
+                     reset=getattr(args, "reset", False))

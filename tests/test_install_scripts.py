@@ -149,3 +149,14 @@ def test_a_current_autopilot_is_kept_and_a_fresh_install_uses_the_archive_of_mai
     assert "dev-autopilot==" not in p.stdout  # a branch ref never goes to PyPI first
     p = run_sh(tmp_path / "tag", fakes(tmp_path / "tag", uv=uv, curl="exit 0", python3="exit 0"), AUTOPILOT_REF="v9.9.9")
     assert "run: uv tool install dev-autopilot==9.9.9" in p.stdout  # a release copy tries PyPI first
+
+@posix
+def test_a_found_program_is_a_done_step_and_is_skipped(tmp_path):
+    """Q12: uv, Python and Autopilot that are found print `done` and install nothing."""
+    from autopilot import __version__
+    ap = f'case "$*" in --version) echo "ap {__version__}";; *) echo "AP $*";; esac'
+    uv = 'case "$*" in --version) echo "uv 0.9.0";; *) echo "UV $*"; exit 9;; esac'
+    p = run_sh(tmp_path, fakes(tmp_path, ap=ap, autopilot=ap, uv=uv, curl="exit 0", python3='echo "Python 3.12.1"'))
+    assert p.returncode == 0, p.stderr
+    assert "done: uv 0.9.0 (found, skipped)" in p.stdout and "done: Python 3.12.1 (found, skipped)" in p.stdout
+    assert p.stdout.count("(found, skipped") == 3 and not [l for l in p.stdout.splitlines() if l.startswith("run: ")]  # no install command ran

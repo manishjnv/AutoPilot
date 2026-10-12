@@ -102,14 +102,14 @@ main() {
 
   step 2 uv
   uvcmd="curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | sh"
-  if have uv; then echo "found: $(ver uv)"
+  if have uv; then echo "done: $(ver uv) (found, skipped)"
   elif [ "$dry" = 1 ]; then echo "would install. Command: $uvcmd"
   else run 2 uv "$uvcmd"; have uv || fail 2 uv "$uvcmd"; fi
 
   step 3 Python
   # N5: Autopilot cannot run without Python 3.10 or newer. This is the one system install; uv installs it for this user.
   pycmd="uv python install 3.12"
-  if pyok; then echo "found: $(have python3 && ver python3 || ver python)"
+  if pyok; then echo "done: $(have python3 && ver python3 || ver python) (found, skipped)"
   elif [ "$dry" = 1 ]; then echo "would install (no Python 3.10 or newer found). Command: $pycmd"
   else run 3 Python "$pycmd"; fi
 
@@ -118,7 +118,7 @@ main() {
   addr="dev-autopilot @ https://github.com/manishjnv/AutoPilot/archive/$ref.zip"
   apver() { ap --version 2>/dev/null | awk '{print $2}'; }
   atleast() { [ -n "$1" ] && [ "$(printf '%s\n' "$MIN_VERSION" "$1" | sort -V | head -1)" = "$MIN_VERSION" ]; }
-  if have ap && atleast "$(apver)"; then echo "found: $(ver autopilot) (ap upgrade updates it; ap updates itself once a day)"
+  if have ap && atleast "$(apver)"; then echo "done: $(ver autopilot) (found, skipped; ap upgrade updates it, and ap updates itself once a day)"
   elif have ap; then
     echo "found: $(ver autopilot), older than this installer ($MIN_VERSION): updating"
     if [ "$dry" = 1 ]; then echo "would run: uv tool install --reinstall \"$addr\""; else run 4 Autopilot "uv tool install --reinstall \"$addr\""; fi
