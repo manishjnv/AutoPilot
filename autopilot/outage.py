@@ -79,7 +79,7 @@ class Tracker:
 
 def checklist(error_id: str, text: str) -> list[str]:
     """The checklist of rule 4: what repeats, what is done, what is not, and the next command."""
-    eid, sentence, fix = explain(text)
+    _, sentence, fix = explain(text)
     return [f"The same error stopped three tasks: {sentence}",
             "Done: the tasks that finished before it are merged; nothing is lost.",
             "Not done: the tasks that failed with it are parked, and the usage window was not spent on retries.",

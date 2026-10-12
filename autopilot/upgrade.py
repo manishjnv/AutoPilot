@@ -118,6 +118,9 @@ def cmd_upgrade(args, run=run_proc, urlopen=_open, detect=detect_install, root=N
         if line:
             print(line)
         return 0
+    from .migrate import migrate_all
+    for line in migrate_all(check=check):  # Q20.4: an older .agent/ is backed up and brought up to date, one line each
+        print(line)
     kind = detect()
     if kind == "editable":
         return _editable(root or checkout_root(), check, run)

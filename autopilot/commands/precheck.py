@@ -256,7 +256,7 @@ def gather(env: dict | None = None, home: Path | None = None, which=None, run=ru
         except OSError:
             s.long_paths = None
     s.net_ok, s.tls_failed = net_ok, tls_failed
-    _gather_q21(s, env, home, which, out, cwd or os.getcwd())
+    _gather_q21(s, env, home, which, out, cwd or os.getcwd(), run)
     return s
 
 
@@ -293,7 +293,7 @@ def clock_skew(url: str = "https://api.github.com", fetch=None) -> float | None:
     return (datetime.datetime.now(datetime.timezone.utc) - server).total_seconds()
 
 
-def _gather_q21(s: Snapshot, env: dict, home: Path, which, out, cwd: str) -> None:
+def _gather_q21(s: Snapshot, env: dict, home: Path, which, out, cwd: str, run=run_proc) -> None:
     """Q21: the facts of the eight new lines. Read-only; the only network call is one HEAD request for the Date header,
     and only when AUTOPILOT_NO_NETWORK_CHECKS is unset (the test suite sets it through conftest)."""
     s.api_keys = [k for k in API_KEYS if env.get(k)]  # presence only: the value is never stored
@@ -302,7 +302,7 @@ def _gather_q21(s: Snapshot, env: dict, home: Path, which, out, cwd: str) -> Non
         m = re.search(r"(\d+)\.(\d+)", out([git, "--version"]))
         s.git_version = (int(m[1]), int(m[2])) if m else None
         try:
-            p = run_proc([git, "-C", cwd, "status", "--porcelain"], timeout=20)
+            p = run([git, "-C", cwd, "status", "--porcelain"], timeout=20)
             text = (p.stdout or "") + (p.stderr or "")
             s.in_repo = p.rc == 0 or "dubious ownership" in text
             s.git_dubious = p.rc != 0 and "dubious ownership" in text

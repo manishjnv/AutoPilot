@@ -298,6 +298,10 @@ def run_setup(root: Path | None = None, *, dry_run: bool = False, wanted: str = 
         return EXIT_OK
     if row is None:
         return EXIT_CHOICE
+    if not env.get("AUTOPILOT_NO_AUTOFIX"):  # Q20: persistent PATH once, project git settings, Defender note, duplicate CLIs
+        from ..repairs import fix_all
+        for line in fix_all(root, home=home, platform=platform, run=run):
+            say(f"repair    {line}")
     exe = next(exe for r, exe, _ in s.runners if r is row)
     logged = next(ok for r, _, ok in s.runners if r is row)
     # Q12: finished steps print as `done` and are not run again; a record only counts while its fact is still true.

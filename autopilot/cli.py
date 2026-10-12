@@ -1236,6 +1236,9 @@ def cmd_doctor(args):
     rows = checks(cfg)
     if getattr(args, "fix", False):
         done = autofix(rows)
+        if not os.environ.get("AUTOPILOT_NO_AUTOFIX"):  # Q20: the five repairs, without a question
+            from .repairs import fix_all
+            done += [f"repairs: {line}" for line in fix_all(root)]
         for line in done:
             print(f"fix   {line}")
         if done:
