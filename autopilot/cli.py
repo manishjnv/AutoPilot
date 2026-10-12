@@ -1587,6 +1587,12 @@ def main(argv=None):
     p.add_argument("--check", action="store_true"); p.add_argument("--ref"); p.add_argument("--daily", action="store_true", help=argparse.SUPPRESS)
     p = add("install", cmd_install, "install or repair Autopilot for this user; --rights = the one rights step")
     p.add_argument("--rights", action="store_true")
+    from .commands.setup import cmd_setup
+    p = add("setup", cmd_setup, "find the AI you pay for, install its CLI, check the login, write the choice (one question at most)")
+    p.add_argument("--dry-run", action="store_true", help="scan and print the plan; install and write nothing")
+    p.add_argument("--runner", help="answer the question in advance: claude, copilot, codex, cursor or kiro")
+    p.add_argument("--yes", action="store_true", help="take the default answer")
+    p.add_argument("--skip-login", action="store_true", help="do not check or start a login")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
@@ -1610,7 +1616,7 @@ def main(argv=None):
         print(f"autopilot {__version__}: {DESCRIPTION.split('. ')[0]}.")
         print(next_steps_text(Path.cwd()))
         return 0
-    if args.cmd in ("upgrade", "install"):  # no project: nothing to find or remember
+    if args.cmd in ("upgrade", "install", "setup"):  # no project needed: nothing to find or remember
         return args.fn(args) or 0
     if args.path is None:  # J2: no -C
         found = "." if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists() else pick_project()

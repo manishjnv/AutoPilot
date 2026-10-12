@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- Q3: `ap setup` scans the machine (read-only), prints `found`, `will install` and `skipped` lines, asks one question at most ("Which AI do you pay for?", with a default from a login, a token or a footprint), installs that one CLI, checks its login and writes the choice; `--dry-run`, `--runner`, `--yes`, `--skip-login`, `AUTOPILOT_RUNNER`; exit 3 when a choice is needed and there is no terminal; `ap install` runs it last.
 - Q2: `agent.preset: copilot` runs the GitHub Copilot CLI (prompt in a temp file named in `-p`, `--allow-all-tools --no-ask-user -s --add-dir`); the login check counts a token variable or `gh auth status`; `haiku` maps to `claude-haiku-4.5`; a premium-request limit message counts as a usage limit (flags from the docs of 2026-10-12, not run live: Q9).
 - Q1: one runner table in `doctor.py` (claude, copilot, codex, cursor as `agent`, kiro) feeds detection, the login check, `ap doctor` and the missing-runner message, which now lists every runner with its install command instead of "Install Claude Code".
 
