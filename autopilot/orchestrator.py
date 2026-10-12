@@ -71,7 +71,9 @@ def run_supervised(root, make=None, sleep=time.sleep, max_restarts: int = 10) ->
                 state.set_meta("current_task", "")
                 notifier.send("heal", f"{msg}. Same crash 3 times on {task}: parked it, continuing with the rest.")
             elif seen[sig] >= 3:
-                notifier.send("fatal", f"{msg}. Same crash 3 times with no task in flight: this is a bug in "
+                state.set_meta("outcome", "FAILED")  # W3
+                state.event("run_end", f"FAILED crashed: {type(exc).__name__}")
+                notifier.send("fatal", f"FAILED {msg}. Same crash 3 times with no task in flight: this is a bug in "
                                        "Autopilot. Send the report to its maintainer.")
                 return f"crashed: {type(exc).__name__} (see {path})"
             else:
@@ -151,9 +153,21 @@ def _scopes_collide(a: list, b: list, tracked: list) -> bool:
 class Stop(Exception):
     """Ends the run cleanly (budget, stop file, fatal condition)."""
 
-    def __init__(self, reason: str, fatal: bool = False):
+    def __init__(self, reason: str, fatal: bool = False, word: str = ""):
         super().__init__(reason)
-        self.reason, self.fatal = reason, fatal
+        self.reason, self.fatal, self.word = reason, fatal, word  # W3: word names the outcome when not the default
+
+
+def outcome_word(outcome: str, parked: bool, stop: Stop | None = None) -> str:
+    """W3: the one word of a run end. A Stop names it at the raise site (fatal: FAILED; any other Stop is a limit the
+    owner set: BUDGET_STOP); a parked task or open decision is BLOCKED; a complete plan is VERIFIED; else STALLED."""
+    if stop is not None:
+        return stop.word or ("FAILED" if stop.fatal else "BUDGET_STOP")
+    if str(outcome).startswith(("fatal", "crashed")):
+        return "FAILED"
+    if parked:
+        return "BLOCKED"
+    return "VERIFIED" if str(outcome).startswith(("plan complete", "app complete")) else "STALLED"
 
 
 class Orchestrator:
@@ -327,6 +341,7 @@ class Orchestrator:
         try:
             with exclusive_lock(self.ad / "run.lock"):
                 self.state.set_meta("auth_paused", "")  # Q22.2: a new start means the owner logged in again
+                self.state.set_meta("outcome", "")  # W3: set again at the end of this run
                 return self._run()
         except BlockingIOError:
             raise SystemExit("another autopilot run is active for this project")
@@ -342,6 +357,15 @@ class Orchestrator:
             os.replace(tmp, self.ad / "run.json")
         except Exception as exc:  # noqa: BLE001
             log.warning("run journal failed: %s", exc)
+
+    def _end_word(self, outcome: str, stop: Stop | None = None) -> str:
+        """W3: the one writer of the outcome word: state meta `outcome`, a `run_end` event, the log and run.json."""
+        word = outcome_word(outcome, bool(self.state.tasks("blocked") or self.state.decisions("OPEN")), stop)
+        self.state.set_meta("outcome", word)
+        self.state.event("run_end", f"{word} {outcome}")
+        log.info("outcome: %s", word)
+        self.run_info["word"] = word  # the next _journal call writes it
+        return word
 
     def sleep(self, secs: float):
         """G8: every pause shows as `Wait` in the run journal; then the state it interrupted comes back. A run that
@@ -371,19 +395,20 @@ class Orchestrator:
         blocking = self.cfg.blocking_errors()
         if blocking:
             msg = "; ".join(blocking)
-            self.notify.send("fatal", f"config: {msg}")
+            self.notify.send("fatal", f"{self._end_word('fatal: config')} config: {msg}")
             return "fatal: config: " + msg
         for e in self.cfg.validate():
             if e not in blocking:
                 log.warning("config: %s", e)
         self.first_session = self.state.next_session_id()
         self._journal(run_id=f"{dt.datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}", pid=os.getpid(), started_at=now(),
-                      status="running", outcome="", current="starting", first_session=self.first_session)
+                      status="running", outcome="", word="", current="starting", first_session=self.first_session)
         self._prepare_repo()
         try:
             self.reload_plan()
         except (PlanError, FileNotFoundError) as e:
-            self.notify.send("fatal", f"plan.yaml invalid and no committed version loads either: {e}")
+            self.notify.send("fatal", f"{self._end_word('fatal: invalid plan')} plan.yaml invalid and no committed "
+                                      f"version loads either: {e}")
             self._journal(status="finished", outcome="fatal: invalid plan", current="", state="Done", task="")
             return "fatal: invalid plan"
         if self.state.healed:
@@ -417,15 +442,17 @@ class Orchestrator:
             outcome = self.loop()
             if self.git_offline or self.push_failing:
                 outcome += f" (GitHub not updated: {self.git_offline or self.push_failing})"
+            word = self._end_word(outcome)
         except Stop as s:
             outcome = s.reason
+            word = self._end_word(outcome, s)
             self.notify.send("fatal" if s.fatal else "budget" if "budget" in s.reason else "run_done",
-                             "\n".join(x for x in (s.reason, self._digest(), self._footer()) if x))
+                             f"{word} " + "\n".join(x for x in (s.reason, self._digest(), self._footer()) if x))
             return outcome
         finally:
             self._journal(status="finished", outcome=outcome, current="", state="Done", task="", live_tokens=0)
             self.write_report()
-        self.notify.send("run_done", f"{outcome} — {progress_line(self.plan, self.state.status_map())}, "
+        self.notify.send("run_done", f"{word} {outcome} — {progress_line(self.plan, self.state.status_map())}, "
                                      f"total cost ${self.state.cost():.2f}\n"
                                      + "\n".join(x for x in (self._digest(), self._footer()) if x))
         return outcome
@@ -861,7 +888,7 @@ class Orchestrator:
                 self.outage_waits += 1
                 if self.outage_waits > outage.OUTAGE_WAITS:
                     self._journal(current="the service is down")
-                    raise Stop(outage.OUTAGE_SENTENCE, fatal=True)
+                    raise Stop(outage.OUTAGE_SENTENCE, fatal=True, word="STALLED")
                 self.tracker.ok()
                 self.notify.send("heal", f"{outage.OUTAGE_SENTENCE} Waiting {outage.OUTAGE_WAIT // 60} min "
                                          f"({self.outage_waits} of {outage.OUTAGE_WAITS}); no try is spent.")
@@ -992,7 +1019,7 @@ class Orchestrator:
                     self.git.delete_branch(branch)
                     self.state.set_task(task.id, status="pending", attempts=attempts - 1)
                     lines = outage.checklist(same, res.error)
-                    raise Stop("\n".join(lines), fatal=True)  # the run end sends the one fatal notification
+                    raise Stop("\n".join(lines), fatal=True, word="STALLED")  # the run end sends the one fatal notification
             elif str(res.report.get("status", "done")).lower() == "blocked":
                 agent_blocked = True
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"

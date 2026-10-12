@@ -861,6 +861,8 @@ def cmd_status(args):
     cfg, plan, state = _open_state(Path(args.path).resolve())
     print(status_line(cfg, plan, state, run_journal(cfg.root),
                       shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None) + "\n")
+    if state.get_meta("outcome"):  # W3: the one word of the last run end
+        print(f"outcome: {state.get_meta('outcome')}\n")
     print(build_report(cfg, plan, state))
     from .plain import colors_on
     print(hints(Path(args.path).resolve(), None, colors_on(sys.stdout)))

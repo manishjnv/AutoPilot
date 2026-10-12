@@ -42,7 +42,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `ap move [TARGET] [--yes]` | Moves a project out of a folder that hurts: OneDrive, a redirected Documents folder, a network share, or `/mnt/<drive>` in WSL. It runs `git clone --local` to the target, copies `.agent/`, keeps the remotes, and adds the new path to the recent projects. The old folder stays, with a `MOVED.md` note that names the new path. The default target is `%LOCALAPPDATA%\dev\NAME` on Windows and `~/dev/NAME` elsewhere. `--yes` moves at once. With no terminal and no `--yes`, it only prints the command. `ap doctor --project` says if the folder is a bad place |
 | `ap uninstall [--rights] [--all] [--dry-run]` | `--rights` removes the scheduled task or the `sudoers` file the installer created. `--all` also deletes `~/.autopilot` and then the package (uv tool or pip), after the command has ended; it keeps uv, Python, git, the AI CLI and each project's `.agent/`. `--dry-run` lists the steps |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
-| `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
+| `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals. After a run ends it also shows `outcome: <word>` (see [Run outcome](#run-outcome)) |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
 | `autopilot serve [--port 8765]` | Starts the status page without a run. The page shows the same dashboard as the terminal, and the full report below it |
 | `autopilot answer` | Lists the open questions with their suggestions. In a terminal, it asks for a choice for each one. Type `1` or press Enter to use the suggested fix. Type `2` to skip the task. Type `3` to write your own words. With no terminal, it prints the usage and exits with a non-zero code |
@@ -109,7 +109,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `history/<phase>/PROOF.md` | The full evidence of the feature check of the phase | Yes |
 | `audits/` | The audit reports | Yes |
 | `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
-| `run.json` | The journal of the active run | No |
+| `run.json` | The journal of the active run. At the end it has `word`, the outcome word | No |
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports | No |
 | `STOP` | The stop flag from `autopilot stop` | No |
@@ -293,6 +293,23 @@ A retry on the same model continues the failed session. A retry on a different m
 - **Token report:** `autopilot status` and `.agent/REPORT.md` show the tokens and the cost for each model.
 - **Model suggestions:** after each 20 finished tasks, Autopilot suggests a less expensive model where the data
   shows that it is safe. You make the change.
+
+## Run outcome
+
+Each run ends with one word. Autopilot writes the word to the state (meta key `outcome`, empty while a run is
+active), to a `run_end` event (`<word> <outcome text>`), to the log (`outcome: <word>`) and to `run.json` (`word`).
+The word is the first word of the `run_done`, `fatal` and `budget` alert text. The window title and the live page
+show it after `Done`, for example `Done VERIFIED`. `ap status` shows `outcome: <word>`.
+
+| Word | Meaning |
+|---|---|
+| `VERIFIED` | The plan is complete and no task is parked |
+| `BLOCKED` | One or more tasks are parked, or a decision waits for your answer |
+| `BUDGET_STOP` | A limit that you set stopped the run: a budget cap, the session limit, or the `.agent/STOP` file |
+| `STALLED` | Work remains that cannot start, the service was down, or the same error came from three tasks |
+| `FAILED` | A fatal condition: a config error, a plan that does not load, an expired login, or a repeated crash |
+
+A stop with Ctrl+C sets no word.
 
 ## Self-healing
 
