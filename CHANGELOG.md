@@ -11,17 +11,33 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [0.6.0] - 2026-10-13
 
-- Q22 review: a vendor outage makes the run wait 15 minutes, up to four times, before it stops; a bare `50x` number is not an outage; an expired login stops the run only when the login check fails again; the same-error rule resets when a task merges.
+**In plain words:** this version makes the first setup easier and the overnight build harder to stop. Setup can be
+run again after a failure and continues where it stopped. Every error you see is one plain sentence with the command
+to run. A short outage at the AI service no longer ends your build. Login works over a text-only connection.
 
-- Q20: five repairs without a question, in `ap setup` and `ap doctor --fix`: git `safe.directory` and `autocrlf` for the project; a persistent PATH once (`uv tool update-shell`, or the user PATH on Windows, with a marker so it prints once); one printed line for a Defender exclusion; duplicate installs of one CLI named with the removal command; and `ap upgrade` backs up an older `.agent/` to `.agent/backup-<version>/`, migrates it and says what changed.
-- Q22: four rules for a running build: three 5xx or timeouts from the vendor within one minute print "The service is down, try again in 15 minutes." and stop with no retry loop and no login prompt; a login that ran out mid-run parks the task with no try spent, checks the login again, prints the login command, and the next start continues; a model that is not available names the alias that works; the same parsed error from three tasks stops the run with a checklist before the usage window is spent.
-- Q12: `ap setup` can be run again: each step writes `{name, status, date, detail}` to `~/.autopilot/setup.json`, a rerun prints finished steps as `done` and continues at the first open one, `ap setup --reset` starts over, `ap uninstall --steps` undoes finished steps in reverse; the install scripts print `done` for a program they find; a silent installer prints `downloading, up to 2 minutes` and a dot every 10 seconds; a dropped connection gets one retry after 5 seconds; the install method of each tool is recorded so `ap upgrade` and `ap uninstall` use the matching command; the checksum line says `not verifiable` where the vendor publishes none.
-- Q15: a project in OneDrive, a redirected Documents folder, on a network share or under `/mnt/<drive>` gets one sentence and one command in `ap setup`, a run start and `ap doctor --project`; new `ap move <target>` clones the project (`git clone --local`), copies `.agent/`, keeps the remotes, adds the new path to the recent projects and leaves a `MOVED.md` note in the old folder; `--yes` moves at once, with no terminal it only prints the command.
-- Q21: `ap setup` adds eight pre-install lines (`found` / `fixed` / `skipped`): git dubious ownership (safe directory added), `core.autocrlf` on Windows (off for the project, `.gitattributes` written when missing), an API key in the environment (name only), clock skew over 3 minutes, under 1 GB free, git older than 2.30, a console that is not UTF-8, and a busy status-page port (the next free port is taken and named).
-- Q13: the login address and code always print as text; WSL, SSH, a container, a snap desktop or a machine with no browser runs the headless login (`copilot login --device-code`, `codex login --device-auth`), a desktop opens the browser and prints the address too; `ap setup` offers the login for every runner.
-- Q11: `ap setup` ends with one test prompt through the runner ("Reply with the single word ready."); a pass writes `verified: <date>` to `~/.autopilot/machine.json` and `project.yaml`, a fail prints one plain sentence and the next command; `--skip-probe` turns it off; `ap doctor --runner` runs it alone.
-- Q14: each install error matches by exit code or error code first, a vendor error id second, and short keywords third; a German or French Windows message still gets its sentence because the hex code carries the match.
-- CI: tests run in parallel (`pytest -n auto`, `pytest-xdist` in the dev extras), pip cache, docs-only pushes skip CI, a newer push cancels the queued run; the Release job builds without a second test run; `uv` installs the package in CI; the Windows 3.10 row runs nightly and on request, not on every push. Push to release went from about 35 minutes to about 10.
+- **Setup continues where it stopped.** If `ap setup` fails half way, run it again. Finished steps show as `done` and
+  the rest continues. `ap setup --reset` starts from zero. `ap uninstall --steps` removes what setup installed, last
+  step first.
+- **Setup ends with a real test.** The last step sends one small prompt to your AI tool and waits for the answer
+  "ready". When it works, the date is saved. When it fails, you get one sentence and the next command.
+- **Errors are one sentence and one command.** Each error is matched by its error code, not by its English text, so
+  a German or French Windows message gets the same clear sentence.
+- **Login works without a browser.** On a server, in WSL, over SSH or in a container, the login address and the code
+  print as text. You open the address on any device and type the code. On a desktop the browser opens and the
+  address prints too.
+- **Projects in OneDrive or on a network drive get a warning and a move command.** Such folders slow git and break
+  the build. `ap move <folder>` copies the project to a local folder and keeps the history and the settings.
+- **Eight more checks before the install.** Git ownership, line endings, an API key in the environment, a wrong
+  clock, low disk space, an old git, a console that is not UTF-8 and a busy port. Each prints `found`, `fixed` or
+  `skipped` with the command.
+- **Five repairs with no question.** Git settings for the project, the PATH set once, a note about Windows
+  Defender, duplicate installs of one AI tool named with the removal command, and an older project folder updated
+  by `ap upgrade` with a backup.
+- **An outage at the AI service does not end the build.** After three failed calls, the build waits 15 minutes and
+  tries again, up to four times, and spends no retry. A login that ran out stops the build with the login command;
+  the next start continues the same task. A model that is not on your plan is named with the one that works. The
+  same error from three tasks in a row stops the build with a checklist.
+- **Faster checks on GitHub.** The test run went from about 35 minutes to about 10.
 
 ## [0.5.1] - 2026-10-12
 
