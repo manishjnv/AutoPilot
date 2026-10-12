@@ -4,7 +4,7 @@
 name: my-project
 stack: generic            # python | node | go | rust | java | static | docker | generic (set by `autopilot init`)
 main_branch: main
-profile: full             # O10: lean = one smoke test per criterion, changed-module tests per task (full suite at phase close),
+profile: lean             # O10: lean = one smoke test per criterion, changed-module tests per task (full suite at phase close),
                           # one retry, no periodic/completion audit (run `ap audit`), smaller prompt. full = every check, every audit
 
 # Commands the orchestrator runs itself. The agent's own "done" is never trusted.

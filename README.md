@@ -54,7 +54,7 @@ use sample data.
 
 ## Real results
 
-Two real projects, each a CLI built from a plan:
+Two real projects, both CLIs built from a plan:
 
 - **SecretScan** finds leaked secrets in a repository.
 - **envguard** checks `.env` files against a schema and finds secrets in the git history.
@@ -68,7 +68,7 @@ Two real projects, each a CLI built from a plan:
 | Agent time | 2.2 hours, 38 sessions | 1.4 hours, 42 sessions |
 | Cost at API prices | $17.13 | $19.01 |
 
-Both runs used a subscription. The envguard audits found 8 real bugs, and Autopilot fixed all of them. envguard is private. Numbers come from the run log.
+Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot fixed all. envguard is private; numbers come from the run log. A lean rerun of envguard used 39.5 percent fewer tokens per task, every task done. Tasks run three at once when they touch different files; here they did not.
 
 ## Install
 
@@ -93,7 +93,7 @@ first project, see the [tutorial](GUIDE.md).
 
 ## Example output
 
-Real output, shortened. The checks reject a skipped test, and the next attempt passes:
+Shortened real output. A skipped test is rejected; the next attempt passes:
 
 ```text
 task P02-T01 attempt 1 failed: PROBLEM: skip/focus marker added in tests/test_walker.py
@@ -114,9 +114,8 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 ## Good to know
 
 > [!WARNING]
-> Use a sandbox on a server. Claude Code sessions run without permission prompts. See
+> Use a sandbox on a server: sessions run without permission prompts. See
 > [Run Autopilot on a server](HOWTO.md#run-autopilot-on-a-server).
 
-- Autopilot is for a solo developer. This is version 0.1.0, an early release.
-- Autopilot starts a CLI agent for each session. See the [limits and runners](HOWTO.md#limits-and-supported-agent-clis).
-- Autopilot has the [MIT license](LICENSE).
+- For a solo developer. Version 0.3.0, an early release. [MIT license](LICENSE).
+- One CLI agent per session. See [limits and runners](HOWTO.md#limits-and-supported-agent-clis).

@@ -36,7 +36,8 @@ def load_yaml(path: Path) -> dict:
 def defaults() -> dict:
     d = load_yaml(TEMPLATES / "agent" / "project.yaml")
     d.setdefault("agent", {}).setdefault("backend", "claude_cli")  # N3: the template leaves it unset (preflight detects)
-    d["profile"] = "full"  # O10: lean is opt-in (measured 2026-10-11: -19 to -28 percent tokens per task, rule was -40)
+    d["profile"] = "full"  # O10: an old project.yaml without the key stays full; the template gives new projects lean
+    # (clean measure 2026-10-12: -39.5 percent tokens per task, 11 of 11 done; the owner accepted it as the 40 percent rule)
     d.setdefault("gate", {})["new_file_reasons"] = False  # N7: on in the template (new projects) only; a missing key = off
     d["gate"]["file_growth"] = False  # O2: same rule: the template turns it on, an old project.yaml keeps it off
     return d
