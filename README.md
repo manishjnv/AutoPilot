@@ -71,29 +71,37 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 
 ## Install
 
-One line, in your shell. It installs uv, Python and Autopilot for your user, no administrator prompt. Then it asks
-which AI you pay for (Claude, GitHub Copilot, Codex, Cursor or Kiro) and installs that one CLI. Windows (PowerShell):
+Three steps, no administrator prompt.
 
-```powershell
-irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 | iex
-```
+1. Run one line in your shell.
 
-macOS, Linux, WSL or Git Bash:
+   Windows (PowerShell):
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash
-```
+   ```powershell
+   irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 | iex
+   ```
 
-Windows (CMD):
+   macOS, Linux, WSL or Git Bash:
 
-```bat
-curl -o %TEMP%\install.cmd https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.cmd && %TEMP%\install.cmd
-```
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash
+   ```
 
-A PC with Python 3.10 or newer: `pip install dev-autopilot && ap setup`. Copilot in VS Code is not a command-line
-tool. Autopilot needs the Copilot CLI, which uses the same subscription.
-Open a project folder and type `ap`. See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). After a release, run `ap upgrade`. For a repair or a
-second machine, run `ap install`. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
+   Windows (CMD):
+
+   ```bat
+   curl -o %TEMP%\install.cmd https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.cmd && %TEMP%\install.cmd
+   ```
+
+   Have Python 3.10 or newer? `pip install dev-autopilot && ap setup`.
+
+2. Answer one question: which AI do you pay for (Claude, GitHub Copilot, Codex, Cursor or Kiro)? The script
+   installs that one CLI and prints its login command. Copilot in VS Code is not a command-line tool. Autopilot
+   needs the Copilot CLI, which uses the same subscription.
+3. Open a project folder and type `ap`.
+
+See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Later: `ap upgrade` after a release, `ap install` for a
+repair. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
 
 ## Example output
 
