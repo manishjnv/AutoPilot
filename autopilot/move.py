@@ -66,7 +66,7 @@ def warning(root: Path, **kw) -> list[str]:
         return []
     from pathlib import PurePosixPath, PureWindowsPath
     win = str(kw.get("platform") or sys.platform).startswith("win")
-    name = (PureWindowsPath if win else PurePosixPath)(str(root)).name  # the project name by the target OS, on any host
+    name = (PureWindowsPath(str(root)) if win else PurePosixPath(str(root).replace("\\", "/"))).name  # the name by the target OS, on any host
     target = default_target(name, kw.get("env"), kw.get("platform"), kw.get("home"))
     return [WHY[kind], f'Move it with: ap move "{target}"']
 
