@@ -42,6 +42,17 @@ class Snapshot:
     net_ok: bool | None = None                     # None = not probed
     tls_failed: bool = False                       # a probe failed on the certificate chain
     leftovers: list = field(default_factory=list)  # ~/.claude style folders with no binary
+    # Q21: eight more lines. Defaults mean "fine or not probed", so a clean machine still prints no line.
+    in_repo: bool = False                           # cwd holds a git repository
+    git_dubious: bool = False                       # `git status` failed with the dubious-ownership text
+    autocrlf: str = ""                              # `git config core.autocrlf` of the project
+    api_keys: list = field(default_factory=list)   # names of ANTHROPIC_API_KEY, OPENAI_API_KEY, CODEX_API_KEY that are set
+    clock_skew: float | None = None                 # seconds against an HTTP Date header; None = not probed
+    free_gb: float | None = None                    # free space of the home and project drive (the smaller one)
+    git_version: tuple | None = None                # (major, minor) of `git --version`
+    console_utf8: bool | None = None                # Windows console encoding is UTF-8; None = not Windows or unknown
+    port_busy: int = 0                              # the status page port in use (0 = free); `port_next` is the free one
+    port_next: int = 0
 
 
 Line = tuple[str, str, str]  # (id, status, text)
@@ -120,6 +131,23 @@ def check(s: Snapshot) -> list[Line]:
         out.append(_say("long-paths", "skipped", "", p))
     for left in s.leftovers:
         out.append(_say("leftover", "found", f"Folder: {left}.", p))
+    # Q21
+    if s.git_dubious:
+        out.append(_say("git-dubious", "fixed", f"Folder: {s.cwd}.", p))
+    if os_name(p) == "windows" and s.in_repo and s.autocrlf.lower() == "true":
+        out.append(_say("autocrlf", "fixed", "", p))
+    if s.api_keys:  # the names only; a value is never read into a line
+        out.append(_say("api-key", "found", f"Set: {', '.join(s.api_keys)}.", p))
+    if s.clock_skew is not None and abs(s.clock_skew) > 180:
+        out.append(_say("clock-skew", "skipped", f"The clock is {int(abs(s.clock_skew) // 60)} minutes {'ahead' if s.clock_skew > 0 else 'behind'}.", p))
+    if s.free_gb is not None and s.free_gb < 1:
+        out.append(_say("low-disk", "skipped", f"Free: {s.free_gb:.1f} GB.", p))
+    if s.git_version is not None and s.git_version < (2, 30):
+        out.append(_say("git-old", "skipped", f"git: {s.git_version[0]}.{s.git_version[1]}.", p))
+    if os_name(p) == "windows" and s.console_utf8 is False:
+        out.append(_say("console-encoding", "skipped", "", p))
+    if s.port_busy:
+        out.append(_say("port-busy", "fixed", f"Port {s.port_busy} is in use; the status page takes port {s.port_next}.", p))
     return out
 
 
@@ -145,6 +173,18 @@ def apply(lines: list[Line], s: Snapshot, run=run_proc, dry_run: bool = False) -
             if id_ == "git-identity" and status == "fixed" and not dry_run:
                 run(["git", "config", "--global", "user.name", s.gh_user[0]], timeout=20)
                 run(["git", "config", "--global", "user.email", s.gh_user[1]], timeout=20)
+            if id_ == "git-dubious" and not dry_run:  # Q21.1: the one command git names itself
+                if run(["git", "config", "--global", "--add", "safe.directory", s.cwd], timeout=20).rc != 0:
+                    status = "skipped"
+            if id_ == "autocrlf" and not dry_run:  # Q21.2: for this project only, never the global setting
+                if run(["git", "-C", s.cwd, "config", "core.autocrlf", "false"], timeout=20).rc != 0:
+                    status = "skipped"
+                else:
+                    ga = Path(s.cwd) / ".gitattributes"
+                    if not ga.exists():
+                        ga.write_text("* text=auto eol=lf\n", encoding="utf-8")
+            if id_ == "port-busy" and dry_run:
+                status = "skipped"
         except (OSError, ImportError):  # no registry on this system, or a read-only profile: the line stays `skipped`
             status = "skipped"
         out.append((id_, status, text))
@@ -158,7 +198,10 @@ def gather(env: dict | None = None, home: Path | None = None, which=None, run=ru
     home = Path(home or env.get("HOME") or env.get("USERPROFILE") or Path.home())
     path = env.get("PATH", "")
     which = which or (lambda n: shutil.which(n, path=path))
-    s = Snapshot(platform=sys.platform, home=str(home), cwd=cwd or os.getcwd(), path=path.split(os.pathsep), env=env)
+    from ..doctor import RUNNERS as _ROWS
+    secret = set(API_KEYS) | {t for r in _ROWS for t in r.tokens}  # Q21: a token or key value never enters the snapshot
+    s = Snapshot(platform=sys.platform, home=str(home), cwd=cwd or os.getcwd(), path=path.split(os.pathsep),
+                 env={k: ("set" if k in secret else v) for k, v in env.items()})
     s.uid = os.getuid() if hasattr(os, "getuid") else 1000
     s.sudo_user = env.get("SUDO_USER", "")
     s.machine = _platform.machine() or ""
@@ -213,4 +256,77 @@ def gather(env: dict | None = None, home: Path | None = None, which=None, run=ru
         except OSError:
             s.long_paths = None
     s.net_ok, s.tls_failed = net_ok, tls_failed
+    _gather_q21(s, env, home, which, out, cwd or os.getcwd())
     return s
+
+
+API_KEYS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY")
+STATUS_PORT = 8765
+
+
+def port_free(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def clock_skew(url: str = "https://api.github.com", fetch=None) -> float | None:
+    """Seconds this clock is ahead of the server's HTTP `Date` header (negative = behind); None when it cannot be read.
+    `fetch(url)` returns the Date header text; a test passes a fake, so no test reaches the network."""
+    from email.utils import parsedate_to_datetime
+    try:
+        if fetch is None:
+            import urllib.request
+            req = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=5) as r:  # noqa: S310 - a fixed https address
+                text = r.headers.get("Date", "")
+        else:
+            text = fetch(url)
+        server = parsedate_to_datetime(text)
+    except (OSError, ValueError, TypeError):
+        return None
+    import datetime
+    return (datetime.datetime.now(datetime.timezone.utc) - server).total_seconds()
+
+
+def _gather_q21(s: Snapshot, env: dict, home: Path, which, out, cwd: str) -> None:
+    """Q21: the facts of the eight new lines. Read-only; the only network call is one HEAD request for the Date header,
+    and only when AUTOPILOT_NO_NETWORK_CHECKS is unset (the test suite sets it through conftest)."""
+    s.api_keys = [k for k in API_KEYS if env.get(k)]  # presence only: the value is never stored
+    git = which("git")
+    if git:
+        m = re.search(r"(\d+)\.(\d+)", out([git, "--version"]))
+        s.git_version = (int(m[1]), int(m[2])) if m else None
+        try:
+            p = run_proc([git, "-C", cwd, "status", "--porcelain"], timeout=20)
+            text = (p.stdout or "") + (p.stderr or "")
+            s.in_repo = p.rc == 0 or "dubious ownership" in text
+            s.git_dubious = p.rc != 0 and "dubious ownership" in text
+        except OSError:
+            pass
+        if s.in_repo and not s.git_dubious:
+            s.autocrlf = out([git, "-C", cwd, "config", "--get", "core.autocrlf"])
+    try:
+        free = min(shutil.disk_usage(home).free, shutil.disk_usage(cwd).free)
+        s.free_gb = free / 1e9
+    except OSError:
+        pass
+    if sys.platform.startswith("win"):
+        import ctypes
+        try:
+            s.console_utf8 = ctypes.windll.kernel32.GetConsoleOutputCP() == 65001
+        except (AttributeError, OSError):
+            s.console_utf8 = None
+        if env.get("PYTHONIOENCODING", "").lower().replace("-", "") == "utf8":
+            s.console_utf8 = True
+    if not env.get("AUTOPILOT_NO_NETWORK_CHECKS"):
+        s.clock_skew = clock_skew()
+    if not port_free(STATUS_PORT):
+        s.port_busy = STATUS_PORT
+        s.port_next = next((p for p in range(STATUS_PORT + 1, STATUS_PORT + 11) if port_free(p)), 0)
+        if not s.port_next:
+            s.port_busy = 0

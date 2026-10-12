@@ -1169,6 +1169,8 @@ def start_status_page(root: Path, port: int = 8765) -> str:
         except OSError:
             continue
         threading.Thread(target=srv.serve_forever, daemon=True).start()
+        if p != port:  # Q21.8: say which port was taken
+            print(f"status page: port {port} is in use, so it runs on port {p}", flush=True)
         return f"http://127.0.0.1:{p}/"
     return ""
 

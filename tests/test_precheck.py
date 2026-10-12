@@ -1,6 +1,9 @@
 """Q6: one fixture per environment pre-check line; each line has a sentence in the Q4 catalogue."""
+import os
 import re
+import shutil
 from datetime import date, timedelta
+from pathlib import Path
 
 from autopilot.commands import precheck as pc
 from autopilot.install_errors import PRECHECK
@@ -118,3 +121,134 @@ def test_gather_runs_on_this_machine_without_a_crash(tmp_path, monkeypatch):
     s = pc.gather(home=tmp_path, cwd=str(tmp_path))
     assert s.home == str(tmp_path) and isinstance(pc.check(s), list)
     assert all(re.match(r"^(found|fixed|skipped)$", st) for _, st, _ in pc.check(s))
+
+# Q21: eight more lines, one fixture each. Every line has a sentence in the Q4 catalogue (the test above checks the ids).
+class _P:
+    def __init__(self, rc=0, out="", err=""):
+        self.rc, self.stdout, self.stderr = rc, out, err
+
+
+def test_git_dubious_ownership_adds_the_safe_directory_and_says_fixed(tmp_path):
+    s = snap(cwd=str(tmp_path), git_dubious=True, in_repo=True)
+    lines = pc.check(s)
+    assert [(i, st) for i, st, _ in lines] == [("git-dubious", "fixed")] and str(tmp_path) in lines[0][2]
+    ran = []
+    out = pc.apply(lines, s, run=lambda cmd, **kw: ran.append(cmd) or _P())
+    assert ran == [["git", "config", "--global", "--add", "safe.directory", str(tmp_path)]] and out[0][1] == "fixed"
+    assert pc.apply(lines, s, run=lambda cmd, **kw: _P(1))[0][1] == "skipped"  # git refused: the line says so
+    assert pc.apply(lines, s, run=lambda cmd, **kw: pytest_fail(), dry_run=True)[0][1] == "fixed"  # a dry run runs nothing
+
+
+def pytest_fail():
+    raise AssertionError("a dry run must not run a command")
+
+
+def test_gather_sees_the_dubious_ownership_text(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", os.pathsep.join([str(tmp_path), os.path.dirname(shutil.which("git"))]))
+    fake = lambda cmd, **kw: _P(128, "", "fatal: detected dubious ownership in repository at 'x'") if "status" in cmd else _P(0, "git version 2.43.0")  # noqa: E731
+    s = pc.gather(home=tmp_path, cwd=str(tmp_path), run=fake)
+    assert s.git_version == (2, 43) or s.git_version is not None
+
+
+def test_autocrlf_true_on_windows_is_turned_off_for_the_project_and_gitattributes_is_written(tmp_path):
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "core.autocrlf", "true"], check=True)
+    s = snap(platform="win32", home=r"C:\Users\u", path=[r"C:\Users\u\.local\bin"], cwd=str(tmp_path), in_repo=True, autocrlf="true")
+    lines = pc.check(s)
+    assert [(i, st) for i, st, _ in lines] == [("autocrlf", "fixed")]
+    out = pc.apply(lines, s, run=lambda cmd, **kw: subprocess.run(cmd, capture_output=True, text=True, check=False) and _P())
+    assert out[0][1] == "fixed"
+    got = subprocess.run(["git", "-C", str(tmp_path), "config", "core.autocrlf"], capture_output=True, text=True, check=False).stdout.strip()
+    assert got == "false" and (tmp_path / ".gitattributes").exists()
+    (tmp_path / ".gitattributes").write_text("keep me\n")
+    pc.apply(lines, s, run=lambda cmd, **kw: _P())
+    assert (tmp_path / ".gitattributes").read_text() == "keep me\n"  # an existing file is never replaced
+    assert ids(snap(platform="linux", in_repo=True, autocrlf="true")) == []  # Windows only
+
+
+def test_api_key_in_the_environment_is_named_and_the_value_never_printed():
+    s = snap(api_keys=["ANTHROPIC_API_KEY", "OPENAI_API_KEY"])
+    lines = pc.check(s)
+    assert [i for i, _, _ in lines] == ["api-key"] and "ANTHROPIC_API_KEY, OPENAI_API_KEY" in lines[0][2]
+    assert "unset" in lines[0][2]  # the way to unset it for the run
+    got = pc.gather(env={"PATH": "", "OPENAI_API_KEY": "sk-secret-value", "HOME": "/tmp"}, home=Path("/tmp"), cwd="/tmp")
+    assert got.api_keys == ["OPENAI_API_KEY"] and "sk-secret-value" not in repr(got)
+
+
+def test_clock_skew_over_three_minutes_prints_the_resync_command():
+    import datetime
+    from email.utils import format_datetime
+    now = datetime.datetime.now(datetime.timezone.utc)
+    behind = pc.clock_skew(fetch=lambda u: format_datetime(now + datetime.timedelta(minutes=10)))
+    assert behind is not None and behind < -540
+    assert pc.clock_skew(fetch=lambda u: "not a date") is None
+    lines = pc.check(snap(clock_skew=behind))
+    assert [i for i, _, _ in lines] == ["clock-skew"] and "sudo hwclock -s" in lines[0][2] and "behind" in lines[0][2]
+    assert "w32tm /resync" in pc.check(snap(platform="win32", home=r"C:\Users\u", path=[r"C:\Users\u\.local\bin"], clock_skew=400))[0][2]
+    assert ids(snap(clock_skew=170)) == [] and ids(snap(clock_skew=None)) == []
+
+
+def test_clock_skew_reads_the_date_header_of_a_fake_http_server():
+    import http.server
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_HEAD(self):
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        skew = pc.clock_skew(f"http://127.0.0.1:{srv.server_address[1]}/")
+    finally:
+        srv.shutdown()
+    assert skew is not None and abs(skew) < 30  # the server and the test share one clock
+
+
+def test_low_disk_under_one_gigabyte():
+    lines = pc.check(snap(free_gb=0.4))
+    assert [i for i, _, _ in lines] == ["low-disk"] and "0.4 GB" in lines[0][2]
+    assert ids(snap(free_gb=5.0)) == [] and ids(snap(free_gb=None)) == []
+
+
+def test_git_older_than_2_30():
+    lines = pc.check(snap(git_version=(2, 25)))
+    assert [i for i, _, _ in lines] == ["git-old"] and "2.25" in lines[0][2]
+    assert ids(snap(git_version=(2, 30))) == [] and ids(snap(git_version=(3, 0))) == []
+
+
+def test_console_not_utf8_on_windows_prints_the_chcp_line():
+    w = dict(platform="win32", home=r"C:\Users\u", path=[r"C:\Users\u\.local\bin"])
+    lines = pc.check(snap(console_utf8=False, **w))
+    assert [i for i, _, _ in lines] == ["console-encoding"] and "chcp 65001" in lines[0][2] and "PYTHONIOENCODING=" in lines[0][2]
+    assert ids(snap(console_utf8=True, **w)) == [] and ids(snap(console_utf8=False)) == []
+
+
+def test_status_page_port_in_use_takes_the_next_free_port_and_says_which(capsys, tmp_path):
+    import socket
+
+    from autopilot.cli import start_status_page
+    (tmp_path / ".agent").mkdir()
+    busy = socket.socket()
+    busy.bind(("127.0.0.1", 0))
+    port = busy.getsockname()[1]
+    busy.listen(1)
+    try:
+        assert not pc.port_free(port)
+        url = start_status_page(tmp_path, port)
+    finally:
+        busy.close()
+    assert url.startswith("http://127.0.0.1:") and not url.endswith(f":{port}/")
+    assert f"port {port} is in use, so it runs on port" in capsys.readouterr().out
+    lines = pc.check(snap(port_busy=8765, port_next=8766))
+    assert [(i, st) for i, st, _ in lines] == [("port-busy", "fixed")] and "8766" in lines[0][2]
+
+
+def test_every_q21_line_has_one_plain_sentence_in_the_catalogue():
+    for key in ("git-dubious", "autocrlf", "api-key", "clock-skew", "low-disk", "git-old", "console-encoding", "port-busy"):
+        sentence, _ = PRECHECK[key]
+        assert sentence.endswith(".") and sentence.count(". ") == 0 and len(sentence) < 170, key
