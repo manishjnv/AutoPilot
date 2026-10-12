@@ -100,8 +100,8 @@ Three steps, no administrator prompt.
    needs the Copilot CLI, which uses the same subscription.
 3. Open a project folder and type `ap`.
 
-See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Later: `ap upgrade` after a release, `ap install` for a
-repair. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
+See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot updates itself once a day; `ap uninstall --all`
+removes it. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
 
 ## Example output
 

@@ -15,11 +15,11 @@ posix = pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), 
 def fakes(tmp_path, **scripts):
     """A tmp PATH folder with one fake program per name (a sh script body); the real bash and coreutils stay reachable."""
     d = tmp_path / "bin"
-    d.mkdir(exist_ok=True)
+    d.mkdir(parents=True, exist_ok=True)
     for name, body in scripts.items():
         (d / name).write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
         (d / name).chmod(0o755)
-    for tool in ("bash", "sh", "tail", "cat", "rm", "mkdir", "date", "grep", "dirname", "head", "tr", "sed"):
+    for tool in ("bash", "sh", "tail", "cat", "rm", "mkdir", "date", "grep", "dirname", "head", "tr", "sed", "sort", "awk"):
         real = shutil.which(tool)
         if real and not (d / tool).exists():
             os.symlink(real, d / tool)
@@ -37,7 +37,7 @@ def test_scripts_stay_thin_and_keep_the_bump_lines():
     assert len(SH.read_text(encoding="utf-8").splitlines()) < 150
     assert len(PS1.read_text(encoding="utf-8").splitlines()) < 220
     assert len(CMD.read_text(encoding="utf-8").splitlines()) <= 12
-    assert "\nDEFAULT_REF=v" in SH.read_text(encoding="utf-8") and "\n$DefaultRef = 'v" in PS1.read_text(encoding="utf-8")
+    assert "\nMIN_VERSION=" in SH.read_text(encoding="utf-8") and "\n$MinVersion = '" in PS1.read_text(encoding="utf-8")
     for text in (SH.read_text(encoding="utf-8"), PS1.read_text(encoding="utf-8")):
         assert "ap setup" in text and "This script installs: uv, Python 3.12 (when missing), Autopilot." in text
         assert "claude.ai/install" not in text  # Q5: no runner install in the scripts; `ap setup` names the runner
@@ -94,7 +94,8 @@ def test_options_pass_through_to_ap_setup_and_bad_ones_are_usage(tmp_path):
 
 @posix
 def test_setup_exit_3_is_passed_through_with_one_hint(tmp_path):
-    ap = 'case "$*" in --version) echo "ap 0.4.0";; *) echo "ap setup --runner copilot"; exit 3;; esac'
+    from autopilot import __version__
+    ap = f'case "$*" in --version) echo "ap {__version__}";; *) echo "ap setup --runner copilot"; exit 3;; esac'
     curl = 'exit 0'
     path = fakes(tmp_path, ap=ap, autopilot=ap, curl=curl, uv='echo uv 0.9', python3='exit 0')
     p = run_sh(tmp_path, path)
@@ -128,9 +129,23 @@ def test_cmd_wrapper_only_starts_powershell():
 @posix
 def test_an_autopilot_without_setup_is_updated_from_main(tmp_path):
     """A friend's PC had autopilot 0.4.0 (no `ap setup`): the script must update before step 5, not trust `found`."""
-    old_ap = ('case "$*" in --version) echo "ap 0.4.0";; --help) echo "usage: ap {init,run}"; exit 0;; '
+    old_ap = ('case "$*" in --version) echo "ap 0.3.0";; --help) echo "usage: ap {init,run}"; exit 0;; '
               '*) echo "ap: error: invalid choice: setup" >&2; exit 2;; esac')
     uv = 'echo "UV $*"; exit 0'
     p = run_sh(tmp_path, fakes(tmp_path, ap=old_ap, autopilot=old_ap, uv=uv, curl="exit 0", python3="exit 0"))
-    assert "found: an Autopilot without ap setup: updating" in p.stdout
-    assert "run: uv tool install --reinstall git+https://github.com/manishjnv/AutoPilot@main" in p.stdout
+    assert "older than this installer" in p.stdout and "updating" in p.stdout
+    assert 'run: uv tool install --reinstall "dev-autopilot @ https://github.com/manishjnv/AutoPilot/archive/main.zip"' in p.stdout
+
+
+@posix
+def test_a_current_autopilot_is_kept_and_a_fresh_install_uses_the_archive_of_main(tmp_path):
+    from autopilot import __version__
+    cur = f'case "$*" in --version) echo "ap {__version__} (abc)";; *) echo "AP $*"; exit 0;; esac'
+    p = run_sh(tmp_path, fakes(tmp_path, ap=cur, autopilot=cur, uv='echo uv', curl="exit 0", python3="exit 0"))
+    assert p.returncode == 0 and f"found: ap {__version__}" in p.stdout and "updating" not in p.stdout
+    uv = 'echo "UV $*"; exit 0'
+    p = run_sh(tmp_path / "fresh", fakes(tmp_path / "fresh", uv=uv, curl="exit 0", python3="exit 0"))
+    assert 'run: uv tool install "dev-autopilot @ https://github.com/manishjnv/AutoPilot/archive/main.zip"' in p.stdout
+    assert "dev-autopilot==" not in p.stdout  # a branch ref never goes to PyPI first
+    p = run_sh(tmp_path / "tag", fakes(tmp_path / "tag", uv=uv, curl="exit 0", python3="exit 0"), AUTOPILOT_REF="v9.9.9")
+    assert "run: uv tool install dev-autopilot==9.9.9" in p.stdout  # a release copy tries PyPI first

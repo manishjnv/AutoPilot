@@ -1392,12 +1392,37 @@ def cmd_approve(args):
     return 0
 
 
-def cmd_uninstall(args):
-    """N8: `ap uninstall --rights` removes the scheduled task / the sudoers file the installer created."""
-    from .rights import remove_rights
+def cmd_uninstall(args, spawn=None):
+    """N8: `ap uninstall --rights` removes the scheduled task / the sudoers file the installer created.
+    T3: `ap uninstall --all` removes the rights, `~/.autopilot`, and the package itself (last, after this process has
+    exited: `ap.exe` is locked while it runs). `--dry-run` lists the steps. Projects' `.agent/` folders and the AI CLIs stay."""
+    from .rights import have_rights, remove_rights
+    from .upgrade import detect_install, spawn_after_exit
+    dry = getattr(args, "dry_run", False)
+    if getattr(args, "all", False):
+        say = (lambda s: print(("would " if dry else "") + s))
+        if have_rights():
+            say("remove the rights the installer took (scheduled task / sudoers file)")
+            if not dry:
+                for line in remove_rights():
+                    print(line)
+        home = _recent_file().parent
+        say(f"delete {home} (recent projects, the install log, the runner choice)")
+        if not dry and home.is_dir():
+            shutil.rmtree(home, ignore_errors=True)
+        kind = detect_install()
+        cmd = {"uv": ["uv", "tool", "uninstall", "dev-autopilot"], "pip": [sys.executable, "-m", "pip", "uninstall", "-y", "dev-autopilot"]}.get(kind)
+        if cmd is None:
+            say("remove the package: this is a git checkout; run `pip uninstall dev-autopilot`, then delete the folder")
+        else:
+            say(f"remove the package ({kind}), after this command has exited: {' '.join(cmd)}")
+            if not dry:
+                (spawn or spawn_after_exit)(cmd)
+        print("Kept: uv, Python, git, your AI CLI and its login, and each project's .agent/ folder (delete it to start clean).")
+        return 0
     if not getattr(args, "rights", False):
         print("ap uninstall --rights   removes the rights the installer took (scheduled task / sudoers file)\n"
-              "uv tool uninstall dev-autopilot   removes Autopilot itself")
+              "ap uninstall --all      removes the rights, ~/.autopilot and Autopilot itself (--dry-run lists the steps)")
         return 0
     for line in remove_rights():
         print(line)
@@ -1582,8 +1607,9 @@ def main(argv=None):
     p = add("skip", cmd_skip, "skip task(s)"); p.add_argument("task_ids", nargs="+")
     p = add("approve", cmd_approve, "deploy an approved phase to prod"); p.add_argument("phase")
     add("mcp", cmd_mcp, "MCP server on stdin/stdout for IDE chats: ap_status, ap_next, ap_start, ap_stop, ap_answer")
-    p = add("uninstall", cmd_uninstall, "--rights: remove the scheduled task / sudoers file the installer created")
-    p.add_argument("--rights", action="store_true")
+    p = add("uninstall", cmd_uninstall, "--rights: remove the rights the installer took; --all: remove Autopilot from this PC")
+    p.add_argument("--rights", action="store_true"); p.add_argument("--all", action="store_true")
+    p.add_argument("--dry-run", action="store_true", help="list the steps, change nothing")
     from .upgrade import cmd_install, cmd_upgrade
     p = add("upgrade", cmd_upgrade, "get the newest Autopilot; --check only prints")
     p.add_argument("--check", action="store_true"); p.add_argument("--ref"); p.add_argument("--daily", action="store_true", help=argparse.SUPPRESS)
@@ -1618,7 +1644,7 @@ def main(argv=None):
         print(f"autopilot {__version__}: {DESCRIPTION.split('. ')[0]}.")
         print(next_steps_text(Path.cwd()))
         return 0
-    if args.cmd in ("upgrade", "install", "setup"):  # no project needed: nothing to find or remember
+    if args.cmd in ("upgrade", "install", "setup", "uninstall"):  # no project needed: nothing to find or remember
         return args.fn(args) or 0
     if args.path is None:  # J2: no -C
         found = "." if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists() else pick_project()
@@ -1628,7 +1654,13 @@ def main(argv=None):
     remember(Path(args.path).resolve())
     if getattr(args, "detach", False):
         return start_detached(Path(args.path).resolve(), [a for a in (argv or sys.argv[1:]) if a != "--detach"])
-    return args.fn(args) or 0
+    rc = args.fn(args) or 0
+    from .upgrade import auto_update  # T2: after the command, once a day, never during a run
+
+    line = auto_update(args.cmd, Path(args.path).resolve())
+    if line:
+        print(line)
+    return rc
 
 
 if __name__ == "__main__":

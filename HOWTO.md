@@ -525,14 +525,25 @@ the script hands over to `install.ps1`, because the Windows `curl` cannot run th
 
 ## Update or remove Autopilot
 
-After a release, run `ap upgrade`. It gets the newest release and checks the file against `SHA256SUMS`.
-`ap upgrade --check` only prints the version. For a repair, or for a second machine, run `ap install`.
+Autopilot updates itself. Once a day, after a short command such as `ap status`, it looks for a newer release. When
+there is one, it prints `updating ap 0.4.0 -> v0.5.0 in the background`, and the update runs after the command has
+ended. It never updates during a build, in CI, or in a git checkout. To turn it off, set `upgrade.auto: false` in
+`.agent/project.yaml` or the variable `AUTOPILOT_NO_AUTO_UPGRADE=1`.
+
+To update now, run `ap upgrade`. It gets the newest release and checks the file against `SHA256SUMS`.
+`ap upgrade --check` only prints the version. For a repair, or for a second machine, run `ap install`. The install
+script replaces an Autopilot that is older than the script itself.
 
 To remove Autopilot, run:
 
 ```powershell
-uv tool uninstall dev-autopilot
+ap uninstall --all
 ```
+
+It removes the rights the installer took, the folder `~/.autopilot`, and then the package itself (after the command
+has ended, because the program cannot delete itself while it runs). `ap uninstall --all --dry-run` lists the steps.
+It keeps uv, Python, git, your AI CLI with its login, and the `.agent/` folder of each project. Delete `.agent/` to
+start a project clean. Without `ap`, run `uv tool uninstall dev-autopilot` (or `pip uninstall dev-autopilot`).
 
 ## Install from a clone to change the code
 

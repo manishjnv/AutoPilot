@@ -195,3 +195,64 @@ def check_once_per_day(run=run_proc, urlopen=_open, stamp=None, now=time.time) -
         return line
     except (OSError, ValueError, KeyError):
         return ""
+
+
+# T2: `ap` updates itself. Once a day, release-based, uv-tool and pip installs only (an editable checkout gets the hint),
+# never while a run is active, never in CI, never for the long commands. The reinstall starts after this process has
+# exited: on Windows `ap.exe` and the tool's python are locked while they run.
+NO_AUTO = ("run", "start", "watch", "serve", "mcp", "upgrade", "install", "uninstall", "setup", "quickstart", "onboard")
+
+
+def spawn_after_exit(cmd: list[str], delay: int = 3) -> None:
+    """Start `cmd` detached, after `delay` seconds, through the system shell (not this interpreter)."""
+    import shlex
+    import subprocess
+    if sys.platform.startswith("win"):
+        line = f"timeout /t {delay} /nobreak >nul & " + subprocess.list2cmdline(cmd)
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
+        subprocess.Popen(["cmd", "/c", line], creationflags=flags, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+    else:
+        line = f"sleep {delay}; " + " ".join(shlex.quote(c) for c in cmd)
+        subprocess.Popen(["sh", "-c", line], start_new_session=True, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+
+
+def auto_update(cmd: str, root=None, *, env=None, run=run_proc, urlopen=_open, detect=detect_install, spawn=spawn_after_exit,
+                active=None, stamp=None, now=time.time) -> str:
+    """One line when an update was started (or when only the hint applies), else ''. Never raises."""
+    env = os.environ if env is None else env
+    try:
+        if cmd in NO_AUTO or env.get("CI") or env.get("AUTOPILOT_NO_AUTO_UPGRADE") or env.get("AUTOPILOT_DETACHED"):
+            return ""
+        if root is not None:
+            from .config import Config
+            try:
+                if Config.load(root).get("upgrade.auto", True) is False:
+                    return ""
+            except Exception:  # noqa: BLE001  a broken project.yaml is validate's job, not the updater's
+                pass
+            if (active or _run_active)(root):
+                return ""
+        line = check_once_per_day(run=run, urlopen=urlopen, stamp=stamp, now=now)
+        if not line:
+            return ""
+        kind = detect()
+        if kind == "editable":
+            return line  # a developer's checkout pulls only on request
+        rel = latest_release(run=run, urlopen=urlopen)
+        wheel = fetch_wheel(rel, urlopen)
+        if wheel is None:
+            return ""
+        spawn(["uv", "tool", "install", "--reinstall", str(wheel)] if kind == "uv"
+              else [sys.executable, "-m", "pip", "install", "--upgrade", str(wheel)])
+        f = stamp or _stamp()
+        f.write_text("", encoding="utf-8")  # the hint is spent: the next day compares against the new version
+        return f"updating ap {__version__} -> {rel['tag']} in the background; the next command runs it"
+    except Exception:  # noqa: BLE001  an update never breaks the command that just ran
+        return ""
+
+
+def _run_active(root) -> bool:
+    from .cli import run_active
+    return run_active(Path(root))

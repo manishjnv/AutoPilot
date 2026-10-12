@@ -22,6 +22,9 @@ jobs:
       - name: Release notes and checksums
         run: |
           v="${GITHUB_REF_NAME#v}"
+          # T1: the uploaded scripts install this tag; the copies on main keep DEFAULT_REF=main
+          sed -i "s/^DEFAULT_REF=.*/DEFAULT_REF=$GITHUB_REF_NAME/" install.sh
+          sed -i "s/^\$DefaultRef = .*/\$DefaultRef = '$GITHUB_REF_NAME'/" install.ps1
           awk -v h="## [$v]" 'index($0,h)==1{f=1;next} /^## \[/{f=0} f&&(n||NF){n=1;print}' CHANGELOG.md > notes.md
           (cd dist && sha256sum *) > SHA256SUMS
           sha256sum install.ps1 install.sh >> SHA256SUMS

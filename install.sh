@@ -7,8 +7,10 @@
 set -eu
 set -o pipefail
 
-# ponytail: set this to the release tag when the first tag is made
-DEFAULT_REF=v0.4.0
+# T1: a script from main installs main; the release workflow points the asset copy at its tag. MIN_VERSION is this
+# script's own version (bump.py writes it): an Autopilot below it, found or fresh from PyPI, is replaced.
+DEFAULT_REF=main
+MIN_VERSION=0.4.0
 RAW=https://raw.githubusercontent.com/manishjnv/AutoPilot
 
 step() { echo "==> Step $1 of 5: $2"; }
@@ -112,23 +114,23 @@ main() {
   else run 3 Python "$pycmd"; fi
 
   step 4 Autopilot
-  # N5.3: the package from PyPI first (no git needed); the release tag on GitHub when PyPI has no release yet.
-  addr="git+https://github.com/manishjnv/AutoPilot@$ref"
-  if have autopilot || { have uv && uv tool list 2>/dev/null | grep dev-autopilot >/dev/null; }; then
-    echo "found: $(have autopilot && ver autopilot || echo dev-autopilot)"; echo "To update, run: ap upgrade"
-  elif [ "$dry" = 1 ]; then echo "would install. Command: uv tool install dev-autopilot (or uv tool install \"$addr\")"
+  # N5.3 + T1: PyPI first for a release copy; the archive of $ref (no git needed) when PyPI is behind or $ref is a branch.
+  addr="dev-autopilot @ https://github.com/manishjnv/AutoPilot/archive/$ref.zip"
+  apver() { ap --version 2>/dev/null | awk '{print $2}'; }
+  atleast() { [ -n "$1" ] && [ "$(printf '%s\n' "$MIN_VERSION" "$1" | sort -V | head -1)" = "$MIN_VERSION" ]; }
+  if have ap && atleast "$(apver)"; then echo "found: $(ver autopilot) (ap upgrade updates it; ap updates itself once a day)"
+  elif have ap; then
+    echo "found: $(ver autopilot), older than this installer ($MIN_VERSION): updating"
+    if [ "$dry" = 1 ]; then echo "would run: uv tool install --reinstall \"$addr\""; else run 4 Autopilot "uv tool install --reinstall \"$addr\""; fi
+  elif [ "$dry" = 1 ]; then echo "would install. Command: uv tool install \"$addr\" (PyPI first when $ref is a release)"
   else
-    echo "run: uv tool install dev-autopilot"
-    if ! bash -c "uv tool install dev-autopilot" >"$tmp" 2>&1; then cat "$tmp" >>"$log"; run 4 Autopilot "uv tool install \"$addr\""; fi
-    have autopilot || fail 4 Autopilot "uv tool install \"$addr\""
+    case "$ref" in v[0-9]*) echo "run: uv tool install dev-autopilot==${ref#v}"; bash -c "uv tool install dev-autopilot==${ref#v}" >"$tmp" 2>&1 && cat "$tmp" >>"$log" || { cat "$tmp" >>"$log"; run 4 Autopilot "uv tool install \"$addr\""; } ;;
+      *) run 4 Autopilot "uv tool install \"$addr\"" ;;
+    esac
   fi
-  if [ "$dry" = 1 ]; then echo "would check: ap is on PATH"
-  elif have ap; then echo "found: ap"
-  else fail 4 Autopilot "uv tool install --reinstall \"$addr\" (then make sure $HOME/.local/bin is on PATH)"; fi
-  # an Autopilot without `ap setup` (0.4.0 from PyPI or an older checkout) is updated from main before step 5
-  newer="uv tool install --reinstall git+https://github.com/manishjnv/AutoPilot@main"
-  if [ "$dry" != 1 ] && ! ap --help 2>&1 | grep -q setup; then echo "found: an Autopilot without ap setup: updating"; run 4 Autopilot "$newer"; fi
-
+  if [ "$dry" = 1 ]; then echo "would check: ap is on PATH and at least $MIN_VERSION"
+  elif ! have ap; then fail 4 Autopilot "uv tool install --reinstall \"$addr\" (then make sure $HOME/.local/bin is on PATH)"
+  elif ! atleast "$(apver)"; then : >"$tmp"; fail 4 Autopilot "uv tool install --reinstall \"$addr\""; else echo "found: ap $(apver)"; fi
   step 5 "runner (ap setup)"
   args=""; [ "$skip" = 1 ] && args="$args --skip-login"; [ "$yes" = 1 ] && args="$args --yes"; [ -n "$runner" ] && args="$args --runner $runner"
   if [ "$dry" = 1 ]; then

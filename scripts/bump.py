@@ -1,7 +1,7 @@
 """Release bump: python scripts/bump.py X.Y.Z (run from the repo root).
 
 Writes the version in four places, moves Unreleased under the new header,
-points DEFAULT_REF at the tag, makes one commit and one tag vX.Y.Z.
+sets MIN_VERSION in both install scripts, makes one commit and one tag vX.Y.Z.
 """
 import datetime
 import re
@@ -24,8 +24,8 @@ def main(ver):
     sub("plugin/.claude-plugin/plugin.json", r'"version": ".*?"', f'"version": "{ver}"')
     sub("autopilot/__init__.py", r'^__version__ = ".*"', f'__version__ = "{ver}"')
     sub("CHANGELOG.md", r"^## \[Unreleased\]\n", f"## [Unreleased]\n\n## [{ver}] - {datetime.date.today()}\n")
-    sub("install.sh", r"^DEFAULT_REF=.*", f"DEFAULT_REF=v{ver}")
-    sub("install.ps1", r"^\$DefaultRef = .*", f"$DefaultRef = 'v{ver}'")
+    sub("install.sh", r"^MIN_VERSION=.*", f"MIN_VERSION={ver}")  # T1: the script's own version; DEFAULT_REF stays main
+    sub("install.ps1", r"^\$MinVersion = .*", f"$MinVersion = '{ver}'")
     for cmd in (["add", "-u"], ["commit", "-m", f"release: v{ver}"], ["tag", f"v{ver}"]):
         subprocess.run(["git", *cmd], check=True)
 

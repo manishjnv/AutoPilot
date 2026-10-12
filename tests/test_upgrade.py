@@ -163,3 +163,66 @@ def test_daily_check_asks_once(tmp_path, monkeypatch):
     first = check_once_per_day(run=run, urlopen=counting, stamp=stamp, now=lambda: stamp.stat().st_mtime if stamp.exists() else 0)
     again = check_once_per_day(run=run, urlopen=counting, stamp=stamp)
     assert first == again and "0.4.0" in first and n[0] == 1
+
+
+# ---- T2: ap updates itself, after the command, in a process that starts after this one exits
+def _auto(tmp_path, monkeypatch, cmd="status", kind="uv", version="0.3.0", env=None, active=False, **kw):
+    from autopilot import upgrade
+    monkeypatch.setattr("autopilot.upgrade.__version__", version)
+    spawned = []
+    line = upgrade.auto_update(cmd, tmp_path, env=env or {}, run=FakeRun({"gh release view": GH_JSON}), urlopen=fake_open(),
+                               detect=lambda: kind, spawn=lambda c: spawned.append(c), active=lambda r: active,
+                               stamp=tmp_path / "stamp", **kw)
+    return line, spawned
+
+
+def test_auto_update_starts_the_reinstall_once_and_says_so(tmp_path, monkeypatch):
+    line, spawned = _auto(tmp_path, monkeypatch)
+    assert "updating ap 0.3.0 -> v0.4.0 in the background" in line
+    assert spawned and spawned[0][:4] == ["uv", "tool", "install", "--reinstall"] and spawned[0][4].endswith(".whl")
+    line, spawned = _auto(tmp_path, monkeypatch)  # the same day: the hint is spent, nothing starts again
+    assert line == "" and spawned == []
+
+
+def test_auto_update_never_runs_during_a_run_in_ci_for_long_commands_or_when_off(tmp_path, monkeypatch):
+    assert _auto(tmp_path, monkeypatch, active=True) == ("", [])
+    assert _auto(tmp_path, monkeypatch, env={"CI": "1"}) == ("", [])
+    assert _auto(tmp_path, monkeypatch, env={"AUTOPILOT_NO_AUTO_UPGRADE": "1"}) == ("", [])
+    for cmd in ("run", "start", "watch", "upgrade", "setup", "mcp"):
+        assert _auto(tmp_path, monkeypatch, cmd=cmd) == ("", []), cmd
+    assert _auto(tmp_path, monkeypatch, version="0.4.0") == ("", [])  # current: nothing
+    (tmp_path / ".agent").mkdir()
+    (tmp_path / ".agent" / "project.yaml").write_text("upgrade:\n  auto: false\n", encoding="utf-8")
+    assert _auto(tmp_path, monkeypatch) == ("", [])
+
+
+def test_auto_update_only_hints_for_an_editable_checkout_and_uses_pip_for_pip(tmp_path, monkeypatch):
+    line, spawned = _auto(tmp_path, monkeypatch, kind="editable")
+    assert "run `ap upgrade`" in line and spawned == []
+    line, spawned = _auto(tmp_path / "p", monkeypatch, kind="pip")
+    assert spawned[0][1:4] == ["-m", "pip", "install"]
+
+
+def test_auto_update_never_raises(tmp_path, monkeypatch):
+    from autopilot import upgrade
+
+    def boom(*a, **k):
+        raise RuntimeError("network on fire")
+    assert upgrade.auto_update("status", tmp_path, env={}, run=boom, urlopen=boom, stamp=tmp_path / "s") == ""
+
+
+# ---- T3: ap uninstall --all
+def test_uninstall_all_dry_run_lists_the_steps_and_the_real_run_spawns_the_package_removal(tmp_path, monkeypatch, capsys):
+    from autopilot.cli import cmd_uninstall
+    home = Path(__import__("os").environ["AUTOPILOT_HOME"])
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "runner").write_text("codex")
+    monkeypatch.setattr("autopilot.rights.have_rights", lambda platform=None: "")
+    monkeypatch.setattr("autopilot.upgrade.detect_install", lambda *a, **k: "uv")
+    assert cmd_uninstall(Namespace(all=True, dry_run=True, rights=False)) == 0
+    out = capsys.readouterr().out
+    assert f"would delete {home}" in out and "would remove the package (uv)" in out and (home / "runner").exists()
+    spawned = []
+    assert cmd_uninstall(Namespace(all=True, dry_run=False, rights=False), spawn=spawned.append) == 0
+    out = capsys.readouterr().out
+    assert not home.exists() and spawned == [["uv", "tool", "uninstall", "dev-autopilot"]] and "Kept:" in out

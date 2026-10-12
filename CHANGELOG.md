@@ -9,6 +9,10 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- T1: the install scripts and the code move as one unit: `MIN_VERSION` in both scripts equals the package version, a script from `main` installs the archive of `main` (no git needed), a release copy tries PyPI first; an Autopilot older than the script is replaced, never trusted.
+- T2: `ap` updates itself once a day after a short command, in a process that starts after `ap` has ended; never during a build, in CI, in a git checkout, or with `upgrade.auto: false` / `AUTOPILOT_NO_AUTO_UPGRADE=1`.
+- T3: `ap uninstall --all` removes the rights, `~/.autopilot` and the package; `--dry-run` lists the steps.
+
 - Q6: `ap setup` prints one environment line each (`found`, `fixed`, `skipped`) for `~/.local/bin` off PATH (fixed in the profile or the user PATH), proxies, a corporate CA, offline, ARM and 32-bit Windows, a space or non-ASCII home, OneDrive or a network share, a read-only home, root or sudo, a conda or pyenv shim, an old uv, two Autopilots, WSL 1 and `/mnt` projects, a Windows CLI seen from WSL, two copies of a CLI, a token over a stored login, a missing git identity (set from `gh api user`), Windows long paths, leftover CLI folders.
 - Q10: a command outside a project says `this folder is no project, using the last one used: <path>`; `ap doctor` names the install source (editable checkout, uv tool, pip); `python -m autopilot --version` says `autopilot`, not `__main__`.
 - Q8: `tests/test_setup.py`, `tests/test_install_errors.py` and `tests/test_install_scripts.py` run every runner as a fake script on a temporary PATH; the install workflow has four jobs (Linux, macOS, Windows PowerShell, Git Bash) and each real install names the runner.

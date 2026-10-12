@@ -8,8 +8,10 @@ param([switch]$DryRun, [switch]$SkipLogin, [switch]$Rights, [switch]$Yes, [strin
 $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
 
-# ponytail: set this to the release tag when the first tag is made
-$DefaultRef = 'v0.4.0'
+# T1: a script from main installs main; the release workflow points the asset copy at its tag. MinVersion is this
+# script's own version (bump.py writes it): an Autopilot below it, found or fresh from PyPI, is replaced.
+$DefaultRef = 'main'
+$MinVersion = '0.4.0'
 
 if ($env:AUTOPILOT_DRY_RUN -eq '1') { $DryRun = $true }
 if ($env:AUTOPILOT_SKIP_LOGIN -eq '1') { $SkipLogin = $true }
@@ -133,28 +135,26 @@ elseif ($DryRun) { Write-Host "would install (no Python 3.10 or newer found). Co
 else { Capture 3 'Python' $pycmd }
 
 Step 4 'Autopilot'
-# N5.3: the package from PyPI first (no git needed); the release tag on GitHub when PyPI has no release yet.
-$addr = "git+https://github.com/manishjnv/AutoPilot@$Ref"
-if ((Has autopilot) -or ((Has uv) -and ("$(Run uv tool list)" -match 'dev-autopilot'))) {
-    $v = if (Has autopilot) { Ver autopilot } else { 'dev-autopilot' }
-    Write-Host "found: $v"; Write-Host 'To update, run: ap upgrade'
+# N5.3 + T1: PyPI first for a release copy; the archive of $Ref (no git needed) when PyPI is behind or $Ref is a branch.
+$addr = "dev-autopilot @ https://github.com/manishjnv/AutoPilot/archive/$Ref.zip"
+function ApVer { if (Has ap) { $w = "$(Run ap --version)".Split(' '); if ($w.Count -ge 2) { return $w[1] } } '' }
+function AtLeast($v) { if (-not $v) { return $false }; try { [version]$v -ge [version]$MinVersion } catch { $false } }
+if ((Has ap) -and (AtLeast (ApVer))) { Write-Host "found: $(Ver autopilot)"; Write-Host 'To update, run: ap upgrade' }
+elseif (Has ap) {
+    Write-Host "found: $(Ver autopilot), older than this installer ($MinVersion): updating"
+    if ($DryRun) { Write-Host "would run: uv tool install --reinstall `"$addr`"" } else { Capture 4 'Autopilot' "uv tool install --reinstall `"$addr`""; Refresh }
 } elseif ($DryRun) {
-    Write-Host "would install. Command: uv tool install dev-autopilot (or uv tool install `"$addr`")"
+    Write-Host "would install. Command: uv tool install `"$addr`" (PyPI first when $Ref is a release)"
 } else {
-    Write-Host 'run: uv tool install dev-autopilot'
-    $null = Run uv tool install dev-autopilot
-    if ($LASTEXITCODE -ne 0) { Capture 4 'Autopilot' "uv tool install `"$addr`"" }
+    $done = $false
+    if ($Ref -match '^v\d') { Write-Host "run: uv tool install dev-autopilot==$($Ref.Substring(1))"; $null = Run uv tool install "dev-autopilot==$($Ref.Substring(1))"; $done = ($LASTEXITCODE -eq 0) }
+    if (-not $done) { Capture 4 'Autopilot' "uv tool install `"$addr`"" }
     Refresh
-    if (-not (Has autopilot)) { Fail 4 'Autopilot' "uv tool install `"$addr`"" 'autopilot is not on PATH after the install' }
 }
-if ($DryRun) { Write-Host 'would check: ap is on PATH' }
-elseif (Has ap) { Write-Host 'found: ap' }
-else { Fail 4 'Autopilot' "uv tool install --reinstall `"$addr`" (then make sure $env:USERPROFILE\.local\bin is on PATH)" 'ap is not on PATH' }
-# an Autopilot without `ap setup` (0.4.0 from PyPI or an older checkout) is updated from main before step 5
-if (-not $DryRun -and -not ("$(Run ap --help)" -match 'setup')) {
-    Write-Host 'found: an Autopilot without ap setup: updating'
-    Capture 4 'Autopilot' 'uv tool install --reinstall git+https://github.com/manishjnv/AutoPilot@main'
-}
+if ($DryRun) { Write-Host "would check: ap is on PATH and at least $MinVersion" }
+elseif (-not (Has ap)) { Fail 4 'Autopilot' "uv tool install --reinstall `"$addr`" (then make sure $env:USERPROFILE\.local\bin is on PATH)" 'ap is not on PATH' }
+elseif (-not (AtLeast (ApVer))) { Fail 4 'Autopilot' "uv tool install --reinstall `"$addr`"" "ap $(ApVer) is older than $MinVersion" }
+else { Write-Host "found: ap $(ApVer)" }
 
 Step 5 'runner (ap setup)'
 $setupArgs = @()
