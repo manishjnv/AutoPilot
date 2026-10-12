@@ -27,7 +27,14 @@ The first install takes approximately 4 minutes.
 
 ## Step 1: Install Autopilot
 
-One line. Windows (PowerShell):
+One line, on every system, with [uv](https://docs.astral.sh/uv/). It installs Python if needed:
+
+```powershell
+uv tool install dev-autopilot
+```
+
+No uv? Run the install script instead. It installs uv, Python, Claude Code and Autopilot for your user, with no
+administrator prompt. Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 | iex
@@ -39,10 +46,7 @@ macOS, Linux or WSL:
 curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash
 ```
 
-The script installs what is missing for your user: Python, uv, Claude Code and Autopilot. No administrator
-prompt. It ends with the line "Open a project folder and type `ap`."
-
-If you already use [uv](https://docs.astral.sh/uv/), `uv tool install dev-autopilot` does the same.
+Both end with the same result: `ap` is ready. The package name on PyPI is `dev-autopilot`; the command is `ap`.
 
 The install adds two commands: `autopilot` and its short name `ap`. This tutorial uses `ap`.
 

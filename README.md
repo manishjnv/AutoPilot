@@ -72,7 +72,13 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 
 ## Install
 
-One line. It installs what is missing for your user, with no administrator prompt.
+One line, with [uv](https://docs.astral.sh/uv/) (it installs Python if needed):
+
+```powershell
+uv tool install dev-autopilot
+```
+
+No uv? The script installs uv, Python, Claude Code and Autopilot for your user, no administrator prompt.
 Windows (PowerShell):
 
 ```powershell
@@ -85,8 +91,7 @@ macOS, Linux or WSL:
 curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash
 ```
 
-On Windows pick Windows or WSL, not both; WSL only for the sandbox. With [uv](https://docs.astral.sh/uv/) already
-installed, `uv tool install dev-autopilot` is the same.
+On Windows pick Windows or WSL, not both; WSL only for the sandbox.
 Open a project folder and type `ap`. The first run logs you in to Claude (a paid plan, Pro or Max), then starts.
 See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). After a release, run `ap upgrade`. For a repair or a
 second machine, run `ap install`. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
