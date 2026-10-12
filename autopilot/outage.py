@@ -13,12 +13,13 @@ from dataclasses import dataclass, field
 
 from .install_errors import explain
 
-OUTAGE_COUNT, OUTAGE_WINDOW = 3, 60.0     # rule 1: three 5xx or timeouts inside one minute
+OUTAGE_COUNT, OUTAGE_WINDOW = 3, 900.0    # rule 1: three 5xx or timeouts inside 15 minutes (the heal waits are 1 and 5 min)
+OUTAGE_WAIT, OUTAGE_WAITS = 900, 4         # then the run waits 15 minutes, up to four times, before it stops
 REPEAT_COUNT = 3                           # rule 4: the same parsed error from this many tasks
 OUTAGE_SENTENCE = "The service is down, try again in 15 minutes."
 
 _5XX = re.compile(r"API Error:? (?:50[0234]|529)\b|overloaded_error|Service Unavailable|Bad Gateway|"
-                  r"Request timed out|\b50[0234]\b", re.IGNORECASE)
+                  r"Request timed out|(?:HTTP|status)[^\n]{0,12}\b50[0234]\b", re.IGNORECASE)
 _MODEL = re.compile(r"model.{0,60}(?:not found|not available|does not exist|unknown|not supported)|"
                     r"(?:unknown|invalid) model|model_not_found|invalid_model", re.IGNORECASE)
 # alias ladder, the cheapest name that every plan has first; the sentence names the first one that is not the failing one
@@ -30,7 +31,7 @@ def is_outage(text: str) -> bool:
     return bool(_5XX.search(text or ""))
 
 
-_EXPIRED = re.compile(r"OAuth token (?:has )?expired|token_expired|API Error:? 401\b|invalid_api_key|session (?:has )?expired",
+_EXPIRED = re.compile(r"OAuth token (?:has )?expired|token_expired|session (?:has )?expired",  # a bad key or a bare 401 is a first-time fault
                       re.IGNORECASE)
 
 
@@ -53,7 +54,7 @@ def model_sentence(failing: str) -> str:
 @dataclass
 class Tracker:
     """Rule 1 and rule 4 counters for one run. `now` is replaced by a test."""
-    now: object = time.time
+    now: object = time.monotonic
     hits: list = field(default_factory=list)                 # times of 5xx / timeout answers
     seen: dict = field(default_factory=dict)                 # parsed error id -> set of task ids
 
@@ -67,6 +68,10 @@ class Tracker:
 
     def ok(self) -> None:
         self.hits.clear()
+
+    def task_ok(self) -> None:
+        """A task merged: the same-error rule starts again (three tasks in a row, not three across a night)."""
+        self.seen.clear()
 
     def repeat(self, task_id: str, text: str) -> str:
         """Rule 4: the parsed error id when the same one has now come from REPEAT_COUNT different tasks, else ''."""

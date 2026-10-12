@@ -32,16 +32,25 @@ def err5xx(n=1):
     return [SessionResult(ok=False, error="API Error: 503 Service Unavailable", infra="network") for _ in range(n)]
 
 
-def test_three_5xx_in_a_row_say_the_service_is_down_and_never_loop(tmp_path):
+def test_three_5xx_in_a_row_wait_fifteen_minutes_and_continue(tmp_path):
     sleeps = []
     fake = Scripted(err5xx(9))
     _root, orch = make(tmp_path, fake, sleeps)
-    assert orch.run() == "The service is down, try again in 15 minutes."
-    assert fake.sent == 3  # the third answer ends it: no fourth call, no retry loop
+    assert orch.run() == "plan complete"  # a blip does not end a night's work
+    assert fake.sent == 9 and sleeps.count(900) >= 3  # every third answer: one 15-minute wait (the heal ladder adds its own)
     assert sleeps[:2] == [60, 300]  # the old heal waits only between the first answers
-    assert orch.state.task("P01-T01")["attempts"] in (0, None)  # no try was spent
+    assert orch.state.task("P01-T01")["attempts"] == 1  # no try was spent on the outage
     events = [e["message"] for e in orch.state.events(100)]
     assert not any("/login" in m or "not logged in" in m for m in events)  # no login prompt for an outage
+
+
+def test_a_long_outage_ends_the_run_after_four_waits(tmp_path):
+    sleeps = []
+    fake = Scripted(err5xx(40))
+    _root, orch = make(tmp_path, fake, sleeps)
+    assert orch.run() == "The service is down, try again in 15 minutes."
+    assert sleeps.count(900) >= 4 and fake.sent == 15  # 3 answers per wait, 4 waits, the 15th answer ends it
+    assert orch.state.task("P01-T01")["attempts"] in (0, None)
 
 
 def test_two_5xx_then_a_good_answer_keeps_the_old_heal(tmp_path):
@@ -49,28 +58,38 @@ def test_two_5xx_then_a_good_answer_keeps_the_old_heal(tmp_path):
     assert orch.run() == "plan complete" and orch.state.task("P01-T01")["attempts"] == 1
 
 
-def test_the_outage_counter_only_counts_one_minute():
+def test_the_outage_counter_only_counts_fifteen_minutes():
     t = [0.0]
     tr = outage.Tracker(now=lambda: t[0])
     assert not tr.outage("API Error: 503") and not tr.outage("Request timed out")
-    t[0] = 61
-    assert not tr.outage("API Error: 502")  # the first two are older than a minute
-    t[0], x = 70, tr.outage("API Error: 504")
-    t[0] = 75
-    assert not x and tr.outage("API Error: 529")  # three inside one minute
-    assert not tr.outage("a test failed")  # not a vendor failure
+    t[0] = 901
+    assert not tr.outage("API Error: 502")  # the first two are older than the window
+    t[0], x = 1000, tr.outage("API Error: 504")
+    t[0] = 1100
+    assert not x and tr.outage("API Error: 529")  # three inside the window
+    assert not tr.outage("a test failed") and not tr.outage("line 502 of the log")  # not a vendor failure
 
 
-def test_an_expired_login_parks_the_task_prints_the_login_command_and_resumes_after_a_fake_login(tmp_path):
+def test_an_expired_login_parks_the_task_prints_the_login_command_and_resumes_after_a_fake_login(tmp_path, monkeypatch):
+    from autopilot import doctor
+    monkeypatch.setattr(doctor, "check_runner_login", lambda cfg, env=None: (doctor.FAIL, "claude", "claude auth login"))
     fake = Scripted([SessionResult(ok=False, error="OAuth token has expired", infra="auth")])
     root, orch = make(tmp_path, fake)
     out = orch.run()
     assert "Log in again with `claude auth login`" in out and "no try was lost" in out
     assert orch.state.task("P01-T01")["attempts"] in (0, None)  # no retry burned
     assert orch.state.get_meta("auth_paused") and any(e["kind"] == "auth" for e in orch.state.events(100))
-    orch.state.close()  # the fake login is done: the next start continues the same task and finishes
+    orch.state.close()  # the fake login is done: the next start clears the pause and finishes the same task
     orch2 = Orchestrator(root, backend=fake, sleep=lambda s: None)
     assert orch2.run() == "plan complete" and orch2.state.task("P01-T01")["attempts"] == 1
+    assert not orch2.state.get_meta("auth_paused")
+
+
+def test_a_transient_401_with_a_live_login_keeps_the_old_wait_and_retry(tmp_path, monkeypatch):
+    from autopilot import doctor
+    monkeypatch.setattr(doctor, "check_runner_login", lambda cfg, env=None: (doctor.OK, "claude", ""))
+    _root, orch = make(tmp_path, Scripted([SessionResult(ok=False, error="OAuth token has expired", infra="auth")]))
+    assert orch.run() == "plan complete" and not orch.state.get_meta("auth_paused")
 
 
 def test_a_first_time_missing_login_keeps_the_old_wait_and_retry(tmp_path):

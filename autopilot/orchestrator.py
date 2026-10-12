@@ -174,7 +174,8 @@ class Orchestrator:
         self.max_sessions = limit or None
         self.sessions_this_run = 0
         self.rate_limit_streak = 0
-        self.tracker = outage.Tracker(now=lambda: time.time())  # Q22: outage and repeated-error counters of this run
+        self.tracker = outage.Tracker()  # Q22: outage and repeated-error counters of this run (monotonic clock)
+        self.outage_waits = 0  # Q22.1: 15-minute waits taken for a vendor outage in this run (outage.OUTAGE_WAITS at most)
         self.last_gate = ""  # N11
         self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
         self.env_repair_tried = False  # self-healing: one environment repair session per run
@@ -325,6 +326,7 @@ class Orchestrator:
         self.ad.mkdir(exist_ok=True)
         try:
             with exclusive_lock(self.ad / "run.lock"):
+                self.state.set_meta("auth_paused", "")  # Q22.2: a new start means the owner logged in again
                 return self._run()
         except BlockingIOError:
             raise SystemExit("another autopilot run is active for this project")
@@ -824,19 +826,19 @@ class Orchestrator:
         before this run), not a first-time missing login. The login check runs again; the command is remembered."""
         if not outage.is_expired_login(res.error):
             return False
-        from .doctor import check_runner_login
+        from .doctor import FAIL, check_runner_login
         level, _, detail = check_runner_login(self.cfg)
-        self.state.set_meta("auth_paused", detail or "the login ran out")
         self.state.event("auth", f"login check again: {level} {detail}")
+        if level != FAIL:  # a transient 401: the login is still there, so the old wait-and-retry handles it
+            return False
+        self.state.set_meta("auth_paused", detail or "the login ran out")
         return True
 
     def auth_stop_text(self) -> str:
         from .doctor import runner
         row = runner(str(self.cfg.get("agent.preset") or "claude_cli"))
         cmd = row.login if row else "claude auth login"
-        text = f"The login ran out. Log in again with `{cmd}`, then start again with `ap start`; no try was lost."
-        self.notify.send("heal", text)
-        return text
+        return f"The login ran out. Log in again with `{cmd}`, then start again with `ap start`; no try was lost."
 
     def _run_backend(self, req) -> SessionResult:
         """Self-healing around one session: when the machinery fails (the CLI can't start, the login is gone, the
@@ -853,15 +855,24 @@ class Orchestrator:
                     self.notify.send("heal", f"sessions run again after {streak} failed tries; continuing")
                 self.tracker.ok()
                 return res
-            # Q22.1: three 5xx or timeouts from the vendor within one minute: say so once, do not loop, do not ask for a login
+            # Q22.1: three 5xx or timeouts from the vendor within 15 minutes: say so once, do not loop, do not ask for a login
             if res.infra == "network" and self.tracker.outage(res.error):
-                self.notify.send("heal", outage.OUTAGE_SENTENCE)
-                self._journal(current="the service is down")
-                raise Stop(outage.OUTAGE_SENTENCE)
+                # an unattended run waits 15 minutes a few times before it ends: a short blip must not kill a night's work
+                self.outage_waits += 1
+                if self.outage_waits > outage.OUTAGE_WAITS:
+                    self._journal(current="the service is down")
+                    raise Stop(outage.OUTAGE_SENTENCE, fatal=True)
+                self.tracker.ok()
+                self.notify.send("heal", f"{outage.OUTAGE_SENTENCE} Waiting {outage.OUTAGE_WAIT // 60} min "
+                                         f"({self.outage_waits} of {outage.OUTAGE_WAITS}); no try is spent.")
+                self._journal(current=f"the service is down; wait {self.outage_waits} of {outage.OUTAGE_WAITS}")
+                self.sleep(outage.OUTAGE_WAIT)
+                self.check_stop()
+                continue
             # Q22.2: a login that ran out mid-run: park the task, check the login again, print the command, stop;
             # the next start continues and no try was spent
             if res.infra == "auth" and self.mid_run_auth(res):
-                raise Stop(self.auth_stop_text())
+                raise Stop(self.auth_stop_text(), fatal=True)
             streak += 1
             what = {"cli": "the claude CLI could not run a session",
                     "auth": "Claude is not logged in (or the API key was rejected)",
@@ -981,8 +992,7 @@ class Orchestrator:
                     self.git.delete_branch(branch)
                     self.state.set_task(task.id, status="pending", attempts=attempts - 1)
                     lines = outage.checklist(same, res.error)
-                    self.notify.send("fatal", "\n".join(lines))
-                    raise Stop("\n".join(lines))
+                    raise Stop("\n".join(lines), fatal=True)  # the run end sends the one fatal notification
             elif str(res.report.get("status", "done")).lower() == "blocked":
                 agent_blocked = True
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
@@ -1357,6 +1367,7 @@ class Orchestrator:
             sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
         self.git.delete_branch(branch)
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
+        self.tracker.task_ok()  # Q22.4: a merged task ends any run of the same error
         self._push()  # after `done`: a push failure stops the run, and the merged task must not be redone
         self._tell_issue(task, f"Fixed by Autopilot in {sha[:10]} (task {task.id}).", close=True)
         self._quality(task, model)
@@ -1539,6 +1550,7 @@ class Orchestrator:
             self.git.drop_worktree(tpath, tmp)
         self.landed.append((task, before))
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
+        self.tracker.task_ok()  # Q22.4: a merged task ends any run of the same error
         nxt = self.plan.next_ready(self.state.status_map(), self.cfg.get("scheduling.phase_dependency", "soft"))
         self.docs.task_done(task, phase, res.report, model=model, attempt=1, cost=self.state.cost(task_id=task.id),
                             gate_warnings=gate.warnings, files=files, next_task=nxt.id if nxt else None)

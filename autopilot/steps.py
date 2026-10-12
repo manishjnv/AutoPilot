@@ -18,7 +18,7 @@ ORDER = ("uv", "python", "autopilot", "runner", "login", "probe", "config")  # t
 
 
 def state_path(home: Path | None = None) -> Path:
-    return Path(os.environ.get("AUTOPILOT_HOME") or (home or Path.home()) / ".autopilot") / "setup.json"
+    return Path(os.environ.get("AUTOPILOT_HOME") or (home or Path.home()) / ".autopilot") / "setup.json"  # same rule as profile.py
 
 
 def load(home: Path | None = None) -> dict:
@@ -64,6 +64,7 @@ def done_line(rows: dict, name: str) -> str:
 def method_of(cmd: str) -> str:
     """The install method a command line stands for: winget, brew, npm, pip, uv, or native (the vendor's own script)."""
     c = (cmd or "").strip().lower()
+    c = re.sub(r"^(?:sudo |& |cmd /c |powershell -command )+", "", c)  # the first real token decides
     if c.startswith("winget"):
         return "winget"
     if c.startswith("brew"):
