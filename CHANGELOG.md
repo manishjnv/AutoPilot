@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W6: under `git.mode: pr`, a task with gate warnings or a criterion without a test opens a draft PR with a `## Not proven` list in the body; a clean task opens a ready PR.
 - W7: closing a phase writes a signed `receipt.json` (commit, sha256 of PROOF.md, PHASE.md and the task files, HMAC key in `~/.autopilot/receipt.key`); `ap verify [phase]` checks it offline and exits 1 on a changed file or a bad signature.
 - W4: `review.scope: all` (new projects) gives every task above low risk one read-only review of its diff before the merge; the review sees only the task, its criteria, the diff and the test output, and a finding fails the attempt. A missing key or `critical` reviews only critical tasks, as before.
 - W2: `ap tour [--speed N] [--once]` replays a recorded run in the watch window with no login, no key and no network, then prints the proof and the install line.
@@ -127,3 +128,4 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - 2026-10-13 **P02-T02** ap tour command — Added `ap tour [--speed N] [--once]`. It reads the recording from `autopilot/templates/tour/`, builds dashboard data per second of recorded time, and draws it with `dash_term.frame`. At the end it pri
 - 2026-10-13 **P03-T01** review.scope key and the review on medium and high tasks — Added review.scope (critical | all). Orchestrator.review_due(task) is the one rule: review.enabled and (risk critical, or scope all and risk above low, using effective_risk). review() and parallel_bat
 - 2026-10-13 **P04-T01** receipt.py: sign the phase record — Added autopilot/receipt.py (HMAC-SHA256 signed receipt, key in ~/.autopilot/receipt.key, mode 0600, AUTOPILOT_HOME respected). close_phase now writes and commits receipt.json after the docs commit, an
+- 2026-10-13 **P05-T01** Draft flag and the Not proven body — Under git.mode: pr, a task with gate warnings or a criterion without a test now opens a draft PR with a `## Not proven` list in the body; a clean task opens a ready PR with 'Nothing'. The logic is tas

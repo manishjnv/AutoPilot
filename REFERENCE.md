@@ -156,7 +156,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `functional` | The feature check at the end of each phase | `enabled` (true), `init` |
 | `escalate` | An early move to a stronger model | `on_timeout`, `max_diff_lines` (300), `load_bearing` |
 | `scheduling` | The order and parallel work | `phase_dependency` (soft), `parallel` (the template sets 1; unset = 3 with a test command in direct mode, else 1). Only `low` and `medium` first attempts join a batch. Two tasks that share a file never run together. A task with an empty `files_in_scope` runs alone. |
-| `git` | Push and pull | `push` (false), `pull` (true), `mode` (direct or pr) |
+| `git` | Push and pull | `push` (false), `pull` (true), `mode` (direct or pr). With `mode: pr`, a task with gate warnings or a criterion without a test opens a draft pull request. The body lists them under `## Not proven` ("Nothing" for a clean task, which opens a ready PR). Autopilot marks the draft ready when CI is green, then merges. |
 | `intake` | Fix tasks from GitHub | `enabled` (false), `label` (autopilot), `poll_minutes` (30) |
 | `deploy` | Staging and production | `cmd`, `health_url`, `rollback_cmd` |
 | `notify`, `chat` | Alerts and Telegram commands | `events`, `chat.enabled` (false) |
