@@ -52,12 +52,14 @@ gate:
                           # `new_files` and `new_deps`; a dependency manifest change without a declared dependency fails
   file_growth: true       # O2: a code file may not grow past 400 lines or 25 percent in one task (whichever is larger),
                           # measured against `.agent/quality_baseline.json` from `autopilot init`; the retry says "split, do not grow"
+  layers: true            # O4: checks the ```layers block in BRAIN.md (none = no check); only violations new since day one fail
   scope_fail: true        # O1: a changed file outside the task's files_in_scope fails the gate (false = warn only)
 
 agent:
   # backend: claude_cli   # claude_cli | command; unset = preflight writes the first agent CLI it finds on PATH (N3)
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
   # preset: codex          # backend=command without a command: codex | gemini | opencode | kiro | cursor | aider (ready-made invocations)
+  # fallback: [codex, copilot]   # N11: at a usage limit that resets in over 30 min, the task continues with the first runner here (own login)
   # model_map: {haiku: <small model>, sonnet: <main model>, opus: <largest model>}   # ladder names -> CLI models;
   #                         an unmapped haiku/sonnet/opus uses the CLI's default model
   permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing; or dontAsk + allowed_tools
@@ -226,6 +228,7 @@ audit:                    # reviews overall implementation vs plan -> corrective
   completion_audit: true  # when the plan is exhausted: is the app actually complete? gaps -> new tasks
   max_completion_rounds: 2
   max_new_tasks: 15       # per audit, keeps self-correction bounded
+  consolidate: false      # O9: at each phase close, a rise in duplicate blocks, files over budget or layer violations adds one [consolidate] task to the next phase
 
 deploy:
   staging:

@@ -143,13 +143,11 @@ def cmd_upgrade(args, run=run_proc, urlopen=_open, detect=detect_install, root=N
 
 def cmd_install(args, run=run_proc, urlopen=_open, which=shutil.which) -> int:
     """`ap install [--rights]`: uv, then Autopilot at the latest tag; --rights = the one rights step."""
-    if getattr(args, "rights", False):
-        from .rights import describe, have_rights
-        if have_rights():
-            print(describe())
-            return 0
-        print("run the installer again to take the rights: " + RIGHTS_CMD["win" if sys.platform.startswith("win") else "posix"])
-        return 1
+    if getattr(args, "rights", False):  # N5.4: the one rights step lives here, not in the install scripts
+        from .rights import have_rights, setup_rights
+        for line in setup_rights():
+            print(line)
+        return 0 if have_rights() else 1
     if not which("uv"):
         cmd = [sys.executable, "-m", "pip", "install", "--user", "uv"]
         print("run: " + " ".join(cmd))

@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from . import AGENT_DIR, decisions
@@ -27,6 +28,8 @@ from .docs import Documenter, redact_secrets, research_path
 from .gate import (TEST_GLOBS, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
                    test_tamper)
 from .gitops import Git, GitError
+from .growth import consolidate
+from .handoff import MIN_WAIT, fallback_backend, write_handoff
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .proc import exclusive_lock, run_proc
@@ -154,7 +157,9 @@ class Stop(Exception):
 
 
 class Orchestrator:
-    def __init__(self, root: Path | str, backend=None, sleep=time.sleep, max_sessions: int | None = None):
+    def __init__(self, root: Path | str, backend=None, sleep=time.sleep, max_sessions: int | None = None,
+                 no_prod: bool = False):
+        self.no_prod = no_prod  # K: `ap run --no-prod`: everything runs except the deploy to the production host
         self.cfg = Config.load(root)
         self.root = self.cfg.root
         self.ad = self.root / AGENT_DIR
@@ -169,6 +174,7 @@ class Orchestrator:
         self.max_sessions = limit or None
         self.sessions_this_run = 0
         self.rate_limit_streak = 0
+        self.last_gate = ""  # N11
         self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
         self.env_repair_tried = False  # self-healing: one environment repair session per run
         self.git_offline = ""   # self-healing: why this run neither pulls nor pushes ('' = it does)
@@ -748,6 +754,8 @@ class Orchestrator:
                              on_tokens=lambda n: self._journal(live_tokens=n, context_tokens=seen[0]))
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
         res = self._run_backend(req)
+        if kind == "task" and res.rate_limited:
+            res = self._handoff(req, res, task_id) or res  # N11
         self._journal(live_tokens=0, context_tokens=0)  # from here its tokens are in the ledger
         undone = self.git.guard_config(config_before)  # e.g. husky's core.hooksPath: harmless, but never kept
         if undone:
@@ -771,6 +779,43 @@ class Orchestrator:
             self.rate_limit_streak = 0
         return res
 
+    def _runner(self):
+        """N11: the fallback runner while the first runner's window is closed (handoff_until), else the first."""
+        if float(self.state.get_meta("handoff_until", 0) or 0) > time.time():
+            return self._fallback_backend(self.state.get_meta("handoff_runner"))
+        return self.backend
+
+    def _fallback_backend(self, name: str):
+        return fallback_backend(self.cfg, name)
+
+    def _handoff(self, req, res, task_id) -> SessionResult | None:
+        """N11: usage limit with a reset > 30 min away and `agent.fallback` set: commit the work, write HANDOFF.md, run
+        the next runner on it in the same worktree. One handoff per window; None = no handoff (the normal pause)."""
+        names, task = self.cfg.get("agent.fallback") or [], self.plan.task_by_id.get(task_id) if task_id else None
+        if (not names or not task or not res.reset_at or res.reset_at - time.time() <= MIN_WAIT
+                or self._runner() is not self.backend):
+            return None
+        runner = str(names[0])
+        try:
+            backend = self._fallback_backend(runner)
+            self.git.commit_all("wip: handoff at usage limit")
+            text = write_handoff(req.cwd, task, self.git, self.main, self.last_gate)
+        except Exception as exc:  # noqa: BLE001 — a failed handoff is just the old pause
+            log.warning("handoff to %s failed: %s", runner, exc)
+            return None
+        self.state.set_meta("handoff_until", res.reset_at)
+        self.state.set_meta("handoff_runner", runner)
+        self.notify.send("handoff", f"{task_id}: usage limit until {dt.datetime.fromtimestamp(res.reset_at):%H:%M}; "
+                                    f"the task continues with {runner}")
+        try:
+            out = backend.run(replace(req, prompt=f"{text}\n\n---\n\n{req.prompt}", resume="", resume_totals={}))
+        except Exception as exc:  # noqa: BLE001
+            out = SessionResult(ok=False, error=f"backend exception: {exc!r}")
+        finally:
+            (Path(req.cwd) / "HANDOFF.md").unlink(missing_ok=True)
+        out.cost += res.cost
+        return out
+
     HEAL_WAIT = (60, 300, 900, 1800, 3600)
 
     def _run_backend(self, req) -> SessionResult:
@@ -780,7 +825,7 @@ class Orchestrator:
         streak = 0
         while True:
             try:
-                res = self.backend.run(req)
+                res = self._runner().run(req)
             except Exception as exc:  # noqa: BLE001 — a backend crash is just a failed session
                 return SessionResult(ok=False, error=f"backend exception: {exc!r}")
             if not res.infra:
@@ -869,7 +914,7 @@ class Orchestrator:
                 raise Stop(f"phase {phase.id} budget ${per_phase} reached")
 
             model = own_model or self.model_for(risk, attempts, floor)
-            own_model = ""
+            own_model, self.last_gate = "", last_error or ""  # N11: the last gate output goes into a handoff
             effort = self.cfg.get(f"models.effort.{risk}", "")
             base = self.git.start_branch(branch, self.main)
             res = None
@@ -1075,12 +1120,26 @@ class Orchestrator:
             return False
         if self.state.get_meta(f"adr:{task.id}") is not None:  # one try per task
             return False
-        return task.needs_decision or task.risk in (self.cfg.get("decide.risks") or [])
+        infra_first = bool(phase.infra.get("steps")) and phase.tasks and task is phase.tasks[0]  # K: ADR before infra
+        return infra_first or task.needs_decision or task.risk in (self.cfg.get("decide.risks") or [])
+
+    def infra_brief(self, phase) -> str:
+        """K: for the ADR before an infra phase: each step with its host and rollback, and the dry-run result (the
+        read-only credential check of `ap preflight`). '' for a phase without infra steps."""
+        steps = phase.infra.get("steps") or []
+        if not steps:
+            return ""
+        from .commands.preflight import recheck
+        lines = [f"- {s['id']} ({s['type']}): host `{s['host'] or 'not set'}`, rollback `{s['rollback_cmd'] or 'none'}`"
+                 for s in steps]
+        dry = recheck(phase) or "credential check passed"
+        return ("\n\n## Infra steps of this phase (critical)\nThe ADR must name the host, the rollback and the dry-run "
+                "result for each step.\n" + "\n".join(lines) + f"\nDry-run result: {dry}\n")
 
     def decide(self, task, phase):
         """One read-only session weighs 2-3 approaches before risky work; its choice becomes the ADR the implementer
         follows. No usable answer = build without an ADR (never blocks)."""
-        res = self._isolated("decide", self.ctx.decide_prompt(task), self.cfg.get("models.decide", "opus"),
+        res = self._isolated("decide", self.ctx.decide_prompt(task) + self.infra_brief(phase), self.cfg.get("models.decide", "opus"),
                              task_id=task.id, phase=phase.id, effort=self.cfg.get("decide.effort", "high"))
         rep = res.report if res.ok and isinstance(res.report, dict) else {}
         self.state.set_meta(f"adr:{task.id}", "")
@@ -1822,6 +1881,10 @@ class Orchestrator:
         self.sync_plan_source(wait=False)  # N13: items added to the plan document meanwhile become tasks now
         if phase.priority:  # corrective phases don't count toward review cadence
             return
+        if self.cfg.get("audit.consolidate"):  # O9: opt-in; a rise in duplicates, big files or layer violations adds one task
+            tid = consolidate(self.root, self.ad / "plan.yaml", phase.id)
+            self._commit_main(f"[autopilot] add consolidate task {tid}" if tid else f"[autopilot] growth numbers {phase.id}")
+            self.reload_plan()
         closed = self.state.phases_closed()
         audit_n = int(self.cfg.get("audit.every_n_phases", 0) or 0)
         replan_n = int(self.cfg.get("replan.every_n_phases", 0) or 0)
@@ -1960,7 +2023,9 @@ class Orchestrator:
                                             "The root cause is covered by a test or a documented check"],
                 }], f"deploy failure {phase.id}", once_key=f"deployfix-{phase.id}")
             notes.append(res.detail.splitlines()[0])
-        if self.cfg.get("deploy.prod.enabled") and staging_ok:
+        if self.cfg.get("deploy.prod.enabled") and staging_ok and getattr(self, "no_prod", False):
+            notes.append("prod skipped (--no-prod)")  # K: the production host is never touched in this run
+        elif self.cfg.get("deploy.prod.enabled") and staging_ok:
             auto = self.cfg.get("deploy.prod.auto") and RISKS.index(phase.max_risk) <= RISKS.index(
                 self.cfg.get("deploy.prod.max_auto_risk", "medium"))
             if auto:

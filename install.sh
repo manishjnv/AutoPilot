@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Autopilot installer for Linux, macOS and WSL. Options: --dry-run, --skip-login.
 # Env: AUTOPILOT_REF (git tag/branch to install), AUTOPILOT_DRY_RUN=1, AUTOPILOT_SKIP_LOGIN=1.
-# Safe to run twice. One sudo at most (N8): it installs git when missing and writes /etc/sudoers.d/autopilot, so later
-# runs install system tools with no password. Edits no profile file. `ap uninstall --rights` removes the sudoers file.
+# Safe to run twice. N5.4: no sudo. git is not installed by this script (the PyPI package needs none); the N8 rights
+# step (/etc/sudoers.d/autopilot) lives in `ap install --rights`. Edits no profile file.
 set -eu
 set -o pipefail
 
@@ -47,12 +47,8 @@ main() {
 
   # N8: the one consent. Starting this script is the consent; nothing below asks again.
   echo "Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step."
-  echo "This script installs: git (sudo, when missing), uv, Claude Code, Python 3.12 (when missing), Autopilot."
-  case "${OSTYPE:-}" in
-    darwin*) echo "Rights it takes: none (brew needs none)." ;;
-    *) echo "Rights it takes: one sudo now, and /etc/sudoers.d/autopilot so later runs install system tools with no" \
-            "password (apt-get, dpkg, snap, brew). Remove it later with: ap uninstall --rights" ;;
-  esac
+  echo "This script installs: uv, Claude Code, Python 3.12 (when missing), Autopilot. git is checked, not installed."
+  echo "Rights it takes: none (N5.4). \`ap install --rights\` sets up the no-password path for system tools once."
 
   step 1 git
   if have git; then
@@ -62,8 +58,7 @@ main() {
       darwin*) cmd="xcode-select --install" ;;
       *) if have dnf; then cmd="sudo dnf install -y git"; else cmd="sudo apt-get install -y git"; fi ;;
     esac
-    if [ "$dry" = 1 ]; then echo "would install. Command: $cmd"
-    else echo "run: $cmd"; bash -c "$cmd" || fail 1 "$cmd"; have git || fail 1 "$cmd"; fi
+    echo "git is missing: skipped (not needed for the package install). A project that uses git needs it: $cmd"
   fi
 
   ensure 2 uv uv "curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | sh"
@@ -78,15 +73,16 @@ main() {
     echo "run: $pycmd"
     uv python install 3.12 || fail 4 "$pycmd"
   fi
+  # N5.3: the package from PyPI first (no git needed); the release tag on GitHub when PyPI has no release yet.
   addr="git+https://github.com/manishjnv/AutoPilot@$ref"
   if have autopilot || { have uv && uv tool list 2>/dev/null | grep dev-autopilot >/dev/null; }; then
     echo "found: $(have autopilot && ver autopilot || echo dev-autopilot)"
-    echo "To update, run: uv tool install --reinstall \"$addr\""
+    echo "To update, run: ap upgrade"
   elif [ "$dry" = 1 ]; then
-    echo "would install. Command: uv tool install \"$addr\""
+    echo "would install. Command: uv tool install dev-autopilot (or uv tool install \"$addr\")"
   else
-    echo "run: uv tool install \"$addr\""
-    uv tool install "$addr" || fail 4 "uv tool install \"$addr\""
+    echo "run: uv tool install dev-autopilot"
+    uv tool install dev-autopilot || { echo "run: uv tool install \"$addr\""; uv tool install "$addr" || fail 4 "uv tool install \"$addr\""; }
     have autopilot || fail 4 "uv tool install \"$addr\""
   fi
   if [ "$dry" = 1 ]; then echo "would check: ap is on PATH"
@@ -104,18 +100,10 @@ main() {
 
   step 6 "rights for later installs"
   sudoers=/etc/sudoers.d/autopilot
-  line="${USER:-${LOGNAME:-$(id -un 2>/dev/null || echo me)}} ALL=(root) NOPASSWD: /usr/bin/apt-get, /usr/bin/dpkg, /usr/bin/snap, /usr/local/bin/brew"
   case "${OSTYPE:-}" in
     darwin*) echo "none needed on macOS" ;;
-    *) if [ -f "$sudoers" ]; then echo "found: $sudoers"
-       elif [ "$dry" = 1 ]; then echo "would write $sudoers (one sudo): $line"
-       elif ! have sudo; then echo "no sudo on this machine: later runs print the install command instead"
-       else
-         echo "run: sudo tee $sudoers (one sudo; the file is checked with visudo)"
-         if printf '%s\n' "$line" | sudo tee "$sudoers" >/dev/null && sudo chmod 0440 "$sudoers" \
-            && sudo visudo -cf "$sudoers" >/dev/null; then echo "wrote $sudoers"
-         else sudo rm -f "$sudoers" 2>/dev/null || true; echo "could not write $sudoers: later runs print the install command instead"; fi
-       fi ;;
+    *) if [ -f "$sudoers" ]; then echo "found: $sudoers (undo: ap uninstall --rights)"
+       else echo "none taken (N5.4). Later runs print the install command of a missing system tool; \`ap install --rights\` writes $sudoers once (one sudo)."; fi ;;
   esac
 
   [ "$dry" = 1 ] || echo "Installed: $(ver autopilot)"

@@ -537,6 +537,11 @@ def adopt_summary(root, max_phases: int = 12) -> str:
     lines.append(f"Next: {nxt.id} {nxt.title}" if nxt else "Next: none. Every task is done or waits for a blocked one.")
     if owner:
         lines.append(f"Waits for you (owner tasks): {', '.join(owner)}.")
+    from .context import _git_section, document_conflicts  # N1 conflicts
+    if conf := document_conflicts(root, _git_section(root)):
+        lines += ["Documents disagree:"] + [f"  {c}" for c in conf[:5]]
+        if len(conf) > 5:
+            lines.append(f"  and {len(conf) - 5} more")
     return "\n".join(lines) + "\n"
 
 

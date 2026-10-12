@@ -89,12 +89,13 @@ def test_doctor_has_a_rights_row(tmp_path):
     assert "rights" in rows and ("undo:" in rows["rights"] or "none" in rows["rights"])
 
 
-def test_install_scripts_take_the_rights_once():
+def test_install_scripts_take_no_rights_by_default():
+    """N5.4: the normal path has no sudo and no UAC; the Windows rights step runs only with -Rights."""
     root = Path(__file__).resolve().parents[1]
     sh, ps = (root / "install.sh").read_text(encoding="utf-8"), (root / "install.ps1").read_text(encoding="utf-8")
-    assert "visudo -cf" in sh and "/etc/sudoers.d/autopilot" in sh and "This script installs:" in sh
+    assert "sudo tee" not in sh and "visudo" not in sh and "This script installs:" in sh and "ap install --rights" in sh
     assert "/RL HIGHEST" in ps and "Autopilot-Setup" in ps and "--silent --accept-package-agreements" in ps
-    assert ps.count("-Verb RunAs") == 1  # one UAC prompt
+    assert ps.count("-Verb RunAs") == 1 and "if ($Rights) {" in ps and "--scope user" in ps  # UAC only with -Rights
     # N8: the task's script and queue live under ProgramData; the script is writable by Administrators (S-1-5-32-544) only
     assert "$env:ProgramData 'Autopilot'" in ps and "$env:ProgramData 'Autopilot\\setup-queue.txt'" in ps
     assert "Remove-Item -Recurse -Force '$SetupDir'" in ps and "icacls '$SetupDir' /setowner *S-1-5-32-544" in ps
@@ -103,3 +104,18 @@ def test_install_scripts_take_the_rights_once():
     assert "icacls '$SetupQueue' /grant '*S-1-5-32-545:M'" in ps and "Clear-Content $q" in ps
     assert "[regex]::Escape($SetupScript)" in ps  # an old task that points elsewhere is recreated
     assert "$env:LOCALAPPDATA" not in ps
+
+
+def test_setup_rights_linux_installs_the_sudoers_file_with_one_sudo(tmp_path, monkeypatch):
+    """N5.4: `ap install --rights` on Linux: sudo install (mode 0440) then visudo; no shell string."""
+    calls = []
+    monkeypatch.setattr(rights, "SUDOERS", str(tmp_path / "etc" / "autopilot"))
+    out = rights.setup_rights("linux", run=fake_run(calls), user="me", tmp=tmp_path)
+    assert calls[0][:4] == ["sudo", "install", "-m", "0440"] and calls[1][:3] == ["sudo", "visudo", "-cf"]
+    assert not (tmp_path / "autopilot-sudoers").exists() and out  # the draft is removed
+
+
+def test_setup_rights_windows_prints_the_one_command(monkeypatch):
+    monkeypatch.setattr(rights, "have_rights", lambda platform=None: "")
+    out = rights.setup_rights("win32", run=fake_run([]))
+    assert len(out) == 1 and "install.ps1 -Rights" in out[0]

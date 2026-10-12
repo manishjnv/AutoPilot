@@ -29,3 +29,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "$GITHUB_REF_NAME" dist/* install.ps1 install.sh SHA256SUMS --title "$GITHUB_REF_NAME" --notes-file notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+  # N5.3: trusted publishing, no secret. The owner registers `dev-autopilot` on pypi.org once with this repository,
+  # this workflow file and the environment `pypi` (docs/NEEDS-YOU.md "PyPI, once"). Until then the job fails and the
+  # release stays complete: continue-on-error.
+  pypi:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: pypi
+    continue-on-error: true
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

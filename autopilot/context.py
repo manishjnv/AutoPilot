@@ -328,9 +328,71 @@ def _test_section(root: Path, cfg) -> str:
     return "\n\n".join(out)
 
 
+# N1 conflicts: two documents give one task two states
+_BOX = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$")
+_MARK = re.compile(r"^\s*[-*]\s+(.+?)\s*[:(\-]+\s*(done|open)\)?\s*$", re.I)
+CONFLICT_RULE = ("The git log and the code win; then the newest document by commit date. "
+                 "Follow the resolved state in the plan.")
+
+
+def _norm(title: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", title.lower()))
+
+
+def _doc_states(root: Path, rel: Path) -> dict[str, str]:
+    """N1 conflicts: normalised title -> done/open for the checkbox and marker lines of one document."""
+    out: dict[str, str] = {}
+    try:
+        text = (root / rel).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    for ln in text.splitlines():
+        if m := _BOX.match(ln):
+            title, state = m.group(2), "done" if m.group(1) in "xX" else "open"
+        elif m := _MARK.match(ln):
+            title, state = m.group(1), m.group(2).lower()
+        else:
+            continue
+        out.setdefault(_norm(title), state)
+    return out
+
+
+def _commit_time(root: Path, rel: Path) -> int:
+    try:
+        p = proc.run_proc(["git", "log", "-1", "--format=%ct", "--", rel.as_posix()], cwd=str(root), timeout=60)
+        return int(p.stdout.strip() or 0)
+    except (OSError, ValueError):
+        return 0
+
+
+def document_conflicts(root, git: str) -> list[str]:
+    """N1 conflicts: one line per task two plan documents disagree on; the git log wins, then the newer file."""
+    root, docs = Path(root), {}
+    for r in _doc_files(root):
+        if _is_plan_like(r) and (s := _doc_states(root, r)):
+            docs[r.as_posix()] = s
+    titles = {t for s in docs.values() for t in s}
+    log, out, times = [_norm(x) for x in git.splitlines()], [], {}
+    for t in sorted(titles):
+        have = {d: s[t] for d, s in docs.items() if t in s}
+        if len(set(have.values())) < 2:
+            continue
+        if t and any(t in x for x in log):
+            out += [f"{d} says {st}, git shows the commit: marked done" for d, st in have.items() if st == "open"]
+            continue
+        for d in have:
+            times.setdefault(d, _commit_time(root, Path(d)))
+        new = max(have, key=lambda d: times[d])
+        old = next((d for d in have if have[d] != have[new]), "")
+        if times[new] > times[old]:
+            out.append(f"{old} says {have[old]}, {new} is newer: marked {have[new]}")
+    return out
+
+
 def discovery_pack(root, cfg) -> str:
     """N1: git log, document tree, stack files and one test run, as markdown under PACK_CAP characters."""
     root = Path(root)
+    git = _git_section(root)
     tree = []
     for r in _doc_files(root):
         try:
@@ -342,9 +404,11 @@ def discovery_pack(root, cfg) -> str:
             h = _head(root / r, 40)
             if h:
                 tree.append("  ```\n" + "\n".join("  " + x for x in h.splitlines()) + "\n  ```")
-    secs = [("Git log (last 200 commits)", _git_section(root) or "(no git history)", 8000),
+    secs = [("Git log (last 200 commits)", git or "(no git history)", 8000),
             ("Documents", "\n".join(tree) or "(no documents found)", 24000),
             ("Stack files", _stack_section(root), 12000),
             ("Test command result", _test_section(root, cfg), 8000)]
+    if conflicts := document_conflicts(root, git):  # N1 conflicts
+        secs.insert(2, ("Conflicts resolved", CONFLICT_RULE + "\n" + "\n".join(f"- {c}" for c in conflicts), 2000))
     pack = "\n\n".join(f"## {t}\n{_cap(b, n)}" for t, b, n in secs)
     return _cap(pack, PACK_CAP)

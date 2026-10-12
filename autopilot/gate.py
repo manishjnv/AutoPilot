@@ -360,6 +360,9 @@ def task_gate(cfg, git, task, report=None, attempt: int = 1) -> GateResult:
         gate.problems += missing_reasons(cfg, git, report, task)  # O3: task-declared files and dependencies
     if cfg.get("gate.file_growth"):  # O2: on in the template (new projects); a missing key = off
         gate.problems += file_growth(cfg, git)
+    if cfg.get("gate.layers", True):  # O4: the ```layers block in BRAIN.md is the real switch; no block = no check
+        from .layers import layers_problems  # local: layers.py imports gate.py
+        gate.problems += layers_problems(cfg, git)
     extra, added, bad = scope_additions(report, attempt, files)
     outside = out_of_scope(files, task.files_in_scope, extra)
     if (outside or bad) and cfg.get("gate.scope_fail", True):  # O1: a hard gate; `gate.scope_fail: false` = old warning

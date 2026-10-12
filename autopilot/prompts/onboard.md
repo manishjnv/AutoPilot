@@ -15,6 +15,9 @@ documents in the pack (PLAN.md, ROADMAP, TODO, notes).
 
 1. Inspect the repository (may be empty), the discovery pack and the plan document below.
 2. `.agent/BRAIN.md`: product, architecture, stack & conventions, invariants, how to run. Concise, factual.
+   Only when the code has clear layers, add a fenced block with the language `layers`: one line per layer,
+   `name: path/glob`, top to bottom. A higher layer may import a lower one, never the reverse. The gate checks it.
+   Do not write the block when the layers are not clear.
 3. `.agent/project.yaml`: set `name`, `stack` and real `commands` (setup/build/lint/typecheck/test). If the repo is
    empty, choose commands that the first phase will make valid, and make the first task create that tooling.
    Keep every other key as is.

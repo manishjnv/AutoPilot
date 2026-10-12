@@ -1,10 +1,10 @@
 # Autopilot installer for Windows (PowerShell 5.1 or 7). Options: -DryRun, -SkipLogin.
 # Env: AUTOPILOT_REF (git tag/branch to install), AUTOPILOT_DRY_RUN=1, AUTOPILOT_SKIP_LOGIN=1.
-# Safe to run twice. One UAC prompt at most (N8): it installs Git when missing and creates the scheduled task
-# Autopilot-Setup (highest run level), so later runs install winget packages with no prompt. Edits no profile or
-# PATH setting. The task's script lives in ProgramData\Autopilot, writable by Administrators only. `ap uninstall --rights`
-# removes the task and that folder.
-param([switch]$DryRun, [switch]$SkipLogin)
+# Safe to run twice. N5.4: no administrator prompt on the normal path: Git installs per user, and the package comes
+# from PyPI (or the release tag) with uv. The N8 rights step (the scheduled task Autopilot-Setup that installs winget
+# packages later with no prompt) runs only with -Rights, which `ap install --rights` names. Edits no profile or PATH
+# setting. `ap uninstall --rights` removes the task and its folder.
+param([switch]$DryRun, [switch]$SkipLogin, [switch]$Rights)
 $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
 
@@ -52,12 +52,11 @@ function Ensure($n, $name, $exe, $url) {
 }
 
 Refresh
-# N8: the one consent. Starting this script is the consent; nothing below asks again. One elevated PowerShell
-# (one UAC prompt) installs Git when missing and creates the scheduled task; later `ap` runs use the task.
+# N5.4: the normal path takes no rights. -Rights is the one consent (N8): one elevated PowerShell creates the task.
 Write-Host 'Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.'
-Write-Host 'This script installs: Git (winget, when missing), uv, Claude Code, Python 3.12 (when missing), Autopilot.'
-Write-Host 'Rights it takes: one administrator prompt now, and the scheduled task Autopilot-Setup (highest run level)'
-Write-Host 'so later runs install winget packages with no prompt. Remove it later with: ap uninstall --rights'
+Write-Host 'This script installs: Git (winget, per user, when missing), uv, Claude Code, Python 3.12 (when missing), Autopilot.'
+if ($Rights) { Write-Host 'Rights it takes: one administrator prompt now, and the scheduled task Autopilot-Setup (highest run level) so later runs install winget packages with no prompt. Remove it later with: ap uninstall --rights' }
+else { Write-Host 'Rights it takes: none. A run that needs a system tool later prints its install command; `ap install --rights` sets up the no-prompt path once.' }
 $TaskName = 'Autopilot-Setup'
 # The script the task runs lives under ProgramData; the elevated step writes it and lets only Administrators and
 # SYSTEM change it (icacls, well-known SIDs), so a user process can queue winget ids but never change what runs.
@@ -84,9 +83,18 @@ function HasTask {
 
 Step 1 'git'
 $needGit = -not (Has git)
+# N5.4: per user, no administrator prompt. A missing winget is not fatal: the PyPI package needs no git.
+$gitCmd = 'winget install --id Git.Git -e --source winget --scope user --silent --accept-package-agreements --accept-source-agreements'
 if (-not $needGit) { Write-Host "found: $(Ver git)" }
-elseif (-not (Has winget)) { Fail 1 'install Git from https://git-scm.com/download/win, then run this script again' }
-$gitCmd = 'winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements'
+elseif (-not (Has winget)) { Write-Host 'git is missing and winget is absent: skipped (not needed for the package install). Get git from https://git-scm.com/download/win when a project needs it.' }
+elseif ($DryRun) { Write-Host "would install (per user). Command: $gitCmd" }
+else {
+    Write-Host "run: $gitCmd"
+    Run winget install --id Git.Git -e --source winget --scope user --silent --accept-package-agreements --accept-source-agreements | Out-Host
+    Refresh
+    if (-not (Has git)) { Write-Host "git did not install: $gitCmd (not needed for the package install; a project that uses git needs it)" }
+}
+if ($Rights) {
 $taskCmd = "schtasks /Create /TN $TaskName /TR `"powershell -NoProfile -ExecutionPolicy Bypass -File $SetupScript`" /SC ONCE /ST 00:00 /RL HIGHEST /F"
 # The elevated step: a folder the user may have made first is removed, then the folder, the script and the queue get
 # fixed ACLs (well-known SIDs: Administrators, SYSTEM, Users): only Administrators change the folder and the script;
@@ -96,20 +104,14 @@ $aclCmd = "if (Test-Path '$SetupDir') { Remove-Item -Recurse -Force '$SetupDir' 
     "[IO.File]::WriteAllText('$SetupScript', [Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('$SetupB64'))); " +
     "New-Item -ItemType File -Force '$SetupQueue' | Out-Null; icacls '$SetupQueue' /grant '*S-1-5-32-545:M' | Out-Null"
 if ($DryRun) {
-    if ($needGit) { Write-Host "would install. Command: $gitCmd" }
     Write-Host "would write $SetupScript (Administrators only) and create the scheduled task (one administrator prompt). Command: $aclCmd; $taskCmd"
-} elseif ($needGit -or -not (HasTask)) {
-    $elev = @()
-    if ($needGit) { $elev += $gitCmd }
-    $elev += $aclCmd
-    $elev += $taskCmd
-    $script = ($elev -join '; ') + '; exit $LASTEXITCODE'
+} elseif (-not (HasTask)) {
+    $script = "$aclCmd; $taskCmd" + '; exit $LASTEXITCODE'
     Write-Host "run as administrator (one prompt): $script"
     $p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $script
     if ($p.ExitCode -ne 0) { Write-Host "the elevated step returned $($p.ExitCode); later runs print install commands instead" }
-    Refresh
-    if ($needGit -and -not (Has git)) { Fail 1 "$gitCmd (then open a new terminal and run this script again)" }
 } else { Write-Host "found: scheduled task $TaskName" }
+}
 
 Ensure 2 'uv' 'uv' 'https://astral.sh/uv/install.ps1'
 Ensure 3 'Claude Code' 'claude' 'https://claude.ai/install.ps1'
@@ -130,17 +132,22 @@ else {
     Run uv python install 3.12 | Out-Host
     if ($LASTEXITCODE -ne 0) { Fail 4 $pycmd }
 }
+# N5.3: the package from PyPI first (no git needed); the release tag on GitHub when PyPI has no release yet.
 $addr = "git+https://github.com/manishjnv/AutoPilot@$Ref"
 if ((Has autopilot) -or ((Has uv) -and ("$(Run uv tool list)" -match 'dev-autopilot'))) {
     $v = if (Has autopilot) { Ver autopilot } else { 'dev-autopilot' }
     Write-Host "found: $v"
-    Write-Host "To update, run: uv tool install --reinstall `"$addr`""
+    Write-Host "To update, run: ap upgrade"
 } elseif ($DryRun) {
-    Write-Host "would install. Command: uv tool install `"$addr`""
+    Write-Host "would install. Command: uv tool install dev-autopilot (or uv tool install `"$addr`")"
 } else {
-    Write-Host "run: uv tool install `"$addr`""
-    Run uv tool install $addr | Out-Host
-    if ($LASTEXITCODE -ne 0) { Fail 4 "uv tool install `"$addr`"" }
+    Write-Host "run: uv tool install dev-autopilot"
+    Run uv tool install dev-autopilot | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "run: uv tool install `"$addr`""
+        Run uv tool install $addr | Out-Host
+        if ($LASTEXITCODE -ne 0) { Fail 4 "uv tool install `"$addr`"" }
+    }
     Refresh
     if (-not (Has autopilot)) { Fail 4 "uv tool install `"$addr`"" }
 }
@@ -163,7 +170,7 @@ else {
 Step 6 'rights for later installs'
 if ($DryRun) { Write-Host "would check: scheduled task $TaskName" }
 elseif (HasTask) { Write-Host "found: scheduled task $TaskName (undo: ap uninstall --rights)" }
-else { Write-Host "no scheduled task: later runs print the install command instead" }
+else { Write-Host "none taken (N5.4). Later runs print the install command of a missing system tool; `ap install --rights` sets up the no-prompt path once." }
 
 if (-not $DryRun) { Write-Host "Installed: $(Ver autopilot)" }
 Write-Host 'To uninstall, run: uv tool uninstall dev-autopilot (and ap uninstall --rights)'

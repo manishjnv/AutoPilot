@@ -10,6 +10,22 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = ["PyYAML>=6.0"]
+keywords = ["autonomous", "coding-agent", "claude-code", "developer-tools"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Build Tools",
+]
+
+[project.urls]
+Homepage = "https://github.com/manishjnv/AutoPilot"
+Documentation = "https://github.com/manishjnv/AutoPilot#readme"
+Changelog = "https://github.com/manishjnv/AutoPilot/blob/main/CHANGELOG.md"
+Issues = "https://github.com/manishjnv/AutoPilot/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]

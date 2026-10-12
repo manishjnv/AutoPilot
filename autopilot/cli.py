@@ -444,13 +444,11 @@ def remember_runner(proj_path: Path, choice: str) -> bool:
 
 def login_now() -> bool:
     """H2: with a terminal, offer the Claude login and run it. False = no terminal (never ask), or the owner stops."""
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+    if not (sys.stdin.isatty() and sys.stdout.isatty()) or os.environ.get("SSH_CONNECTION"):
         return False
-    print("Claude Code is not logged in. A paid Claude plan or an API key is necessary.\n"
-          "  1  log in now (this opens the browser)\n  2  stop")
+    # N5.4: no question. The login opens in the browser; the user types nothing here (a paid Claude plan is necessary).
+    print("Claude Code is not logged in. The login opens in your browser now (Ctrl+C stops).")
     try:
-        if input("> ").strip() != "1":
-            return False
         import subprocess
 
         from .backends.claude_cli import ClaudeCLIBackend
@@ -491,15 +489,56 @@ def ask_folder(offer: Path) -> Path:
             return p
 
 
-def guided_start() -> int:
-    """H5: plain `autopilot` in a terminal, no project here: ask the idea and the folder, then quickstart and run."""
+CODE_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".cs", ".rb", ".php",
+                 ".sh", ".html", ".css", ".toml", ".json", ".yaml", ".yml"}
+
+
+def idea_file(root: Path) -> str:
+    """N5.5: the idea from a file: IDEA.md, or the one .md file (under 2000 words) in a folder with no code files
+    and no subfolders. '' = none."""
+    try:
+        seen = [x for x in root.iterdir() if not x.name.startswith(".")]
+        md = [x for x in seen if x.is_file() and x.suffix.lower() == ".md"]
+        pick = next((x for x in md if x.name.lower() == "idea.md"), None)
+        if pick is None and len(md) == 1 and not any(x.is_dir() or x.suffix.lower() in CODE_SUFFIXES for x in seen):
+            pick = md[0]
+        text = pick.read_text(encoding="utf-8", errors="replace").strip() if pick else ""
+    except OSError:
+        return ""
+    return text if pick is not None and (pick.name.lower() == "idea.md" or len(text.split()) < 2000) else ""
+
+
+def needs_you(plan: Plan) -> bool:
+    """N5.5: does the plan hold a task for the owner or a critical one? Then the start keeps its question."""
+    return any(t.owner_only or t.risk == "critical" for t in plan.all_tasks())
+
+
+def three_lines(plan: Plan) -> str:
+    """N5.5: done / open / next in three lines."""
+    tasks = plan.all_tasks()
+    done = sum(1 for t in tasks if t.status == "done")
+    nxt = plan.next_ready({})
+    return f"Done: {done} of {len(tasks)} tasks.\nOpen: {len(tasks) - done}.\n" + (
+        f"Next: {nxt.id} {nxt.title}" if nxt else "Next: none yet.")
+
+
+def guided_start(ask: bool = False) -> int:
+    """H5: plain `autopilot` in a terminal, no project here: ask the idea and the folder, then quickstart and run.
+    N5.5: the idea may come from a file; a plan with no owner or critical task starts at once, unless `ask`."""
     from .docs import slug
     try:
-        idea = ask_idea("What do you want to build? The product, who it is for, the main features, any tech you "
-                        "want.\nFinish with an empty line.").strip()
-        if not idea:
-            return -1
-        root = ask_folder(Path.cwd() / slug((idea.splitlines()[0]), 30, "myapp"))
+        idea = idea_file(Path.cwd())
+        if idea:
+            root = Path.cwd().resolve()
+            if why := safe_folder(root):
+                print(f"not building in this folder: {why}.")
+                return -1
+        else:
+            idea = ask_idea("What do you want to build? The product, who it is for, the main features, any tech you "
+                            "want.\nFinish with an empty line.").strip()
+            if not idea:
+                return -1
+            root = ask_folder(Path.cwd() / slug((idea.splitlines()[0]), 30, "myapp"))
         if not preflight(None):  # the login is checked before anything is created
             return 1
         rc = cmd_quickstart(argparse.Namespace(path=str(root), plan_doc=None, budget="15", run=False, idea=idea))
@@ -511,6 +550,9 @@ def guided_start() -> int:
             print(f"  {ph.id}  {ph.title}  ({len(ph.tasks)} tasks)")
         print(f"  {len(plan.phases)} phases, {len(plan.all_tasks())} tasks")
         print("The build runs for hours. It uses your Claude plan.\nIt works without asking you.")
+        if not ask and not needs_you(plan):  # N5.5
+            print("Starting. Stop with ap stop.\n" + three_lines(plan))
+            return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
         print("  1  start now\n  2  not now")
         if input("> ").strip() == "1":
             return cmd_run(argparse.Namespace(path=str(root), verbose=False, clear_stop=False, max_sessions=None))
@@ -725,6 +767,25 @@ def cmd_preflight(args):
     return 1 if any(r["status"] != "ok" for r in rows) else 0
 
 
+def headless() -> bool:
+    """N5.5: no screen to open a page on: SSH, no terminal, or Linux with no display."""
+    return bool(os.environ.get("SSH_CONNECTION")) or not sys.stdout.isatty() or (
+        sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")))
+
+
+def open_page_once(root: Path, url: str):
+    """N5.5: the first run in a project opens the status page; later runs and headless sessions do not."""
+    marker = root / AGENT_DIR / "page_opened"
+    if marker.exists() or headless():
+        return
+    import webbrowser
+    try:  # on a machine without a browser this does nothing
+        marker.write_text(url, encoding="utf-8")
+        webbrowser.open(url, new=2)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def cmd_run(args):
     from .orchestrator import Orchestrator, run_supervised
 
@@ -742,11 +803,7 @@ def cmd_run(args):
         return 1
     url = "" if getattr(args, "no_page", False) else start_status_page(root)
     if url and not getattr(args, "no_browser", False) and not os.environ.get("AUTOPILOT_NO_BROWSER"):
-        import webbrowser
-        try:  # the live view opens by itself; on a server without a browser this does nothing
-            webbrowser.open(url, new=2)
-        except Exception:  # noqa: BLE001
-            pass
+        open_page_once(root, url)
     if not sys.stdout.isatty() and not getattr(args, "no_watch", False) and not os.environ.get("AUTOPILOT_NO_BROWSER"):
         how = open_watch_window(root)  # no terminal of our own: put `autopilot watch` on screen
         if how:
@@ -756,7 +813,8 @@ def cmd_run(args):
     bar = StatusBar(status_reader(root))  # G8: the status line stays on the bottom row while the run prints above it
     bar.start()
     try:
-        outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions))
+        outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions,
+                                                            no_prod=getattr(args, "no_prod", False)))
     finally:
         bar.stop()
     print(f"\nrun finished: {outcome}\nreport: {root / AGENT_DIR / 'REPORT.md'}")
@@ -1452,6 +1510,7 @@ def main(argv=None):
         print(f"{called or 'autopilot'} {_version_line()}")
         return 0
     ap.add_argument("--version", action="version", version=__version__)
+    ap.add_argument("--ask", action="store_true", help="ask before a new build starts (N5.5)")
     sub = ap.add_subparsers(dest="cmd")
 
     def add(name, fn, help_):
@@ -1470,6 +1529,7 @@ def main(argv=None):
     p.add_argument("--run", action="store_true", help="start the run when the doctor finds no problems")
     p.add_argument("--idea", help="no PLAN.md yet: what to build (text or a file); Claude writes PLAN.md from it")
     p.add_argument("--detach", action="store_true", help="start as a separate process that outlives this terminal")
+    p.add_argument("--ask", action="store_true", help="keep the question before the build starts (N5.5)")
     add("preflight", cmd_preflight, "phase 0: check the credentials the plan needs (read-only); blocks the run on a problem")
     add("validate", cmd_validate, "validate project.yaml and plan.yaml")
     p = add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
@@ -1478,6 +1538,7 @@ def main(argv=None):
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("--no-page", action="store_true", help="don't start the live status page")
     p.add_argument("--no-browser", action="store_true", help="start the live page but don't open the browser")
+    p.add_argument("--no-prod", action="store_true", help="run everything except the deploy to the production host (K)")
     p.add_argument("--no-watch", action="store_true",
                    help="when run without a terminal, don't open a window with `autopilot watch`")
     p.add_argument("--detach", action="store_true", help="start as a separate process that outlives this terminal")
@@ -1530,7 +1591,8 @@ def main(argv=None):
             return cmd_watch(argparse.Namespace(path=".", lines=20))
         from .report import next_steps_text
         if sys.stdin.isatty() and sys.stdout.isatty() and (case := folder_case(Path.cwd())) != "agent":
-            if (rc := adopt_start(Path.cwd().resolve()) if case == "code" else guided_start()) >= 0:  # -1: the normal banner
+            adopt = case == "code" and not idea_file(Path.cwd())  # N5.5: a folder with just the idea is a new project
+            if (rc := adopt_start(Path.cwd().resolve()) if adopt else guided_start(args.ask)) >= 0:  # -1: the normal banner
                 return rc
         print(f"autopilot {__version__}: {DESCRIPTION.split('. ')[0]}.")
         print(next_steps_text(Path.cwd()))
