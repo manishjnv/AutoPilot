@@ -455,21 +455,28 @@ def remember_runner(proj_path: Path, choice: str) -> bool:
     return True
 
 
-def login_now() -> bool:
-    """H2: with a terminal, offer the Claude login and run it. False = no terminal (never ask), or the owner stops."""
-    if not (sys.stdin.isatty() and sys.stdout.isatty()) or os.environ.get("SSH_CONNECTION"):
+def login_now(row=None, *, env: dict | None = None, say=print) -> bool:
+    """H2 + Q13: with a terminal, run the login of `row` (the claude row when None). The address and the code are printed
+    as text in every case; a machine with no desktop (WSL, SSH, a container) runs the headless form. False = no terminal
+    (never ask), the owner stops, or the login did not finish."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
         return False
-    # N5.4: no question. The login opens in the browser; the user types nothing here (a paid Claude plan is necessary).
-    print("Claude Code is not logged in. The login opens in your browser now (Ctrl+C stops).")
-    try:
-        import subprocess
-
+    from .doctor import runner
+    from .login import login_runner
+    row = row or runner("claude_cli")
+    if row.key == "claude_cli":
         from .backends.claude_cli import ClaudeCLIBackend
-        subprocess.run([ClaudeCLIBackend.resolve_binary(), "auth", "login"], check=False)
+        exe = shutil.which(ClaudeCLIBackend.resolve_binary()) or ClaudeCLIBackend.resolve_binary()  # AUTOPILOT_CLAUDE_BIN counts
+    else:
+        exe = row.which()
+    if not exe:
+        return False
+    if row.key == "claude_cli":
+        say("Claude Code is not logged in (a paid Claude plan is necessary). Ctrl+C stops.")
+    try:
+        return login_runner(row, exe, env=env, say=say)
     except (EOFError, KeyboardInterrupt, OSError):
         return False
-    return True
-
 
 def safe_folder(p: Path) -> str:
     """H5: why a folder must not hold a new project ('' = fine). Sessions run with no prompts, so they get the folder."""

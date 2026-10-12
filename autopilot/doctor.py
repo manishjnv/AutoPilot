@@ -81,6 +81,7 @@ class Runner:
     footprints: tuple = ()   # folders that suggest the runner (Q3); a footprint never installs by itself
     npm: str = ""            # the npm route, after the native one (Node is a project dependency, not Autopilot's)
     probe: tuple = ()        # Q11: argv after the binary that sends `{prompt}` once and prints one answer (docs checked 2026-10-12)
+    login_headless: str = ""  # Q13: the login form that prints an address and a code (device flow); docs checked 2026-10-13, not run live
 
     @property
     def preset(self) -> str:
@@ -114,30 +115,30 @@ RUNNERS = (
     Runner("claude_cli", "claude", (), {"linux": _CLAUDE_SH, "darwin": _CLAUDE_SH,
                                         "windows": "irm https://claude.ai/install.ps1 | iex"},
            "claude auth login", None, OTHER_AUTH, "a paid Claude plan (Pro or Max)", (".claude", ".claude.json"),
-           npm="npm i -g @anthropic-ai/claude-code", probe=("-p", "{prompt}")),
+           npm="npm i -g @anthropic-ai/claude-code", probe=("-p", "{prompt}"), login_headless="claude auth login"),
     # copilot: docs checked 2026-10-12, not run live. Status through `gh` (no prompt-free copilot status command).
     Runner("copilot", "copilot", (), {"linux": "curl -fsSL https://gh.io/copilot-install | bash",
                                       "darwin": "brew install --cask copilot-cli",
                                       "windows": "winget install GitHub.Copilot"},
            "copilot login", ("gh", "auth", "status"), ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"),
            "a paid GitHub Copilot plan", (".copilot",), npm="npm i -g @github/copilot",
-           probe=("-p", "{prompt}", "--allow-all-tools", "--no-ask-user", "-s")),
+           probe=("-p", "{prompt}", "--allow-all-tools", "--no-ask-user", "-s"), login_headless="copilot login --device-code"),
     Runner("codex", "codex", (), {"linux": "npm i -g @openai/codex", "darwin": "npm i -g @openai/codex",
                                   "windows": "npm i -g @openai/codex"},
            "codex login", ("login", "status"), ("CODEX_API_KEY",), "a ChatGPT plan", (".codex",),
-           npm="npm i -g @openai/codex", probe=("exec", "--skip-git-repo-check", "{prompt}")),
+           npm="npm i -g @openai/codex", probe=("exec", "--skip-git-repo-check", "{prompt}"), login_headless="codex login --device-auth"),
     # cursor renamed the binary from cursor-agent to agent (docs checked 2026-10-12)
     Runner("cursor", "agent", ("cursor-agent",), {"linux": "curl https://cursor.com/install -fsS | bash",
                                                   "darwin": "curl https://cursor.com/install -fsS | bash",
                                                   "windows": "irm 'https://cursor.com/install?win32=true' | iex"},
            "agent login", ("status",), ("CURSOR_API_KEY",), "a Cursor plan", (".cursor",),
-           probe=("-p", "--trust", "{prompt}")),
+           probe=("-p", "--trust", "{prompt}"), login_headless="agent login"),
     # kiro ships a download page on Windows, no script: the row prints the link
     Runner("kiro", "kiro-cli", (), {"linux": "curl -fsSL https://cli.kiro.dev/install | bash",
                                     "darwin": "curl -fsSL https://cli.kiro.dev/install | bash",
                                     "windows": "https://kiro.dev/downloads/ (download page, no script)"},
            "kiro-cli login", ("whoami",), ("KIRO_API_KEY",), "a Kiro plan or an AWS Builder ID", (".kiro",),
-           probe=("chat", "--no-interactive", "{prompt}")),
+           probe=("chat", "--no-interactive", "{prompt}"), login_headless="kiro-cli login"),
 )
 # exit codes of the status commands are not documented: a logged-out CLI may still exit 0
 LOGGED_OUT = re.compile(r"not (logged|signed) in|not authenticated|unauthenticated|logged out|no (active )?"

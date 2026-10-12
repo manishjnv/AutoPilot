@@ -301,8 +301,8 @@ def run_setup(root: Path | None = None, *, dry_run: bool = False, wanted: str = 
         say(f"login     {row.name}: not logged in (skipped). Run `{row.login}` before the first build.")
     else:
         say(f"login     {row.name}: not logged in. Run `{row.login}`, then start the build. You need {row.plan}.")
-        if row.key == "claude_cli" and login is not None:
-            login()  # N5.4: the Claude login opens in the browser when there is a terminal
+        if login is not None and login(row):  # Q13: every runner; the address and code are printed as text
+            logged = _logged_in(exe, row, {**env, "PATH": env.get("PATH", "") + os.pathsep + str(Path(home or Path.home()) / ".local" / "bin")})
     remember_choice(root, row, say)
     from ..rights import describe
     say(f"rights    {describe(platform)}")

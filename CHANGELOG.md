@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- Q13: the login address and code always print as text; WSL, SSH, a container, a snap desktop or a machine with no browser runs the headless login (`copilot login --device-code`, `codex login --device-auth`), a desktop opens the browser and prints the address too; `ap setup` offers the login for every runner.
 - Q11: `ap setup` ends with one test prompt through the runner ("Reply with the single word ready."); a pass writes `verified: <date>` to `~/.autopilot/machine.json` and `project.yaml`, a fail prints one plain sentence and the next command; `--skip-probe` turns it off; `ap doctor --runner` runs it alone.
 - Q14: each install error matches by exit code or error code first, a vendor error id second, and short keywords third; a German or French Windows message still gets its sentence because the hex code carries the match.
 - CI: tests run in parallel (`pytest -n auto`, `pytest-xdist` in the dev extras), pip cache, docs-only pushes skip CI, a newer push cancels the queued run; the Release job builds without a second test run; `uv` installs the package in CI; the Windows 3.10 row runs nightly and on request, not on every push. Push to release went from about 35 minutes to about 10.
