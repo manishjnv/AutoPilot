@@ -88,3 +88,16 @@ def test_spec_unstick_writes_an_adr_used_by_the_retry(tmp_path):
     assert f"ADR `docs/adr/{adr.name}`" in retry
     dec = (root / ".agent" / "DECISIONS.md").read_text(encoding="utf-8")
     assert f"DECISION (auto): use SQLite (options considered: SQLite; Postgres) → docs/adr/{adr.name}" in dec
+
+
+def test_infra_phase_gets_an_adr_before_its_first_task(tmp_path, monkeypatch):
+    """K: the first task of a phase with infra steps gets a decide session that names host, rollback and dry-run."""
+    monkeypatch.delenv("CLOUDFLARE_TOKEN", raising=False)
+    plan = [{"id": "P01", "title": "Infra", "infra": {"steps": [{"id": "I1", "type": "cloudflare",
+             "host": "edge.example.net", "rollback_cmd": "python cloudflare_apply.py --rollback"}]},
+             "tasks": [{"id": "P01-T01", "title": "dns", "risk": "low"}, {"id": "P01-T02", "title": "waf", "risk": "low"}]}]
+    root, fake, _ = run(tmp_path, plan)
+    assert [c[0] for c in fake.calls][:2] == ["decide", "P01-T01"] and fake.calls.count(("decide", "opus")) == 1
+    prompt = fake.reqs[0].prompt
+    assert "edge.example.net" in prompt and "cloudflare_apply.py --rollback" in prompt and "Dry-run result:" in prompt
+    assert "CLOUDFLARE_TOKEN (I1) is missing" in prompt  # the read-only check result is the dry run

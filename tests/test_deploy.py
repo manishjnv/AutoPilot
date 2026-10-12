@@ -61,3 +61,17 @@ def test_credentials_stop_is_empty_for_a_phase_without_infra():
     sent = []
     o = _orch(sent, [{"id": "P01", "tasks": [{"id": "T1", "title": "x"}]}])
     assert Orchestrator.credentials_stop(o, "P01", "staging") == "" and sent == []
+
+
+def test_no_prod_skips_the_production_deploy_and_nothing_else(monkeypatch):
+    """K: `ap run --no-prod` runs the staging path and never calls deploy_prod."""
+    sent, cfg = [], {"deploy.prod.enabled": True, "deploy.staging.enabled": False}
+    o = _orch(sent, [{"id": "P01", "tasks": [{"id": "T1", "title": "x"}]}])
+    o.cfg = SimpleNamespace(get=lambda k, d=None: cfg.get(k, d))
+    o.git = SimpleNamespace(head=lambda: "b" * 40)
+    o.credentials_stop = lambda pid, env: ""
+    o.deploy_prod = lambda pid, ref: (_ for _ in ()).throw(AssertionError("prod ran"))
+    o.no_prod = True
+    assert Orchestrator.deploy_phase(o, o.plan.phases[0]) == "prod skipped (--no-prod)"
+    o.no_prod = False
+    assert "prod awaiting approval" in Orchestrator.deploy_phase(o, o.plan.phases[0])  # the normal path still waits

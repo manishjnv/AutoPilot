@@ -157,7 +157,9 @@ class Stop(Exception):
 
 
 class Orchestrator:
-    def __init__(self, root: Path | str, backend=None, sleep=time.sleep, max_sessions: int | None = None):
+    def __init__(self, root: Path | str, backend=None, sleep=time.sleep, max_sessions: int | None = None,
+                 no_prod: bool = False):
+        self.no_prod = no_prod  # K: `ap run --no-prod`: everything runs except the deploy to the production host
         self.cfg = Config.load(root)
         self.root = self.cfg.root
         self.ad = self.root / AGENT_DIR
@@ -1118,12 +1120,26 @@ class Orchestrator:
             return False
         if self.state.get_meta(f"adr:{task.id}") is not None:  # one try per task
             return False
-        return task.needs_decision or task.risk in (self.cfg.get("decide.risks") or [])
+        infra_first = bool(phase.infra.get("steps")) and phase.tasks and task is phase.tasks[0]  # K: ADR before infra
+        return infra_first or task.needs_decision or task.risk in (self.cfg.get("decide.risks") or [])
+
+    def infra_brief(self, phase) -> str:
+        """K: for the ADR before an infra phase: each step with its host and rollback, and the dry-run result (the
+        read-only credential check of `ap preflight`). '' for a phase without infra steps."""
+        steps = phase.infra.get("steps") or []
+        if not steps:
+            return ""
+        from .commands.preflight import recheck
+        lines = [f"- {s['id']} ({s['type']}): host `{s['host'] or 'not set'}`, rollback `{s['rollback_cmd'] or 'none'}`"
+                 for s in steps]
+        dry = recheck(phase) or "credential check passed"
+        return ("\n\n## Infra steps of this phase (critical)\nThe ADR must name the host, the rollback and the dry-run "
+                "result for each step.\n" + "\n".join(lines) + f"\nDry-run result: {dry}\n")
 
     def decide(self, task, phase):
         """One read-only session weighs 2-3 approaches before risky work; its choice becomes the ADR the implementer
         follows. No usable answer = build without an ADR (never blocks)."""
-        res = self._isolated("decide", self.ctx.decide_prompt(task), self.cfg.get("models.decide", "opus"),
+        res = self._isolated("decide", self.ctx.decide_prompt(task) + self.infra_brief(phase), self.cfg.get("models.decide", "opus"),
                              task_id=task.id, phase=phase.id, effort=self.cfg.get("decide.effort", "high"))
         rep = res.report if res.ok and isinstance(res.report, dict) else {}
         self.state.set_meta(f"adr:{task.id}", "")
@@ -2007,7 +2023,9 @@ class Orchestrator:
                                             "The root cause is covered by a test or a documented check"],
                 }], f"deploy failure {phase.id}", once_key=f"deployfix-{phase.id}")
             notes.append(res.detail.splitlines()[0])
-        if self.cfg.get("deploy.prod.enabled") and staging_ok:
+        if self.cfg.get("deploy.prod.enabled") and staging_ok and getattr(self, "no_prod", False):
+            notes.append("prod skipped (--no-prod)")  # K: the production host is never touched in this run
+        elif self.cfg.get("deploy.prod.enabled") and staging_ok:
             auto = self.cfg.get("deploy.prod.auto") and RISKS.index(phase.max_risk) <= RISKS.index(
                 self.cfg.get("deploy.prod.max_auto_risk", "medium"))
             if auto:

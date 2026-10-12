@@ -60,6 +60,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `--detach` | Starts the run as a separate process and returns. The run continues after the terminal or the Claude Code chat closes. Its output goes to `.agent/logs/detached.log`. `quickstart` also has this option |
 | `--clear-stop` | Removes the stop flag before the run starts |
 | `--no-browser` | Starts the status page, but does not open the browser |
+| `--no-prod` | Runs everything, staging included, except the deploy to the production host. The phase then waits with `prod skipped (--no-prod)`; run `autopilot approve <phase>` later |
 | `--no-page` | Does not start the status page |
 | `-v` | Shows more log lines |
 

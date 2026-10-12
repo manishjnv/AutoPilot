@@ -813,7 +813,8 @@ def cmd_run(args):
     bar = StatusBar(status_reader(root))  # G8: the status line stays on the bottom row while the run prints above it
     bar.start()
     try:
-        outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions))
+        outcome = run_supervised(root, lambda: Orchestrator(root, max_sessions=args.max_sessions,
+                                                            no_prod=getattr(args, "no_prod", False)))
     finally:
         bar.stop()
     print(f"\nrun finished: {outcome}\nreport: {root / AGENT_DIR / 'REPORT.md'}")
@@ -1537,6 +1538,7 @@ def main(argv=None):
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("--no-page", action="store_true", help="don't start the live status page")
     p.add_argument("--no-browser", action="store_true", help="start the live page but don't open the browser")
+    p.add_argument("--no-prod", action="store_true", help="run everything except the deploy to the production host (K)")
     p.add_argument("--no-watch", action="store_true",
                    help="when run without a terminal, don't open a window with `autopilot watch`")
     p.add_argument("--detach", action="store_true", help="start as a separate process that outlives this terminal")
