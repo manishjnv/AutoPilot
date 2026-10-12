@@ -1,7 +1,7 @@
 {
   "name": "autopilot",
   "version": "0.3.0",
-  "description": "Start, follow, answer and stop an Autopilot build from inside Claude Code. One command, no hooks: it only calls the autopilot CLI.",
+  "description": "Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.",
   "author": {"name": "Manish Kumar"},
   "homepage": "https://github.com/manishjnv/AutoPilot",
   "repository": "https://github.com/manishjnv/AutoPilot",

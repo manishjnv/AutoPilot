@@ -1,8 +1,9 @@
 # Autopilot
 
-**Give it a plan tonight. Wake up to a working app, and proof that it works.**
+Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
+It is for one developer, or for a person with an idea and a developer friend.
 
-Autopilot runs Claude Code through your full plan, and you do not have to watch it. Python code, not the AI model, decides when a task is complete.
+**Give it a plan tonight. Wake up to a working app, and proof that it works.** Claude Code (the coding agent) writes the code; Python code decides when a task is complete.
 
 [![CI](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -14,12 +15,12 @@ Autopilot runs Claude Code through your full plan, and you do not have to watch 
 |---|---|---|
 | Direction | Claude can choose the design as it works. | Your plan sets the design. The gate refuses a change to the plan. |
 | Checks | The model can say that work is done. | Autopilot runs your build, lint and test commands. A task merges only if they pass. |
-| Failures | You find and repair a problem. | A stronger model tries again. Autopilot repairs a missing tool or a red main branch, and restarts after a crash. |
-| Questions | The chat waits for you. | That task and its dependent tasks wait. Other tasks continue. |
-| Status | You scroll the chat. | `ap watch` shows tasks, live output, progress and usage. |
+| Failures | You find and repair a problem. | A stronger model tries again. Autopilot repairs a missing tool or a red main branch. |
+| Questions | The chat waits for you. | That task waits. Other tasks continue. |
+| Status | You scroll the chat. | `ap watch` shows tasks, output, progress and usage. |
 
 The [full comparison](ARCHITECTURE.md#13-claude-code-alone-and-with-autopilot) has ten rows. Use Claude Code alone
-for a small change, a question, exploration, or a design that is not decided.
+for a small change, a question, or an open design.
 
 ## How it works
 
@@ -45,8 +46,7 @@ flowchart LR
 
 ## Follow the build
 
-`ap watch` shows the build in the terminal. The status page shows the same data in your browser. The two pictures
-use sample data.
+`ap watch` shows the build in the terminal; the status page shows the same data in your browser (sample data).
 
 ![The terminal window of the watch command: panels for the project, the tasks, the live output, the progress, the usage, the files and the issues.](assets/dashboard-terminal.png)
 
@@ -68,7 +68,7 @@ Two real projects, both CLIs built from a plan:
 | Agent time | 2.2 hours, 38 sessions | 1.4 hours, 42 sessions |
 | Cost at API prices | $17.13 | $19.01 |
 
-Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot fixed all. envguard is private; numbers come from the run log. A lean rerun of envguard used 39.5 percent fewer tokens per task, every task done. Tasks run three at once when they touch different files; here they did not.
+Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot fixed all. envguard is private; numbers come from the run log. A lean rerun of envguard used 39.5 percent fewer tokens per task.
 
 ## Install
 
@@ -84,16 +84,16 @@ macOS, Linux or WSL:
 curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash
 ```
 
-Open a project folder and type `ap`. For the result, see [What `ap` does](HOWTO.md#what-ap-does-in-a-folder).
+On Windows pick Windows or WSL, not both; WSL only for the sandbox.
+Open a project folder and type `ap`. See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder).
 
-The script installs what is missing: git, uv, Claude Code, Python 3.10 or newer, and Autopilot. You need a paid
-Claude plan or an API key. The free Claude plan cannot use Claude Code. `ap upgrade` gets the newest release.
-For the checksums and each step, see [Install with one script](HOWTO.md#install-with-one-script). To learn with a
-first project, see the [tutorial](GUIDE.md).
+The script installs what is missing: git, uv, Claude Code, Python, and Autopilot. You need a paid Claude plan (Pro
+or Max). After a release, run `ap upgrade`. For a repair or a second machine, run `ap install`. For the checksums
+and each step, see [Install with one script](HOWTO.md#install-with-one-script).
 
 ## Example output
 
-Shortened real output. A skipped test is rejected; the next attempt passes:
+Shortened real output, a skipped test and the retry:
 
 ```text
 task P02-T01 attempt 1 failed: PROBLEM: skip/focus marker added in tests/test_walker.py
@@ -107,7 +107,7 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 | To | Read |
 |---|---|
 | Build your first project, step by step | [Tutorial](GUIDE.md) |
-| Do one specific job: a server, phone alerts, a project that already exists | [How-to guides](HOWTO.md) |
+| Do one job: a server, phone alerts, an existing project | [How-to guides](HOWTO.md) |
 | Look up a command, a setting, a file, or a term | [Reference](REFERENCE.md) |
 | Understand how Autopilot works and why | [Architecture](ARCHITECTURE.md) |
 
@@ -117,5 +117,5 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 > Use a sandbox on a server: sessions run without permission prompts. See
 > [Run Autopilot on a server](HOWTO.md#run-autopilot-on-a-server).
 
-- For a solo developer. Version 0.3.0, an early release. [MIT license](LICENSE).
+- Version 0.3.0, an early release. [MIT license](LICENSE).
 - One CLI agent per session. See [limits and runners](HOWTO.md#limits-and-supported-agent-clis).

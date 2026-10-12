@@ -46,6 +46,7 @@ main() {
   PATH="$PATH:$HOME/.local/bin"   # uv and Claude Code install here; this changes only this script
 
   # N8: the one consent. Starting this script is the consent; nothing below asks again.
+  echo "Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step."
   echo "This script installs: git (sudo, when missing), uv, Claude Code, Python 3.12 (when missing), Autopilot."
   case "${OSTYPE:-}" in
     darwin*) echo "Rights it takes: none (brew needs none)." ;;

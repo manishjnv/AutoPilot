@@ -1,7 +1,10 @@
 # Autopilot architecture
 
+Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
+It is for one developer, or for a person with an idea and a developer friend.
+
 This page explains how Autopilot works and why. The main idea: **the AI model writes the code, and Python code
-decides what to keep.**
+decides what to keep.** Words on this page: Claude Code (the coding agent that writes the code), the gate (the check after each step), a worktree (a separate copy of the project for one task), a subscription (a paid Claude plan).
 
 For the steps to use Autopilot, read the [tutorial](GUIDE.md). For all commands and settings, read the
 [reference](REFERENCE.md).

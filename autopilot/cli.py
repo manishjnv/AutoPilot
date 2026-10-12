@@ -13,6 +13,11 @@ from pathlib import Path
 import yaml
 
 from . import AGENT_DIR, __version__
+
+# J15: the same plain-words opening as the README; `ap --help` and the bare `autopilot` banner show it first.
+DESCRIPTION = ("Autopilot builds your software project while you are away. You write what you want in plain words "
+               "and start it once. You get working software, tested, with a record of every step. "
+               "`ap` is the short name of `autopilot`.")
 from .config import TEMPLATES, Config, load_yaml
 from .plan import Plan, PlanError
 from .proc import exclusive_lock
@@ -828,9 +833,11 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
     import time
 
     from .dash_term import MIN_COLS, MIN_ROWS, frame
-    from .dashboard import dashboard_data
+    from .dashboard import dashboard_data, is_utf, spinner
     from .report import run_journal
     from .state import State
+    utf = is_utf(sys.stdout)  # J13/18: ASCII spinner on other consoles
+    spin = None
     size = shutil.get_terminal_size()
     if size.columns < MIN_COLS or size.lines < MIN_ROWS:
         return None
@@ -856,8 +863,9 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
             size = shutil.get_terminal_size()
             try:
                 d = data()
+                spin = d["spin"] = spinner(d, d["asof"]["mtime"], time.time(), spin, utf)
                 rows = frame(d, size.columns, size.lines, color)
-                title = "".join(c for c in str(d.get("line", "")) if c.isprintable())
+                title = "".join(c for c in f"{spin['text']} {d.get('line', '')}".strip() if c.isprintable())
                 out.write("\x1b[H" + "\n".join(rows) + f"\x1b]0;{title}\x07")
             except ValueError:  # the window is too small now
                 out.write("\x1b[2J\x1b[HThe window is too small for the dashboard. Make it larger, or run: ap watch --scroll")
@@ -1437,8 +1445,9 @@ def main(argv=None):
     if argv[:1] == ["start"]:  # J2: one plain word to start or continue the build in the background
         argv[:1] = ["run", "--clear-stop", "--detach"]
     ap = argparse.ArgumentParser(prog="ap" if called == "ap" else "autopilot",
-                                 description="Autonomous plan-driven development with Claude Code. "
-                                             "`ap` is the short name of `autopilot`.")
+                                 description=DESCRIPTION)
+    if argv[:1] in (["--help"], ["-h"]):  # J15: the plain-words opening is the first line of the help
+        print(DESCRIPTION.rsplit(". ", 1)[0] + ".\n")
     if argv[:1] == ["--version"]:  # N5.1: git only runs here, never on a normal command
         print(f"{called or 'autopilot'} {_version_line()}")
         return 0
@@ -1523,7 +1532,7 @@ def main(argv=None):
         if sys.stdin.isatty() and sys.stdout.isatty() and (case := folder_case(Path.cwd())) != "agent":
             if (rc := adopt_start(Path.cwd().resolve()) if case == "code" else guided_start()) >= 0:  # -1: the normal banner
                 return rc
-        print(f"autopilot {__version__}: builds your project with Claude Code, checks every step, never waits.")
+        print(f"autopilot {__version__}: {DESCRIPTION.split('. ')[0]}.")
         print(next_steps_text(Path.cwd()))
         return 0
     if args.cmd in ("upgrade", "install"):  # no project: nothing to find or remember
