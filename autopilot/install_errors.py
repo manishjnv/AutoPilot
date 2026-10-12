@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .doctor import LOGGED_OUT, RUNNERS
@@ -58,6 +58,24 @@ class Entry:
     sentence: str            # one plain sentence a user reads
     fix: dict | str          # the command to run by hand: one string, or one per os (`linux`, `darwin`, `windows`)
     os: tuple = ()           # empty = every system
+    # Q14: a line matches by code first, vendor id second, keywords third; `rx` (an English sentence) is the last resort
+    code: str = ""           # exit code, Windows hex code, curl or Node error code (`0x80092012`, `curl: (35)`, `EACCES`)
+    vendor: str = ""         # vendor error id or JSON field (`authentication_error`, `"subscriptionType": "free"`)
+    kw: tuple = ()           # keyword sets: a set hits when every word of it is in the text (lower case)
+    needs: str = ""          # a regex that must match as well (the runner name of a per-runner line)
+
+    def tier(self, text: str) -> str:
+        """Which match fired: `code`, `vendor`, `keyword`, `sentence`, or '' for none."""
+        flags = re.IGNORECASE | re.MULTILINE
+        if self.needs and not re.search(self.needs, text, flags):
+            return ""
+        for name, rx in (("code", self.code), ("vendor", self.vendor)):
+            if rx and re.search(rx, text, flags):
+                return name
+        low = text.lower()
+        if any(all(w in low for w in words) for words in self.kw):
+            return "keyword"
+        return "sentence" if re.search(self.rx, text, flags) else ""
 
     def fix_for(self, platform: str | None = None) -> str:
         return self.fix if isinstance(self.fix, str) else self.fix.get(os_name(platform), "")
@@ -78,7 +96,8 @@ def _runner_entries() -> list[Entry]:
     for r in RUNNERS:
         names = "|".join(re.escape(n) for n in r.names)
         out.append(Entry(f"logged-out-{r.name}", rf"(?s)^(?=.*\b(?:{names})\b)(?=.*(?:{LOGGED_OUT.pattern}))",
-                         f"{r.name} is not logged in: log in once, then start again (you need {r.plan}).", r.login))
+                         f"{r.name} is not logged in: log in once, then start again (you need {r.plan}).", r.login,
+                         needs=rf"\b(?:{names})\b"))
     out.append(Entry("no-plan-claude", r'subscriptionType"?\s*:\s*"?free|the free Claude plan|requires a (?:Pro|Max) (?:plan|subscription)',
                      "The free Claude plan cannot use Claude Code: a paid plan (Pro or Max) is needed.",
                      "claude auth login   # with the account that has the plan"))
@@ -94,7 +113,7 @@ def _runner_entries() -> list[Entry]:
     return out
 
 
-CATALOGUE: tuple[Entry, ...] = (
+_BASE: tuple[Entry, ...] = (
     Entry("schannel", r"CRYPT_E_NO_REVOCATION_CHECK|curl: \(35\)|schannel: next InitializeSecurityContext failed",
           "Windows could not check the certificate of the download server (a proxy or a security program blocks the revocation check).",
           {"windows": f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{PS1}"', "linux": f"curl --ssl-no-revoke -fsSL {SH} | bash",
@@ -131,18 +150,73 @@ CATALOGUE: tuple[Entry, ...] = (
 )
 
 
-def explain(text: str, platform: str | None = None) -> tuple[str, str, str]:
-    """(entry id or '', sentence, fix command) for a raw output. Unknown text: ('', GENERIC, '')."""
+# Q14: the match of each line that is not an English sentence. id -> (code, vendor id or JSON field, keyword sets).
+# A hex code (`0x80092012`) is the same in every Windows language, so a German or French message still matches.
+# `exit code N` is added to the text by `explain` when the caller knows the exit code.
+MATCH: dict[str, tuple[str, str, tuple]] = {
+    "schannel": (r"0x8009201[23]|0x80090326|CRYPT_E_NO_REVOCATION_CHECK|CRYPT_E_REVOCATION_OFFLINE|curl: \(35\)|\bexit code 35\b", "",
+                 (("revocation", "check"),)),
+    "no-host": (r"curl: \(6\)|\bexit code 6\b|ENOTFOUND|EAI_AGAIN|0x80072EE7|WSAHOST_NOT_FOUND", "",
+                (("resolve", "host"), ("name or service", "not known"), ("no such host",))),
+    "timeout": (r"curl: \(28\)|\bexit code 28\b|ETIMEDOUT|ESOCKETTIMEDOUT|0x80072EE2|0x800705B4", "",
+                (("timed out",), ("timeout",))),
+    "http-403": (r"curl: \(22\)[^\n]*\b403\b|\bHTTP/[\d.]+ 403\b", r"\"status(?:Code)?\"\s*:\s*403|\b(?:forbidden|rate_limit_exceeded)\b",
+                 (("403", "forbidden"),)),
+    "http-404": (r"curl: \(22\)[^\n]*\b404\b|\bHTTP/[\d.]+ 404\b", r"\"status(?:Code)?\"\s*:\s*404|\bnot_found\b",
+                 (("404", "not found"),)),
+    "no-space": (r"ENOSPC|Errno 28|0x80070070|ERROR_DISK_FULL", "", (("no space", "device"), ("disk", "full"))),
+    "permission": (r"EACCES|EPERM|Errno 13|0x80070005", "", (("permission", "denied"), ("access", "denied"))),
+    "node-old": (r"EBADENGINE", "", (("unsupported", "engine"), ("requires", "node"))),
+    "store-python": (r"\bexit code 9009\b", "", (("microsoft store",),)),
+    "execution-policy": (r"PSSecurityException|UnauthorizedAccess|FullyQualifiedErrorId\s*:\s*UnauthorizedAccess", "",
+                         (("running scripts", "disabled"), ("execution", "policy"))),
+    "not-on-path": (r"CommandNotFoundException|ENOENT", "", (("command not found",), ("not recognized",))),
+    "no-plan-claude": ("", r'subscriptionType"?\s*:\s*"?free|\bplan_required\b', (("free", "claude", "plan"),)),
+    "no-plan-copilot": ("", r"copilot_access_denied|no_copilot_seat|copilot_not_enabled",
+                        (("copilot", "no active"), ("copilot", "no subscription"), ("copilot", "access"), ("copilot", "license"),
+                         ("copilot", "subscription", "required"), ("copilot", "plan", "required"))),
+    "premium-requests-copilot": ("", r"premium_requests?_(?:limit|quota|exceeded|exhausted)",
+                                 (("premium request", "limit"), ("premium request", "quota"), ("premium request", "exhausted"),
+                                  ("premium request", "exceeded"), ("premium request", "used up"))),
+    "logged-out": (r"\bexit code 401\b|\bHTTP/[\d.]+ 401\b", r"authentication_error|unauthenticated|\"loggedIn\"\s*:\s*false|invalid_grant",
+                   (("not logged in",), ("not signed in",), ("not authenticated",), ("no active session",), ("please log in",),
+                    ("please sign in",), ("logged out",), ("no credentials",))),
+}
+_LOGGED_OUT_KW = MATCH["logged-out"]
+
+
+def _with_match(e: Entry) -> Entry:
+    if e.id.startswith("logged-out-"):
+        code, vendor, kw = _LOGGED_OUT_KW
+        return replace(e, code=code, vendor=vendor, kw=kw)
+    code, vendor, kw = MATCH.get(e.id, ("", "", ()))
+    return replace(e, code=code, vendor=vendor, kw=kw)
+
+
+CATALOGUE: tuple[Entry, ...] = tuple(_with_match(e) for e in _BASE)
+
+
+def match(text: str, platform: str | None = None, rc: int | None = None) -> tuple[Entry | None, str]:
+    """(entry, tier) of the first catalogue line that fits; tier is code, vendor, keyword or sentence."""
     o = os_name(platform)
+    raw = (text or "") + (f"\nexit code {rc}" if rc else "")
     for e in CATALOGUE:
-        if (not e.os or o in e.os) and re.search(e.rx, text or "", re.I | re.M):
-            return e.id, e.sentence, e.fix_for(platform)
-    return "", GENERIC, ""
+        if e.os and o not in e.os:
+            continue
+        tier = e.tier(raw)
+        if tier:
+            return e, tier
+    return None, ""
 
 
-def three_lines(step: str, text: str, log: Path, platform: str | None = None, cmd: str = "") -> list[str]:
+def explain(text: str, platform: str | None = None, rc: int | None = None) -> tuple[str, str, str]:
+    """(entry id or '', sentence, fix command) for a raw output. Unknown text: ('', GENERIC, '')."""
+    e, _ = match(text, platform, rc)
+    return (e.id, e.sentence, e.fix_for(platform)) if e else ("", GENERIC, "")
+
+def three_lines(step: str, text: str, log: Path, platform: str | None = None, cmd: str = "", rc: int | None = None) -> list[str]:
     """What the screen shows on a failure: what failed, the sentence, the command (and the log path)."""
-    _, sentence, fix = explain(text, platform)
+    _, sentence, fix = explain(text, platform, rc)
     return [f"FAILED  {step}", f"        {sentence}",
             f"        Run by hand: {fix or cmd or '(see the log)'}  -- details: {log}"]
 
@@ -159,7 +233,7 @@ def capture(step: str, cmd, *, shell: bool = False, env: dict | None = None, tim
         rc, text = 127, str(exc)
     log = log_raw(step, shown, rc, text, env, home)
     if rc != 0:
-        for line in three_lines(step, text, log, platform, shown):
+        for line in three_lines(step, text, log, platform, shown, rc):
             say(line)
     return rc
 
