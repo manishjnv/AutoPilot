@@ -91,6 +91,10 @@ When a phase closes, Autopilot writes `history/<phase>/receipt.json` next to `PR
 
 Type `ap verify` to check every closed phase. It works offline. Use `ap verify <phase>` for one phase. An untouched phase prints `<phase> ok` and the command exits 0. If someone edits `PROOF.md`, it prints `<phase> CHANGED: ...` and exits 1. A different key gives a bad signature report. With no receipt, it prints `no receipt found` and exits 1.
 
+## Draft PR for an unverified task
+
+Set `git.mode: pr` in `project.yaml` and each task opens a pull request. If the gate gave a warning, or an acceptance criterion has no test, the PR opens as a draft. Its body lists each item under `## Not proven`. A clean task opens a ready PR, and the list says "Nothing". When CI is green, Autopilot marks a draft ready and merges it; the list stays in the body. `git.mode: direct` works as before. See [REFERENCE.md](REFERENCE.md).
+
 ## Install
 
 Three steps, no administrator prompt.
