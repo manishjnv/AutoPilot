@@ -69,6 +69,14 @@ Two real projects built from a plan:
 
 Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot fixed all. envguard is private; numbers come from the run log.
 
+## Outcome word at the end of every run
+
+Every run ends with one word: `VERIFIED` (the plan is complete), `BLOCKED` (a task is parked), `BUDGET_STOP` (a limit you set ended the run), `STALLED` or `FAILED`. Autopilot stores the word in the state, the log and `run.json`. The run notification starts with it. Type `ap status` to see the line `outcome: <word>`. The line shows only after a run has ended. See [Run outcome](REFERENCE.md#run-outcome).
+
+## Not proven section in PROOF.md
+
+Each phase writes `history/<phase>/PROOF.md`. It has a `## Not proven` section. The section lists each acceptance criterion that no changed test mentions, with its task id. When every criterion has a test, the section holds one sentence that says so. Read this list to see what a green build did not check.
+
 ## Install
 
 Three steps, no administrator prompt.
