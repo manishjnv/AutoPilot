@@ -1,4 +1,4 @@
 """Autopilot — autonomous, plan-driven development orchestrator for Claude Code."""
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 AGENT_DIR = ".agent"

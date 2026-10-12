@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-13
+
 - Q22 review: a vendor outage makes the run wait 15 minutes, up to four times, before it stops; a bare `50x` number is not an outage; an expired login stops the run only when the login check fails again; the same-error rule resets when a task merges.
 
 - Q20: five repairs without a question, in `ap setup` and `ap doctor --fix`: git `safe.directory` and `autocrlf` for the project; a persistent PATH once (`uv tool update-shell`, or the user PATH on Windows, with a marker so it prints once); one printed line for a Defender exclusion; duplicate installs of one CLI named with the removal command; and `ap upgrade` backs up an older `.agent/` to `.agent/backup-<version>/`, migrates it and says what changed.
