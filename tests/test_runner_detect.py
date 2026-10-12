@@ -390,8 +390,8 @@ def kiro_bin(tmp_path):
 
 def test_smoke_fake_copilot_runs_one_task_end_to_end(tmp_path, monkeypatch, capsys):
     """Q2: a fake copilot (reads the file named in -p) plus a fake `gh auth status` 0 runs one task through the gate."""
-    from test_presets import COPILOT
     from autopilot.orchestrator import Orchestrator
+    from test_presets import COPILOT
     root, pj = init_project(tmp_path)
     test = '"' + sys.executable + '" -c "import pathlib,sys; sys.exit(0 if pathlib.Path(\'hello.txt\').exists() else 1)"'
     pj.write_text(SMOKE_YAML.replace("{test}", json.dumps([test])), encoding="utf-8")

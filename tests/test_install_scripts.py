@@ -30,7 +30,7 @@ def run_sh(tmp_path, path, *args, **env):
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
     e = {"HOME": str(home), "PATH": path, "AUTOPILOT_HOME": str(home / ".autopilot"), **env}
-    return subprocess.run(["/bin/bash", str(SH), *args], capture_output=True, text=True, env=e)
+    return subprocess.run(["/bin/bash", str(SH), *args], capture_output=True, text=True, env=e, check=False)
 
 
 def test_scripts_stay_thin_and_keep_the_bump_lines():
@@ -113,9 +113,10 @@ def test_a_failed_step_prints_three_lines_and_logs_the_raw_text(tmp_path):
 
 @pytest.mark.skipif(not shutil.which("pwsh"), reason="needs PowerShell 7")
 def test_install_ps1_parses():
-    check = ("$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('%s', [ref]$null, [ref]$e); "
-             "if ($e.Count) { $e; exit 1 }" % str(PS1).replace("'", "''"))
-    assert subprocess.run(["pwsh", "-NoProfile", "-Command", check], capture_output=True, text=True).returncode == 0
+    ps1 = str(PS1).replace("'", "''")
+    check = (f"$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('{ps1}', [ref]$null, [ref]$e); "
+             "if ($e.Count) { $e; exit 1 }")
+    assert subprocess.run(["pwsh", "-NoProfile", "-Command", check], capture_output=True, text=True, check=False).returncode == 0
 
 
 def test_cmd_wrapper_only_starts_powershell():

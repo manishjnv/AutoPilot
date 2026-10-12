@@ -7,8 +7,8 @@ from autopilot.install_errors import PRECHECK
 
 
 def snap(**kw):
-    base = dict(platform="linux", home="/home/u", cwd="/home/u/p", path=["/usr/bin", "/home/u/.local/bin"],
-                git_user=("U", "u@example.com"))
+    base = {"platform": "linux", "home": "/home/u", "cwd": "/home/u/p", "path": ["/usr/bin", "/home/u/.local/bin"],
+            "git_user": ("U", "u@example.com")}
     base.update(kw)
     return pc.Snapshot(**base)
 

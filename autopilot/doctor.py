@@ -302,8 +302,8 @@ def fix_claude() -> str:
     cmd, shown = INSTALL[route]
     if not cmd:
         return f"cannot fix: Claude Code came from winget, which does not update it. Run `{shown}`"
-    print(f"fix   claude CLI: running `{shown}` (this downloads and installs Claude Code)", flush=True)
     from .install_errors import capture  # Q4: raw output to the log, one sentence on screen
+    print(f"fix   claude CLI: running `{shown}` (this downloads and installs Claude Code)", flush=True)
     lines: list[str] = []
     rc = capture("reinstall claude", [shutil.which(cmd[0]) or cmd[0]] + cmd[1:], say=lines.append, run=run_proc)
     return f"reinstalled ({route})" if rc == 0 else f"install failed: {lines[1].strip()} Run `{shown}` yourself"
