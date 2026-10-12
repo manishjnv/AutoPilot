@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-12
+
 - O10: `profile: lean` is the default for new projects after the clean measure (39.5 percent fewer tokens per task, every task done); an old `project.yaml` without the key stays `full`.
 - O11: a docs session at each phase close writes the app's `docs/RCA.md`, README feature sections and `docs/DEVELOPING.md`.
 - O1: `scope_additions` count from attempt 2 only, at most 3 files, and each one is recorded in the task history, `PROOF.md` and the dashboard.

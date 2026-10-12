@@ -26,3 +26,6 @@ vid/
 .agent/REPORT.md
 .agent/run.json
 .agent/approvals/
+
+# IDE settings
+.vscode/
