@@ -125,6 +125,9 @@ main() {
   if [ "$dry" = 1 ]; then echo "would check: ap is on PATH"
   elif have ap; then echo "found: ap"
   else fail 4 Autopilot "uv tool install --reinstall \"$addr\" (then make sure $HOME/.local/bin is on PATH)"; fi
+  # an Autopilot without `ap setup` (0.4.0 from PyPI or an older checkout) is updated from main before step 5
+  newer="uv tool install --reinstall git+https://github.com/manishjnv/AutoPilot@main"
+  if [ "$dry" != 1 ] && ! ap --help 2>&1 | grep -q setup; then echo "found: an Autopilot without ap setup: updating"; run 4 Autopilot "$newer"; fi
 
   step 5 "runner (ap setup)"
   args=""; [ "$skip" = 1 ] && args="$args --skip-login"; [ "$yes" = 1 ] && args="$args --yes"; [ -n "$runner" ] && args="$args --runner $runner"

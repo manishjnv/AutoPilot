@@ -123,3 +123,14 @@ def test_cmd_wrapper_only_starts_powershell():
     text = CMD.read_text(encoding="utf-8")
     assert text.count("powershell -NoProfile -ExecutionPolicy Bypass") == 2 and "%*" in text
     assert "install.ps1" in text and "exit /b %ERRORLEVEL%" in text
+
+
+@posix
+def test_an_autopilot_without_setup_is_updated_from_main(tmp_path):
+    """A friend's PC had autopilot 0.4.0 (no `ap setup`): the script must update before step 5, not trust `found`."""
+    old_ap = ('case "$*" in --version) echo "ap 0.4.0";; --help) echo "usage: ap {init,run}"; exit 0;; '
+              '*) echo "ap: error: invalid choice: setup" >&2; exit 2;; esac')
+    uv = 'echo "UV $*"; exit 0'
+    p = run_sh(tmp_path, fakes(tmp_path, ap=old_ap, autopilot=old_ap, uv=uv, curl="exit 0", python3="exit 0"))
+    assert "found: an Autopilot without ap setup: updating" in p.stdout
+    assert "run: uv tool install --reinstall git+https://github.com/manishjnv/AutoPilot@main" in p.stdout

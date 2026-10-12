@@ -150,6 +150,11 @@ if ((Has autopilot) -or ((Has uv) -and ("$(Run uv tool list)" -match 'dev-autopi
 if ($DryRun) { Write-Host 'would check: ap is on PATH' }
 elseif (Has ap) { Write-Host 'found: ap' }
 else { Fail 4 'Autopilot' "uv tool install --reinstall `"$addr`" (then make sure $env:USERPROFILE\.local\bin is on PATH)" 'ap is not on PATH' }
+# an Autopilot without `ap setup` (0.4.0 from PyPI or an older checkout) is updated from main before step 5
+if (-not $DryRun -and -not ("$(Run ap --help)" -match 'setup')) {
+    Write-Host 'found: an Autopilot without ap setup: updating'
+    Capture 4 'Autopilot' 'uv tool install --reinstall git+https://github.com/manishjnv/AutoPilot@main'
+}
 
 Step 5 'runner (ap setup)'
 $setupArgs = @()
