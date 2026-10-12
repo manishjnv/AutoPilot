@@ -30,6 +30,12 @@ RAW = {
     "no-plan-claude": '{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "free"}',
     "no-plan-copilot": "Error: your account does not have access to GitHub Copilot",
     "premium-requests-copilot": "You have reached your premium requests limit for this month.",
+    "vendor-outage": "API Error: 503 Service Unavailable",
+    "auth-expired": "API Error: 401 OAuth token has expired",
+    "model-not-found": "Error: model_not_found: the model xyz is not available",
+    "blocked-host": "Error: connect ECONNREFUSED 10.0.0.1:443",
+    "probe-timeout": "probe_slow",
+    "probe-no-answer": "probe_no_ready",
     "logged-out": "Error: no active session, please log in",
 }
 
@@ -102,3 +108,39 @@ def test_log_is_scrubbed_of_token_values(tmp_path, monkeypatch):
 def test_exit_codes_are_stable():
     assert (ie.EXIT_OK, ie.EXIT_FAILED, ie.EXIT_USAGE, ie.EXIT_CHOICE) == (0, 1, 2, 3)
     assert ie.log_path(Path("/h")).as_posix().endswith(".autopilot/install.log") or os.environ.get("AUTOPILOT_HOME")
+
+# Q14: a catalogue line never rests on an English sentence alone
+def test_every_line_has_a_match_that_is_not_a_sentence():
+    for e in ie.CATALOGUE:
+        assert e.code or e.vendor or e.kw, e.id
+    for entry_id, raw in RAW.items():
+        e, tier = ie.match(raw, "win32" if entry_id in ("store-python", "execution-policy", "schannel") else "linux")
+        assert e is not None and e.id == entry_id and tier in ("code", "vendor", "keyword"), (entry_id, tier)
+
+
+@pytest.mark.parametrize("text", [
+    "curl: (35) Schannel: Der Revokationsserver ist offline (0x80092013)",  # German
+    "curl: (35) Schannel : le serveur de révocation est hors ligne (0x80092013)",  # French
+    "Fehler 0x80092012: Die Sperrung konnte nicht überprüft werden",
+    "Erreur 0x80092012 : la vérification de la révocation a échoué",
+])
+def test_hex_code_carries_the_match_in_any_language(text):
+    e, tier = ie.match(text, "win32")
+    assert e is not None and e.id == "schannel" and tier == "code"
+
+
+def test_hex_codes_for_other_lines_pass_in_german_and_french():
+    assert ie.explain("Fehler 0x80072EE7: Der Servername konnte nicht aufgelöst werden", "win32")[0] == "no-host"
+    assert ie.explain("Erreur 0x80072EE2 : délai d'attente dépassé", "win32")[0] == "timeout"
+    assert ie.explain("Fehler 0x80070070: Nicht genügend Speicherplatz", "win32")[0] == "no-space"
+    assert ie.explain("Erreur 0x80070005 : accès refusé", "win32")[0] == "permission"
+
+
+def test_exit_code_alone_matches_when_the_caller_passes_it():
+    assert ie.explain("", "linux", 35)[0] == "schannel"
+    assert ie.explain("", "linux", 6)[0] == "no-host"
+    assert ie.explain("", "linux", 1) == ("", ie.GENERIC, "")
+
+
+def test_vendor_id_matches_without_an_english_sentence():
+    assert ie.explain('{"error":{"type":"authentication_error"}}', "linux")[0] == "logged-out"

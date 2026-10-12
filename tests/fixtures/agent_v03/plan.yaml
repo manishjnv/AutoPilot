@@ -1,0 +1,48 @@
+# Autopilot plan. Generate from your plan doc with:  autopilot onboard --plan-doc docs/PLAN.md
+# Phases depend on the previous phase unless `depends_on` is given ([] = independent).
+# Task ids must be unique and stable ΓÇö the state DB tracks progress by id.
+
+version: 1
+goal: >
+  One paragraph describing the product being built.
+
+phases:
+  - id: P01
+    title: Foundation
+    goal: Project skeleton, CI-able test setup, health endpoint.
+    features:                         # user journeys checked once, on the running app, when the phase closes
+      - id: P01-F01
+        title: Health check
+        journey: "Start the app; GET /health returns 200 with {\"status\":\"ok\"}"
+    # infra:                          # optional; `ap preflight` checks these credentials read-only before any work
+    #   steps:                        # type: deploy | cloudflare | email | custom
+    #     - id: P01-I01
+    #       type: cloudflare          # needs CLOUDFLARE_TOKEN (deploy: DEPLOY_SSH_KEY, email: EMAIL_API_TOKEN)
+    #       description: "DNS zone for the app"
+    #       verify: ""                # read-only command; used for email and custom (deploy: add `host:` for an ssh test)
+    #       rollback_cmd: ""
+    tasks:
+      - id: P01-T01
+        title: Create project skeleton
+        risk: low                     # low | medium | high | critical  -> model ladder
+        description: |
+          Set up the base project structure and a passing test suite.
+        acceptance_criteria:
+          - "Test command exits 0 with at least one real test"
+          - "README documents how to run the project locally"
+        files_in_scope: ["src/**", "tests/**", "README.md"]
+        verify: []                    # extra commands for this task only
+        needs_decision: false         # true = weigh 2-3 approaches in an ADR first (automatic for high/critical)
+        research: []                  # topics to research on the web first, e.g. ["Stripe webhooks retries"]
+        depends_on: []
+        owner_only: false             # true = needs you (accounts, keys); listed by `ap preflight`, never run by the agent
+        # status: done                # only value allowed: the work exists already; recorded as done when the task is new or pending
+
+      - id: P01-T02
+        title: Health endpoint
+        risk: low
+        description: Add GET /health returning {"status":"ok"}.
+        acceptance_criteria:
+          - "GET /health returns 200 and JSON {\"status\":\"ok\"}"
+          - "Covered by an automated test"
+        depends_on: [P01-T01]

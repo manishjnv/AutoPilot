@@ -123,14 +123,14 @@ foreach ($id in $ids) { winget install --id $id -e --source winget --silent --ac
 
 Step 2 'uv'
 $uvCmd = 'irm https://astral.sh/uv/install.ps1 | iex'
-if (Has uv) { Write-Host "found: $(Ver uv)" }
+if (Has uv) { Write-Host "done: $(Ver uv) (found, skipped)" }
 elseif ($DryRun) { Write-Host "would install. Command: $uvCmd" }
 else { Capture 2 'uv' $uvCmd; Refresh; if (-not (Has uv)) { Fail 2 'uv' $uvCmd 'uv is not on PATH after the install' } }
 
 Step 3 'Python'
 # N5: Autopilot cannot run without Python 3.10 or newer. This is the one system install; uv installs it for this user.
 $pycmd = 'uv python install 3.12'
-if (PyOk) { Write-Host 'found: Python 3.10 or newer' }
+if (PyOk) { Write-Host 'done: Python 3.10 or newer (found, skipped)' }
 elseif ($DryRun) { Write-Host "would install (no Python 3.10 or newer found). Command: $pycmd" }
 else { Capture 3 'Python' $pycmd }
 
@@ -140,7 +140,7 @@ Step 4 'Autopilot'
 $addr = "dev-autopilot @ https://github.com/manishjnv/AutoPilot/archive/$Ref.zip"
 function ApVer { if (Has ap) { $w = "$(Run ap --version)".Split(' '); if ($w.Count -ge 2) { return $w[1] } } '' }
 function AtLeast($v) { if (-not $v) { return $false }; try { [version]$v -ge [version]$MinVersion } catch { $false } }
-if ((Has ap) -and (AtLeast (ApVer))) { Write-Host "found: $(Ver autopilot)"; Write-Host 'To update, run: ap upgrade' }
+if ((Has ap) -and (AtLeast (ApVer))) { Write-Host "done: $(Ver autopilot) (found, skipped)"; Write-Host 'To update, run: ap upgrade' }
 elseif (Has ap) {
     Write-Host "found: $(Ver autopilot), older than this installer ($MinVersion): updating"
     if ($DryRun) { Write-Host "would run: uv tool install --reinstall '$addr'" } else { Capture 4 'Autopilot' "uv tool install --reinstall '$addr'"; Refresh }

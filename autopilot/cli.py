@@ -298,6 +298,10 @@ def preflight(cfg) -> bool:
     """Before quickstart or a run: fix the machine where possible (PATH, the claude CLI), then make sure the agent CLI
     can start. False = it can't, and the reason is printed."""
     from .doctor import FAIL, autofix, check_claude, check_path, check_runner_login
+    if cfg is not None:  # Q15: a project in OneDrive, on a share or under /mnt gets one sentence and one command
+        from .move import warning
+        for line in warning(cfg.root):
+            print(f"note  {line}")
     if cfg is not None and not runner_set(cfg.root):
         if not pick_runner(cfg.root):
             return False
@@ -455,21 +459,28 @@ def remember_runner(proj_path: Path, choice: str) -> bool:
     return True
 
 
-def login_now() -> bool:
-    """H2: with a terminal, offer the Claude login and run it. False = no terminal (never ask), or the owner stops."""
-    if not (sys.stdin.isatty() and sys.stdout.isatty()) or os.environ.get("SSH_CONNECTION"):
+def login_now(row=None, *, env: dict | None = None, say=print) -> bool:
+    """H2 + Q13: with a terminal, run the login of `row` (the claude row when None). The address and the code are printed
+    as text in every case; a machine with no desktop (WSL, SSH, a container) runs the headless form. False = no terminal
+    (never ask), the owner stops, or the login did not finish."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
         return False
-    # N5.4: no question. The login opens in the browser; the user types nothing here (a paid Claude plan is necessary).
-    print("Claude Code is not logged in. The login opens in your browser now (Ctrl+C stops).")
-    try:
-        import subprocess
-
+    from .doctor import runner
+    from .login import login_runner
+    row = row or runner("claude_cli")
+    if row.key == "claude_cli":
         from .backends.claude_cli import ClaudeCLIBackend
-        subprocess.run([ClaudeCLIBackend.resolve_binary(), "auth", "login"], check=False)
+        exe = shutil.which(ClaudeCLIBackend.resolve_binary()) or ClaudeCLIBackend.resolve_binary()  # AUTOPILOT_CLAUDE_BIN counts
+    else:
+        exe = row.which()
+    if not exe:
+        return False
+    if row.key == "claude_cli":
+        say("Claude Code is not logged in (a paid Claude plan is necessary). Ctrl+C stops.")
+    try:
+        return login_runner(row, exe, env=env, say=say)
     except (EOFError, KeyboardInterrupt, OSError):
         return False
-    return True
-
 
 def safe_folder(p: Path) -> str:
     """H5: why a folder must not hold a new project ('' = fine). Sessions run with no prompts, so they get the folder."""
@@ -1162,6 +1173,8 @@ def start_status_page(root: Path, port: int = 8765) -> str:
         except OSError:
             continue
         threading.Thread(target=srv.serve_forever, daemon=True).start()
+        if p != port:  # Q21.8: say which port was taken
+            print(f"status page: port {port} is in use, so it runs on port {p}", flush=True)
         return f"http://127.0.0.1:{p}/"
     return ""
 
@@ -1186,9 +1199,36 @@ def cmd_serve(args):
     return 0
 
 
+def doctor_runner(root: Path) -> int:
+    """Q11: `ap doctor --runner`: send the one probe prompt through the runner of this project (or of this PC)."""
+    from .commands.setup import PROBE_TIMEOUT, probe
+    from .doctor import runner
+    pj = root / AGENT_DIR / "project.yaml"
+    cfg = Config.load(root) if pj.exists() else None
+    key = (cfg.get("agent.preset") if cfg is not None else "") or setup_choice() or "claude_cli"
+    row = runner(key) if key else None
+    exe = row.which() if row else None
+    if row is None or not exe:
+        print("FAIL  runner         no runner is set up on this PC: run `ap setup`")
+        return 1
+    print(f"probe  {row.name}: sending one prompt, up to {PROBE_TIMEOUT} seconds")
+    ok, sentence, fix = probe(row, exe, env={**os.environ, "CI": "1"})
+    print(f"ok    {row.name} answered ready" if ok else f"FAIL  {sentence}\n      Run by hand: {fix or 'ap setup'}")
+    return 0 if ok else 1
+
+
 def cmd_doctor(args):
     from .doctor import FAIL, autofix, checks
     root = Path(args.path).resolve()
+    if getattr(args, "runner", False):
+        return doctor_runner(root)
+    if getattr(args, "project", False):  # Q15: where the project lives
+        from .move import warning
+        lines = warning(root)
+        print("ok    project place  this folder is a good place for a project" if not lines else "WARN  project place  " + lines[0])
+        if lines:
+            print("      " + lines[1])
+        return 0
     if not (root / AGENT_DIR / "project.yaml").exists():
         print(f"FAIL  project        no {AGENT_DIR}/project.yaml in {root}: run `autopilot init` first")
         return 1
@@ -1196,6 +1236,9 @@ def cmd_doctor(args):
     rows = checks(cfg)
     if getattr(args, "fix", False):
         done = autofix(rows)
+        if not os.environ.get("AUTOPILOT_NO_AUTOFIX"):  # Q20: the five repairs, without a question
+            from .repairs import fix_all
+            done += [f"repairs: {line}" for line in fix_all(root)]
         for line in done:
             print(f"fix   {line}")
         if done:
@@ -1399,6 +1442,26 @@ def cmd_uninstall(args, spawn=None):
     from .rights import have_rights, remove_rights
     from .upgrade import detect_install, spawn_after_exit
     dry = getattr(args, "dry_run", False)
+    if getattr(args, "steps", False):  # Q12: undo each finished setup step, last first
+        from . import steps as st
+        from .install_errors import capture
+        plan = st.undo_plan()
+        if not plan:
+            print("No finished setup steps are recorded: nothing to undo.")
+            return 0
+        for name, what in plan:
+            print(("would " if dry else "") + f"{name}: {what}")
+            if dry or not (what.startswith(("rm ", "npm ", "brew ", "winget ", "Remove-Item"))):
+                continue
+            if capture(f"undo {name}", what, shell=True) != 0:
+                return 1
+        if not dry:
+            from .profile import update
+            st.reset()
+            update({"install": {}})
+            for f in ("runner",):
+                (_recent_file().with_name(f)).unlink(missing_ok=True)
+        return 0
     if getattr(args, "all", False):
         say = (lambda s: print(("would " if dry else "") + s))
         if have_rights():
@@ -1574,6 +1637,8 @@ def main(argv=None):
     add("validate", cmd_validate, "validate project.yaml and plan.yaml")
     p = add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
     p.add_argument("--fix", action="store_true", help="also fix what needs no person: PATH, reinstall the claude CLI")
+    p.add_argument("--runner", action="store_true", help="send one test prompt through the runner and say if it answers")
+    p.add_argument("--project", action="store_true", help="say if the project folder is in a bad place (OneDrive, a share, /mnt)")
     p = add("run", cmd_run, "run autonomously until the app is complete")
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("--no-page", action="store_true", help="don't start the live status page")
@@ -1609,18 +1674,25 @@ def main(argv=None):
     add("mcp", cmd_mcp, "MCP server on stdin/stdout for IDE chats: ap_status, ap_next, ap_start, ap_stop, ap_answer")
     p = add("uninstall", cmd_uninstall, "--rights: remove the rights the installer took; --all: remove Autopilot from this PC")
     p.add_argument("--rights", action="store_true"); p.add_argument("--all", action="store_true")
+    p.add_argument("--steps", action="store_true", help="undo each finished `ap setup` step, last first (the runner CLI, the choice)")
     p.add_argument("--dry-run", action="store_true", help="list the steps, change nothing")
     from .upgrade import cmd_install, cmd_upgrade
     p = add("upgrade", cmd_upgrade, "get the newest Autopilot; --check only prints")
     p.add_argument("--check", action="store_true"); p.add_argument("--ref"); p.add_argument("--daily", action="store_true", help=argparse.SUPPRESS)
     p = add("install", cmd_install, "install or repair Autopilot for this user; --rights = the one rights step")
     p.add_argument("--rights", action="store_true")
+    from .move import cmd_move
+    p = add("move", cmd_move, "move the project out of OneDrive, a network share or /mnt (clone, copy .agent, keep the remotes)")
+    p.add_argument("target", nargs="?", help="the new folder (default: %%LOCALAPPDATA%%\\dev\\NAME on Windows, ~/dev/NAME elsewhere)")
+    p.add_argument("--yes", action="store_true", help="move at once, no question")
     from .commands.setup import cmd_setup
     p = add("setup", cmd_setup, "find the AI you pay for, install its CLI, check the login, write the choice (one question at most)")
     p.add_argument("--dry-run", action="store_true", help="scan and print the plan; install and write nothing")
     p.add_argument("--runner", help="answer the question in advance: claude, copilot, codex, cursor or kiro")
     p.add_argument("--yes", action="store_true", help="take the default answer")
     p.add_argument("--skip-login", action="store_true", help="do not check or start a login")
+    p.add_argument("--skip-probe", action="store_true", help="do not send the one test prompt (CI)")
+    p.add_argument("--reset", action="store_true", help="forget the finished steps and start over")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")

@@ -60,7 +60,10 @@ def test_with_a_terminal_the_login_is_offered_and_the_start_continues(tmp_path, 
     (proj / "PLAN.md").write_text("# Plan\nA todo app.\n")
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.delenv("SSH_CONNECTION", raising=False)
+    for name in ("SSH_CONNECTION", "SSH_TTY", "WSL_DISTRO_NAME", "WSL_INTEROP", "SNAP", "SNAP_NAME"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("DISPLAY", ":0")  # Q13: a desktop machine; the headless form has its own tests (test_login.py)
+    monkeypatch.setattr("os.path.exists", lambda p, _real=__import__("os").path.exists: False if p in ("/.dockerenv", "/run/.containerenv") else _real(p))
     monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(AssertionError("no question (N5.4)")))
     assert cli_main(["quickstart", "-C", str(proj)]) == 0 and flag.exists()  # N5.4: the login runs, nothing typed
     out = capsys.readouterr().out

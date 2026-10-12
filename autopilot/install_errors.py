@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .doctor import LOGGED_OUT, RUNNERS
@@ -58,6 +58,24 @@ class Entry:
     sentence: str            # one plain sentence a user reads
     fix: dict | str          # the command to run by hand: one string, or one per os (`linux`, `darwin`, `windows`)
     os: tuple = ()           # empty = every system
+    # Q14: a line matches by code first, vendor id second, keywords third; `rx` (an English sentence) is the last resort
+    code: str = ""           # exit code, Windows hex code, curl or Node error code (`0x80092012`, `curl: (35)`, `EACCES`)
+    vendor: str = ""         # vendor error id or JSON field (`authentication_error`, `"subscriptionType": "free"`)
+    kw: tuple = ()           # keyword sets: a set hits when every word of it is in the text (lower case)
+    needs: str = ""          # a regex that must match as well (the runner name of a per-runner line)
+
+    def tier(self, text: str) -> str:
+        """Which match fired: `code`, `vendor`, `keyword`, `sentence`, or '' for none."""
+        flags = re.IGNORECASE | re.MULTILINE
+        if self.needs and not re.search(self.needs, text, flags):
+            return ""
+        for name, rx in (("code", self.code), ("vendor", self.vendor)):
+            if rx and re.search(rx, text, flags):
+                return name
+        low = text.lower()
+        if any(all(w in low for w in words) for words in self.kw):
+            return "keyword"
+        return "sentence" if re.search(self.rx, text, flags) else ""
 
     def fix_for(self, platform: str | None = None) -> str:
         return self.fix if isinstance(self.fix, str) else self.fix.get(os_name(platform), "")
@@ -78,7 +96,8 @@ def _runner_entries() -> list[Entry]:
     for r in RUNNERS:
         names = "|".join(re.escape(n) for n in r.names)
         out.append(Entry(f"logged-out-{r.name}", rf"(?s)^(?=.*\b(?:{names})\b)(?=.*(?:{LOGGED_OUT.pattern}))",
-                         f"{r.name} is not logged in: log in once, then start again (you need {r.plan}).", r.login))
+                         f"{r.name} is not logged in: log in once, then start again (you need {r.plan}).", r.login,
+                         needs=rf"\b(?:{names})\b"))
     out.append(Entry("no-plan-claude", r'subscriptionType"?\s*:\s*"?free|the free Claude plan|requires a (?:Pro|Max) (?:plan|subscription)',
                      "The free Claude plan cannot use Claude Code: a paid plan (Pro or Max) is needed.",
                      "claude auth login   # with the account that has the plan"))
@@ -94,14 +113,19 @@ def _runner_entries() -> list[Entry]:
     return out
 
 
-CATALOGUE: tuple[Entry, ...] = (
+_BASE: tuple[Entry, ...] = (
     Entry("schannel", r"CRYPT_E_NO_REVOCATION_CHECK|curl: \(35\)|schannel: next InitializeSecurityContext failed",
           "Windows could not check the certificate of the download server (a proxy or a security program blocks the revocation check).",
           {"windows": f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{PS1}"', "linux": f"curl --ssl-no-revoke -fsSL {SH} | bash",
            "darwin": f"curl -fsSL {SH} | bash"}),
     Entry("no-host", r"Could not resolve host|getaddrinfo|ENOTFOUND|EAI_AGAIN|Name or service not known|No such host is known|nodename nor servname",
           "No connection to the download server: check the network, and set HTTPS_PROXY when a proxy is in the way.", PROXY),
-    Entry("timeout", r"timed? out|ETIMEDOUT|curl: \(28\)|Connection timed out",
+    # Q22: failures of a running build (the runner, not the install)
+    Entry("vendor-outage", r"overloaded_error|API Error:? (?:50[0234]|529)\b|Service Unavailable|Bad Gateway",
+          "The service is down, try again in 15 minutes.", "ap start   # in 15 minutes"),
+    Entry("auth-expired", r"OAuth token (?:has )?expired|token_expired|API Error:? 401\b|invalid_api_key",
+          "The login ran out while a task was working: log in again, then start again; no try is lost.",
+          "ap setup   # it prints the login command"),    Entry("timeout", r"timed? out|ETIMEDOUT|curl: \(28\)|Connection timed out",
           "The download server did not answer in time: the network or a proxy is slow or blocked.", PROXY),
     Entry("http-403", r"\b403\b[^\n]{0,20}Forbidden|(?:HTTP|status|error)[^\n]{0,20}\b403\b",
           "The download server refused the request (403): a proxy or a rate limit is in the way; wait a few minutes, then run it again.",
@@ -126,40 +150,144 @@ CATALOGUE: tuple[Entry, ...] = (
     Entry("not-on-path", r"command not found|is not recognized as (?:an internal|the name)",
           "The program is installed, but its folder is not on PATH in this terminal yet: add it, or open a new terminal.", LOCAL_BIN),
     *_runner_entries(),
-    Entry("logged-out", LOGGED_OUT.pattern,
+    # Q11: the probe answers (`probe_slow` and `probe_no_ready` are the marks `commands.setup` adds for a silent runner)
+    Entry("model-not-found", r"model.{0,40}(?:not found|not available|does not exist|unknown)|unknown model",
+          "The model name is not available on this plan or in this region: use the alias haiku, sonnet or opus.",
+          "ap doctor --runner   # then set agent.model_map in .agent/project.yaml to a name that works"),
+    Entry("blocked-host", r"ECONNREFUSED|ECONNRESET|CERT_HAS_EXPIRED|UNABLE_TO_VERIFY_LEAF_SIGNATURE|\b407\b[^\n]{0,20}Proxy",
+          "The AI service is blocked on this network: a firewall or proxy refuses the connection.", PROXY),
+    Entry("probe-timeout", r"\bprobe_slow\b",
+          "The runner did not answer within 60 seconds: check the network, the plan and the login.", "ap doctor --runner"),
+    Entry("probe-no-answer", r"\bprobe_no_ready\b",
+          "The runner answered, but not with the word ready: run it by hand to see why.", "ap doctor --runner"),    Entry("logged-out", LOGGED_OUT.pattern,
           "The runner is not logged in: log in once, then start again.", "ap setup   # it prints the login command"),
 )
 
 
-def explain(text: str, platform: str | None = None) -> tuple[str, str, str]:
-    """(entry id or '', sentence, fix command) for a raw output. Unknown text: ('', GENERIC, '')."""
+# Q14: the match of each line that is not an English sentence. id -> (code, vendor id or JSON field, keyword sets).
+# A hex code (`0x80092012`) is the same in every Windows language, so a German or French message still matches.
+# `exit code N` is added to the text by `explain` when the caller knows the exit code.
+MATCH: dict[str, tuple[str, str, tuple]] = {
+    "schannel": (r"0x8009201[23]|0x80090326|CRYPT_E_NO_REVOCATION_CHECK|CRYPT_E_REVOCATION_OFFLINE|curl: \(35\)|\bexit code 35\b", "",
+                 (("revocation", "check"),)),
+    "no-host": (r"curl: \(6\)|\bexit code 6\b|ENOTFOUND|EAI_AGAIN|0x80072EE7|WSAHOST_NOT_FOUND", "",
+                (("resolve", "host"), ("name or service", "not known"), ("no such host",))),
+    "timeout": (r"curl: \(28\)|\bexit code 28\b|ETIMEDOUT|ESOCKETTIMEDOUT|0x80072EE2|0x800705B4", "",
+                (("timed out",), ("timeout",))),
+    "http-403": (r"curl: \(22\)[^\n]*\b403\b|\bHTTP/[\d.]+ 403\b", r"\"status(?:Code)?\"\s*:\s*403|\b(?:forbidden|rate_limit_exceeded)\b",
+                 (("403", "forbidden"),)),
+    "http-404": (r"curl: \(22\)[^\n]*\b404\b|\bHTTP/[\d.]+ 404\b", r"\"status(?:Code)?\"\s*:\s*404|\bnot_found\b",
+                 (("404", "not found"),)),
+    "no-space": (r"ENOSPC|Errno 28|0x80070070|ERROR_DISK_FULL", "", (("no space", "device"), ("disk", "full"))),
+    "permission": (r"EACCES|EPERM|Errno 13|0x80070005", "", (("permission", "denied"), ("access", "denied"))),
+    "node-old": (r"EBADENGINE", "", (("unsupported", "engine"), ("requires", "node"))),
+    "store-python": (r"\bexit code 9009\b", "", (("microsoft store",),)),
+    "execution-policy": (r"PSSecurityException|UnauthorizedAccess|FullyQualifiedErrorId\s*:\s*UnauthorizedAccess", "",
+                         (("running scripts", "disabled"), ("execution", "policy"))),
+    "not-on-path": (r"CommandNotFoundException|ENOENT", "", (("command not found",), ("not recognized",))),
+    "no-plan-claude": ("", r'subscriptionType"?\s*:\s*"?free|\bplan_required\b', (("free", "claude", "plan"),)),
+    "no-plan-copilot": ("", r"copilot_access_denied|no_copilot_seat|copilot_not_enabled",
+                        (("copilot", "no active"), ("copilot", "no subscription"), ("copilot", "access"), ("copilot", "license"),
+                         ("copilot", "subscription", "required"), ("copilot", "plan", "required"))),
+    "premium-requests-copilot": ("", r"premium_requests?_(?:limit|quota|exceeded|exhausted)",
+                                 (("premium request", "limit"), ("premium request", "quota"), ("premium request", "exhausted"),
+                                  ("premium request", "exceeded"), ("premium request", "used up"))),
+    "vendor-outage": (r"API Error:? (?:50[0234]|529)\b", r"overloaded_error|api_error", (("service", "unavailable"), ("bad", "gateway"))),
+    "auth-expired": (r"API Error:? 401\b", r"token_expired|invalid_api_key",
+                     (("oauth", "token", "expired"), ("token", "has expired"))),
+    "model-not-found": (r"model_not_found|invalid_model|unknown_model", "", (("model", "not found"), ("model", "not available"), ("unknown", "model"))),
+    "blocked-host": (r"ECONNREFUSED|ECONNRESET|CERT_HAS_EXPIRED|UNABLE_TO_VERIFY_LEAF_SIGNATURE|0x80072EFD", "", (("connection", "refused"), ("blocked by", "firewall"))),
+    "probe-timeout": ("", r"\bprobe_slow\b", ()),
+    "probe-no-answer": ("", r"\bprobe_no_ready\b", ()),
+    "logged-out": (r"\bexit code 401\b|\bHTTP/[\d.]+ 401\b", r"authentication_error|unauthenticated|\"loggedIn\"\s*:\s*false|invalid_grant",
+                   (("not logged in",), ("not signed in",), ("not authenticated",), ("no active session",), ("please log in",),
+                    ("please sign in",), ("logged out",), ("no credentials",))),
+}
+_LOGGED_OUT_KW = MATCH["logged-out"]
+
+
+def _with_match(e: Entry) -> Entry:
+    if e.id.startswith("logged-out-"):
+        code, vendor, kw = _LOGGED_OUT_KW
+        return replace(e, code=code, vendor=vendor, kw=kw)
+    code, vendor, kw = MATCH.get(e.id, ("", "", ()))
+    return replace(e, code=code, vendor=vendor, kw=kw)
+
+
+CATALOGUE: tuple[Entry, ...] = tuple(_with_match(e) for e in _BASE)
+
+
+def match(text: str, platform: str | None = None, rc: int | None = None) -> tuple[Entry | None, str]:
+    """(entry, tier) of the first catalogue line that fits; tier is code, vendor, keyword or sentence."""
     o = os_name(platform)
+    raw = (text or "") + (f"\nexit code {rc}" if rc else "")
     for e in CATALOGUE:
-        if (not e.os or o in e.os) and re.search(e.rx, text or "", re.I | re.M):
-            return e.id, e.sentence, e.fix_for(platform)
-    return "", GENERIC, ""
+        if e.os and o not in e.os:
+            continue
+        tier = e.tier(raw)
+        if tier:
+            return e, tier
+    return None, ""
 
 
-def three_lines(step: str, text: str, log: Path, platform: str | None = None, cmd: str = "") -> list[str]:
+def explain(text: str, platform: str | None = None, rc: int | None = None) -> tuple[str, str, str]:
+    """(entry id or '', sentence, fix command) for a raw output. Unknown text: ('', GENERIC, '')."""
+    e, _ = match(text, platform, rc)
+    return (e.id, e.sentence, e.fix_for(platform)) if e else ("", GENERIC, "")
+
+def three_lines(step: str, text: str, log: Path, platform: str | None = None, cmd: str = "", rc: int | None = None) -> list[str]:
     """What the screen shows on a failure: what failed, the sentence, the command (and the log path)."""
-    _, sentence, fix = explain(text, platform)
+    _, sentence, fix = explain(text, platform, rc)
     return [f"FAILED  {step}", f"        {sentence}",
             f"        Run by hand: {fix or cmd or '(see the log)'}  -- details: {log}"]
 
 
+DROPPED = re.compile(r"curl: \((?:7|18|28|52|55|56)\)|ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|connection (?:was )?(?:reset|closed|dropped)|"
+                     r"0x80072EFE|0x80072EE2|early EOF|unexpected disconnect", re.IGNORECASE)
+RETRY_WAIT = 5      # Q12: seconds of backoff before the one retry on a dropped connection
+HEARTBEAT = 10      # Q12: one dot every this many seconds while a silent installer runs
+
+
+def _beat(say, every: float, done):
+    """The heartbeat of a silent installer: one line, then one dot every `every` seconds until `done` is set. The dots go
+    to the terminal itself (not through `say`, which is one line per call); a test reads the line through `say`."""
+    say("downloading, up to 2 minutes")
+    while not done.wait(every):
+        sys.stdout.write(".")
+        sys.stdout.flush()
+
+
 def capture(step: str, cmd, *, shell: bool = False, env: dict | None = None, timeout: float = 900, run=run_proc,
-            say=print, platform: str | None = None, home: Path | None = None, cwd=None) -> int:
+            say=print, platform: str | None = None, home: Path | None = None, cwd=None, retry: bool = False,
+            sleep=None, heartbeat: float = 0) -> int:
     """Run one install step. Output goes to the log only; on a failure the three lines go to the screen. Returns the
-    exit code (127 when the program cannot start)."""
+    exit code (127 when the program cannot start). Q12: `retry=True` runs it once more after RETRY_WAIT seconds when the
+    first run died on a dropped connection (before the error line); `heartbeat` > 0 prints a line and a dot every that
+    many seconds while the step is silent."""
+    import threading
+    import time
+    sleep = sleep or time.sleep
     shown = cmd if isinstance(cmd, str) else " ".join(cmd)
-    try:
-        p = run(cmd, shell=shell, env=env, timeout=timeout, cwd=cwd)
-        rc, text = p.rc, (p.stdout or "") + (p.stderr or "")
-    except OSError as exc:
-        rc, text = 127, str(exc)
+    for attempt in (1, 2):
+        done = threading.Event()
+        if heartbeat:
+            threading.Thread(target=_beat, args=(say, heartbeat, done), daemon=True).start()
+        try:
+            p = run(cmd, shell=shell, env=env, timeout=timeout, cwd=cwd)
+            rc, text = p.rc, (p.stdout or "") + (p.stderr or "")
+        except OSError as exc:
+            rc, text = 127, str(exc)
+        finally:
+            done.set()
+        if rc != 0 and retry and attempt == 1 and (DROPPED.search(text) or rc in (7, 18, 28, 52, 55, 56)):
+            log_raw(step, shown, rc, text, env, home)
+            say(f"The connection dropped. One more try in {RETRY_WAIT} seconds.")
+            sleep(RETRY_WAIT)
+            continue
+        break
     log = log_raw(step, shown, rc, text, env, home)
     if rc != 0:
-        for line in three_lines(step, text, log, platform, shown):
+        for line in three_lines(step, text, log, platform, shown, rc):
             say(line)
     return rc
 
@@ -192,4 +320,19 @@ PRECHECK: dict[str, tuple[str, dict | str]] = {
     "long-paths": ("Windows long paths are off: deep node_modules folders fail.",
                    "New-ItemProperty -Path HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force   # as administrator"),
     "leftover": ("A folder of an AI CLI is left over, with no program: it is a note, nothing installs because of it.", ""),
+    # Q21: eight more lines (found / fixed / skipped, one sentence each)
+    "git-dubious": ("git does not trust this folder (dubious ownership): the folder is now on the safe list.", "git config --global --add safe.directory <folder>"),
+    "autocrlf": ("git converts line endings on this Windows PC: it is off for this project, and .gitattributes keeps the endings steady.", "git config core.autocrlf false"),
+    "api-key": ("An API key is set in the environment and may bill per use instead of your subscription: unset it in this terminal to avoid that.",
+                {"linux": "unset ANTHROPIC_API_KEY OPENAI_API_KEY CODEX_API_KEY", "darwin": "unset ANTHROPIC_API_KEY OPENAI_API_KEY CODEX_API_KEY",
+                 "windows": "Remove-Item Env:ANTHROPIC_API_KEY, Env:OPENAI_API_KEY, Env:CODEX_API_KEY -ErrorAction SilentlyContinue"}),
+    "clock-skew": ("The clock of this PC is more than 3 minutes off: logins and certificates fail until it is right.",
+                   {"linux": "sudo hwclock -s", "darwin": "sudo sntp -sS time.apple.com", "windows": "w32tm /resync"}),
+    "low-disk": ("Less than 1 GB of disk is free: free some space before anything downloads.",
+                 {"linux": "df -h ~", "darwin": "df -h ~", "windows": "Get-PSDrive C"}),
+    "git-old": ("git is older than 2.30: worktrees need a newer one.",
+                {"linux": "sudo apt install git   # or your package manager", "darwin": "brew install git", "windows": "winget install Git.Git"}),
+    "console-encoding": ("This console is not UTF-8: some characters print wrong.",
+                         {"linux": "", "darwin": "", "windows": "chcp 65001   # or set PYTHONIOENCODING=utf-8"}),
+    "port-busy": ("The status page port is in use: the next free port is used instead.", ""),
 }
