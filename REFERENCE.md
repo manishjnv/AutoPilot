@@ -5,7 +5,7 @@ Facts to look up. For a first project, read the [tutorial](GUIDE.md). For one sp
 
 **On this page:** [Commands](#commands) · [Environment variables](#environment-variables) · [Files](#files) ·
 [Settings](#settings) · [Gate guards](#gate-guards) · [Models](#models) · [Usage and budget](#usage-and-budget) · [Self-healing](#self-healing) ·
-[Glossary](#glossary)
+[Dashboard colours](#dashboard-colours) · [Glossary](#glossary)
 
 ## Commands
 
@@ -285,6 +285,28 @@ A run stops only for a problem that needs a person. Each repair sends a `heal` a
 - A budget limit or a session limit that you set.
 - A question in `docs/NEEDS-YOU.md`.
 - A crash that occurs again and again. Send the report from `.agent/logs/crashes/`.
+
+## Dashboard colours
+
+`ap watch` and the status page use one colour for one meaning. A plain fact stays white. The test
+`test_every_colour_has_one_meaning_and_only_the_headline_is_bold` fails when a colour gets a second meaning.
+
+| Colour | Meaning | Where it appears |
+|---|---|---|
+| Green | Done or OK | Login `Pro` or `Max`, Status `Complete`, progress bar fill, Files added, lines added, Git and Checks `OK`, Size `This run +N`, Phase ✓, Live `The task is complete` |
+| Cyan | Running now | Status `In progress`, Phase ▶, Live test run, the state word in the title and the bar, the spinner while it turns |
+| Yellow | Warning | Login `not checked`, Time over 2x the median task time, Risk `high`, Tries 2 or more, Try on the last try, Questions, Warnings, Retries, Last commit age over 10 minutes with a running task, usage bar over 75 percent, `stale`, `⏸ no change 45s`, Live note, Live wait over 60 s (dim) |
+| Red | Blocked or failed | Login check failed, Status `Blocked`, Risk `crit`, Error text, Blocked count, Files deleted, lines deleted, Git and Checks failure text, usage bar over 90 percent, Phase ✗, Live error line, `✗ stopped 12:50` |
+| Magenta | Cost and usage | `Resets`, usage bars, Cost |
+| Blue | Model name | Now model, Detail model, usage model names |
+| Grey (dim) | Label, border, pending or zero | Labels, borders, Status `Pending`, Phase ○, Risk `low`, `waiting`, empty Error, zero counts, Live step verbs |
+| Bright white | A value the eye lands on | The running task row, key counts, the next step |
+| Bold | The one headline | The Now headline |
+
+The running indicator sits before the state word in the title, in the bottom bar and in the Now panel title. It turns
+only while the data file changes. After 30 s with no change it stops and shows `⏸ no change 45s` in yellow. When the
+run ended it shows `✗ stopped 12:50` in red. A console without UTF-8 gets `|/-\`, `||` and `x`. The browser page
+shows the same ring, paused when the data is stale. No other part of the window moves.
 
 ## Glossary
 

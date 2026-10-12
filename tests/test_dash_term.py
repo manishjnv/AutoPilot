@@ -146,10 +146,10 @@ def test_needs_you():
 def test_now_and_try_colors():
     out = "\n".join(frame(data(), 120, 40))
     assert "Now" in out and "Task 21 of 21" in out and "Try 2 of 3" in out
-    assert "[33m" in line_with(data(), "Try 2 of 3", rows=40)
+    assert "[33mTry 2 of 3" not in "".join(frame(data(), 120, 40, True))  # J13/17: white until the last try
     d = data()
     d["project"]["now"]["attempt"] = 3
-    assert "[31m" in line_with(d, "Try 3 of 3", rows=40)
+    assert "[33mTry 3 of 3" in "".join(frame(d, 120, 40, True))  # yellow on the last try
 
 
 def test_size():
@@ -160,7 +160,7 @@ def test_size():
 
 def test_usage_levels():
     d = data()
-    d["usage"].update(five=0.05, week=0.74, context=0.95)
+    d["usage"].update(five=0.05, week=0.80, context=0.95)  # J13/17: magenta, yellow over 75, red over 90
     assert "[35m" in line_with(d, "5h")
     assert "[33m" in line_with(d, "Week")
     assert "[31m" in line_with(d, "Context ")
@@ -410,3 +410,155 @@ def test_every_colour_has_one_meaning_and_only_the_headline_is_bold():
     assert used and all(names[c] in COLOUR_MEANING for c in used), used
     assert "1;36" not in used and len(COLOUR_MEANING) == len(set(COLOUR_MEANING))
     assert out.count("\x1b[1m") == 1 and "Task 21 of 21: Force replacement" in out  # the Now headline
+
+
+# ---------- J13 row 17: colour map v2 ----------
+def rich(**over):
+    """One data dict that uses every colour of the map."""
+    d = data(asof={"age": 3, "stopped": "", "live": True, "mtime": 1000.0}, **over)
+    d["phases"] = PHASES + [{"id": "P09", "title": "d", "total": 2, "done": 0, "status": "blocked"}]
+    d["project"].update(login="Max", resets="14:30", last_error="the checks fail", commit_stalled=True, state="Code")
+    d["project"]["now"].update(attempt=3, since=500)
+    t = d["tasks"]
+    t[0].update(risk="critical", tries=1, slow=True, detail="Haiku · 2 tries")
+    t[1].update(risk="high", tries=2)
+    t[2].update(risk="medium", tries=1)
+    t[3].update(risk="low", tries=1)
+    d["usage"].update(five=0.8, week=0.3, context=0.95)
+    d["files"].update(plus=10, minus=2, tests=1)
+    d["live"] = [{"at": "06:18", "text": "Changes cli.py.", "kind": "step"},
+                 {"at": "06:19", "text": "Runs the tests.", "kind": "step"},
+                 {"at": "06:20", "text": "Task 3 is complete.", "kind": "good"},
+                 {"at": "06:21", "text": "The checks failed.", "kind": "bad"},
+                 {"at": "", "text": "A tool runs for 2m.", "kind": "wait"}]
+    return d
+
+
+# (the text that follows the colour code, the colour)
+EXPECT = [("Max", "green"), ("14:30", "magenta"), ("the checks fail", "red"), ("+246 lines", "green"), ("7m ago", "yellow"),
+          ("crit ", "red"), ("high ", "yellow"), ("low  ", "dim"), ("    2", "yellow"), ("Haiku", "blue"),
+          ("✓", "green"), ("▶", "cyan"), ("○", "dim"), ("✗", "red"), ("✓ Complete", "green"), ("▶ In progress", "cyan"),
+          ("Changes ", "dim"), ("Runs the tests.", "cyan"), ("Task 3 is complete.", "green"), ("The checks failed.", "red"),
+          ("Try 3 of 3", "yellow"), ("OK", "green"), ("FAIL", "red"), ("FIX001-T06", "red"), ("Code", "cyan")]
+
+
+def test_colour_pairs_each_colour_has_one_meaning():
+    from autopilot.dash_term import COLOUR_USES
+    by_colour = {}
+    for colour, meaning, use in COLOUR_USES:
+        by_colour.setdefault(colour, set()).add(meaning)
+    assert all(len(m) == 1 for m in by_colour.values()), by_colour  # no colour with two meanings
+    assert all(COLOUR_MEANING[c] in m for c, m in by_colour.items())
+    flat = [next(iter(m)) for m in by_colour.values()]
+    assert len(flat) == len(set(flat))  # no meaning with two colours
+    assert len({(c, u) for c, _, u in COLOUR_USES}) == len(COLOUR_USES)  # a pair is listed once
+
+
+def test_rendered_values_carry_the_colour_of_their_meaning():
+    out = "".join(frame(rich(), 190, 60, True))
+    for text, colour in EXPECT:
+        assert f"\x1b[{COLORS[colour]}m{text}" in out, (text, colour)
+    # usage bars: magenta, yellow over 75, red over 90; the progress fill is green
+    assert "\x1b[35m███" in out and "\x1b[33m████████" in out and "\x1b[31m██████████" in out
+    assert "\x1b[32m████████" in out
+    assert "\x1b[33m\x1b[2mA tool runs for 2m." in out  # a wait over 60 s: dim yellow
+    assert "Error   : \x1b[31mthe checks fail" in out and "\x1b[33m2m" in out  # a slow time is yellow
+    d = rich()
+    d["project"].update(login="—", last_error="—")
+    out = "".join(frame(d, 190, 60, True))
+    assert "\x1b[33mnot checked" in out and "Error   : \x1b[2m—" in out
+    d["project"]["login"] = "free"
+    assert "\x1b[31mfree" in "".join(frame(d, 190, 60, True))
+    d["project"]["now"]["attempt"] = 1
+    assert "\x1b[33mTry 1" not in "".join(frame(d, 190, 60, True))  # white on the first try
+
+
+def test_100x24_every_panel_shows_a_coloured_value():
+    from autopilot.dash_term import left_panel, live_panel, right_column, tasks_panel
+    d = normalize(rich())
+    colour = re.compile(r"\x1b\[(3[1-6]|97)m")
+    panels = {"Project": left_panel(d, 36, 23, True), "Tasks": tasks_panel(d, 34, 10, True),
+              "Live output": live_panel(d, 34, 13, True)}
+    box = []
+    for x in right_column(d, 30, 23, True):  # the right column is a stack of boxes
+        if "┌" in x:
+            box.append([])
+        if box:
+            box[-1].append(x)
+    panels.update({ANSI.sub("", b[0])[3:].split(" ")[0]: b for b in box})
+    assert len(panels) >= 6 and {"Progress", "Usage"} <= set(panels)
+    for name, lines in panels.items():
+        assert any(colour.search(x) for x in lines), name
+
+
+# ---------- J13 row 18: the running indicator ----------
+def frozen(tmp_path, mtime):
+    """A frozen state file: its mtime is set by hand, so no test sleeps."""
+    import os
+    f = tmp_path / "state.db"
+    f.write_bytes(b"x")
+    os.utime(f, (mtime, mtime))
+    return f.stat().st_mtime
+
+
+def test_spinner_turns_only_while_the_file_changes(tmp_path):
+    from autopilot.dashboard import spinner
+    d = rich()
+    s0 = spinner(d, frozen(tmp_path, 1000), 1003)
+    s1 = spinner(d, frozen(tmp_path, 1000), 1004, s0)  # same file time: same frame
+    s2 = spinner(d, frozen(tmp_path, 1010), 1011, s1)  # the file changed: one frame on
+    s3 = spinner(d, frozen(tmp_path, 1012), 1013, s2)
+    assert [s["kind"] for s in (s0, s1, s2, s3)] == ["run"] * 4
+    assert (s0["frame"], s1["frame"], s2["frame"], s3["frame"]) == (0, 0, 1, 2)
+    assert (s0["text"], s2["text"], s3["text"]) == ("⠋", "⠙", "⠹")
+    d["spin"] = s2
+    assert "\x1b[36m⠙\x1b[0m \x1b[36mCode" in frame(d, 190, 60, True)[-1]  # before the state word in the bar
+    assert "── \x1b[0m\x1b[36m⠙\x1b[0m Now" in "".join(frame(d, 190, 60, True))  # and in the Now title
+    plain = "\n".join(strip(frame(d, 190, 60)))
+    assert "Task time: 8m31s data 1s old" in plain  # ticks from the local clock (1011 - 500), data age beside it
+    assert all(len(x) == 190 for x in strip(frame(d, 190, 60)))
+
+
+def test_spinner_stale_after_30_s_is_yellow_and_frozen(tmp_path):
+    from autopilot.dashboard import spinner
+    d = rich()
+    s1 = spinner(d, frozen(tmp_path, 1000), 1001, spinner(d, 999.0, 1000))
+    s2 = spinner(d, frozen(tmp_path, 1000), 1045, s1)
+    assert s2["kind"] == "stale" and s2["text"] == "⏸ no change 45s" and s2["frame"] == s1["frame"] == 1
+    d["spin"] = s2
+    out = "".join(frame(d, 190, 60, True))
+    assert "\x1b[33m⏸ no change 45s" in frame(d, 190, 60, True)[-1]
+    assert "── \x1b[0m\x1b[33m⏸ no change 45s\x1b[0m Now" in out
+    assert "data 45s old" in "\n".join(strip(frame(d, 190, 60)))
+    assert all(len(x) == 100 for x in strip(frame(d, 100, 24, True)))
+    assert spinner(d, 1000.0, 1100)["text"] == "⏸ no change 1m"
+
+
+def test_spinner_after_the_run_ended_is_red(tmp_path):
+    from autopilot.dashboard import spinner
+    d = rich()
+    d["asof"].update(live=False, stopped="12:50")
+    s = spinner(d, frozen(tmp_path, 1000), 5000)
+    assert s["kind"] == "stopped" and s["text"] == "✗ stopped 12:50"
+    d["spin"] = s
+    assert "\x1b[31m✗ stopped 12:50" in frame(d, 190, 60, True)[-1]
+    assert "── \x1b[0m\x1b[31m✗ stopped 12:50\x1b[0m Now" in "".join(frame(d, 190, 60, True))
+    assert "data 3s old" not in "\n".join(strip(frame(d, 190, 60)))
+    d["asof"].update(stopped="")  # idle, no end time: nothing to show
+    assert spinner(d, 1000.0, 5000)["kind"] == ""
+
+
+def test_spinner_ascii_fallback_for_a_console_without_utf8():
+    from types import SimpleNamespace
+
+    from autopilot.dashboard import is_utf, spinner
+    assert not is_utf(SimpleNamespace(encoding="cp1252")) and is_utf(SimpleNamespace(encoding="utf-8"))
+    assert not is_utf(SimpleNamespace(encoding=None))
+    d = rich()
+    s = spinner(d, 1000.0, 1001, None, False)
+    assert s["text"] == "|" and spinner(d, 1001.0, 1002, s, False)["text"] == "/"
+    assert spinner(d, 1000.0, 1045, s, False)["text"] == "|| no change 45s"
+    d["spin"] = s
+    assert all(ord(c) < 128 for c in s["text"])
+    d["asof"].update(live=False, stopped="12:50")
+    assert spinner(d, 1000.0, 2000, None, False)["text"] == "x stopped 12:50"

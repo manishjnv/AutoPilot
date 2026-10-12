@@ -18,6 +18,26 @@ KIND = {"heading": "value", "goal": "dim", "good": "green", "bad": "red", "note"
 COLOUR_MEANING = {"green": "done or ok", "cyan": "running now", "yellow": "warning", "red": "blocked or failed",
                   "magenta": "cost and usage", "blue": "model name", "dim": "label, border, pending or zero",
                   "value": "a value the eye lands on", "bold": "the one headline"}
+# J13/17: every (colour, use) pair of the screen. A colour has one meaning; a plain fact stays white (no colour).
+_USES = {
+    "green": ["Login Pro/Max", "Status Complete", "Progress bar fill", "Files Added", "Lines +", "Git and Checks OK",
+              "Size This run", "Phase ✓", "Live: the task is complete"],
+    "cyan": ["Status In progress", "Phase ▶", "Live: test run", "State word", "Spinner turning"],
+    "yellow": ["Login not checked", "Time over 2x the median", "Risk high", "Tries 2 or more", "Try on the last try",
+               "Questions", "Warnings", "Retries", "Last commit age when stalled", "Usage bar over 75%",
+               "Data stale", "No change for minutes", "Spinner no change", "Live: note", "Live: a wait over 60 s (dim)"],
+    "red": ["Login failed", "Status Blocked", "Risk crit", "Error text", "Blocked", "Files Deleted", "Lines -",
+            "Git and Checks fail", "Usage bar over 90%", "Phase ✗", "Live: an error line", "Spinner stopped"],
+    "magenta": ["Resets", "Usage bars", "Cost"],
+    "blue": ["Model", "Detail model", "Usage model names"],
+    "dim": ["Labels and borders", "Status Pending", "Phase ○", "Risk low", "Waiting", "Error empty", "Zero counts",
+            "Live: step verbs"],
+    "value": ["Running task row", "Counts the eye lands on", "Next step"],
+    "bold": ["Now headline"],
+}
+COLOUR_USES = [(c, COLOUR_MEANING[c], u) for c, uses in _USES.items() for u in uses]
+RISK = {"critical": ("crit", "red"), "high": ("high", "yellow"), "medium": ("med", None), "low": ("low", "dim")}
+SPIN_STYLE = {"run": "cyan", "stale": "yellow", "stopped": "red"}
 
 
 def clean(x) -> str:
@@ -101,10 +121,17 @@ def bar(share, n: int = 10) -> str:
 
 
 def level_bar(share, n: int = 10) -> list:
-    """The same bar as segments; the filled blocks are green below 70%, yellow below 90%, red above."""
+    """A usage bar as segments; the filled blocks are magenta, yellow over 75%, red over 90%."""
     s = num(share) or 0.0
     k, pct = max(round(s * n), 1 if s > 0 else 0), round(s * 100)  # a small value still shows one block
-    return [("█" * k, "magenta" if pct < 70 else "yellow" if pct < 90 else "red"), ("░" * (n - k) + f" {pct}%", None)]
+    return [("█" * k, "red" if pct > 90 else "yellow" if pct > 75 else "magenta"), ("░" * (n - k) + f" {pct}%", None)]
+
+
+def bar_segs(share, n: int = 10) -> list:
+    """The progress bar (same text as bar()) as segments; the fill is green."""
+    t = bar(share, n)
+    k = t.count("█")
+    return [(t[:k], "green"), (t[k:], None)]
 
 
 def alert(n: int, style: str):
@@ -118,7 +145,29 @@ def wrap2(text: str, w: int) -> list[str]:
 
 
 TONE = {"good": "green", "wait": "yellow", "bad": "red"}
-TRY = {1: None, 2: "yellow"}
+
+
+def try_style(tries: int, last: int):
+    """White on the first tries, yellow on the last one."""
+    return "yellow" if last and tries >= last else None
+
+
+def login_cell(v: str):
+    """('not checked', yellow) until the check ran; green for a paid plan; red when the check failed."""
+    if v in ("", "—", "not checked"):
+        return "not checked", "yellow"
+    return v, "green" if v.lower().startswith(("pro", "max")) else "red"
+
+
+def spin_cell(d: dict):
+    """The spinner text and its colour, or None."""
+    sp = d.get("spin")
+    return (sp["text"], SPIN_STYLE[sp["kind"]]) if sp and sp["text"] and sp["kind"] in SPIN_STYLE else None
+
+
+def ticking(sec) -> str:
+    sec = max(0, int(sec))
+    return f"{sec // 3600}h{sec % 3600 // 60:02d}m" if sec >= 3600 else f"{sec // 60}m{sec % 60:02d}s"
 
 
 def asof_note(d: dict, first: bool):
@@ -146,9 +195,10 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     def text(t, style=None, indent=""):
         return [[(indent + x, style)] for x in wrap2(t, w - 4 - len(indent))]
 
-    def rule(title, style=None):
-        """The first line of a titled group: the title in a line of the full inner width."""
-        return [("── ", "dim"), (title, style), (" " + "─" * max(w - 8 - len(title), 0), "dim")]
+    def rule(title, style=None, spin=None):
+        """The first line of a titled group: the title in a line of the full inner width. spin = (text, style) before it."""
+        pre = [(spin[0], spin[1]), (" ", None)] if spin else []
+        return [("── ", "dim"), *pre, (title, style), (" " + "─" * max(w - 8 - len(title) - (len(spin[0]) + 1 if spin else 0), 0), "dim")]
     status = row("Project", p["name"]) + row("Branch", p["branch"])  # the state lives in the title and the bar
     if p["stale_min"] > 0:
         status.append([(f"No change for {p['stale_min']} min.", {"warn": "yellow", "bad": "red"}.get(p["stale"], "dim"))])
@@ -160,15 +210,22 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
                        *text(ny[0]["title"]), [("Run: ", None), ("ap answer", "value")]])
     if now and (now["title"] or now["model"] or count(now["n"])):
         n, total, tries = count(now["n"]), count(pr.get("total")), count(now["attempt"])
-        g = [rule("Now")]
+        g = [rule("Now", spin=spin_cell(d))]
         # J13/10: the one bold headline of the screen: 'Task 7 of 17: title'
         head = (f"Task {n} of {total}" if total else f"Task {n}") if n else ""
         g += [[(x, "bold")] for x in wrap2(f"{head}: {now['title']}" if head and now["title"] else head or now["title"],
                                            w - 4)]
         if n and tries:
             g.append([(f"Try {tries}" + (f" of {now['max_attempts']}" if count(now["max_attempts"]) else ""),
-                       TRY.get(tries, "red"))])
-        groups.append(g + (row("Task time", now["time"]) if n else []) + row("Model", now["model"], "blue"))
+                       try_style(tries, count(now["max_attempts"])))])
+        tt = []
+        if n:  # J13/18: the task time ticks from the local clock; 'data Ns old' is the truth check
+            sp, since = d.get("spin"), now.get("since")
+            t = ticking(sp["clock"] - float(since)) if sp and since else now["time"]
+            if t:
+                tt = [[f"{'Task time':<9}: ", t, *([(f" data {sp['age']}s old", "yellow" if sp["age"] > 30 else "dim")]
+                                                  if sp and sp["age"] is not None and sp["kind"] != "stopped" else [])]]
+        groups.append(g + tt + row("Model", now["model"], "blue"))
     if p["next"]:
         groups.append([rule("Next"), *text(p["next"])])
     if size:
@@ -182,13 +239,16 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
         if size.get("docs") is not None:
             g += row("Docs", f"{count(size['docs']):,} lines")
         if size.get("run_lines") is not None:
-            g += row("This run", f"+{count(size['run_lines']):,} lines") + [" " * 11 + f"{count(size.get('run_files'))} files"]
+            g += row("This run", f"+{count(size['run_lines']):,} lines", "green") + [" " * 11 + f"{count(size.get('run_files'))} files"]
         groups.append(g)
     if p["last_commit"]:
         groups.append([rule("Last commit"), *text(p["last_commit"]),
-                       *([[(f"{p['last_commit_age']} ago", "dim")]] if p["last_commit_age"] else [])])
-    g = [rule("Agent")] + row("Runner", p["runner"] or "—") + row("Login", p["login"] or "—")
-    groups.append(g + row("Resets", p["resets"] or "—") + row("Error", p["last_error"] or "—"))
+                       *([[(f"{p['last_commit_age']} ago", "yellow" if p["commit_stalled"] else "dim")]]
+                         if p["last_commit_age"] else [])])
+    login, err, resets = login_cell(p["login"]), p["last_error"] or "—", p["resets"] or "—"
+    g = [rule("Agent")] + row("Runner", p["runner"] or "—") + row("Login", *login)
+    groups.append(g + row("Resets", resets, "magenta" if resets != "—" else "dim")
+                  + row("Error", err, "dim" if err == "—" else "red"))
     rows = []
     for g in groups:
         if rows and len(rows) + len(g) > h - 2:
@@ -218,9 +278,9 @@ def cnt(n: int, style=None):
 
 def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     pr, u, f, why = d["progress"], d["usage"], d["files"], d["blocked_why"]
-    prog = [bar(d["share"]),
+    prog = [bar_segs(d["share"]),
             [cnt(count(pr.get("done")), "value"), " done · ", cnt(count(pr.get("working")), "value"), " working"],
-            [alert(count(pr.get("blocked")), "red"), " blocked · ", cnt(count(pr.get("waiting")), "value"), " waiting"],
+            [alert(count(pr.get("blocked")), "red"), " blocked · ", cnt(count(pr.get("waiting")), "dim"), " waiting"],
             [(f"{count(pr.get('phases_done'))} of {count(pr.get('phases_total'))}", "value"), " phases"]]
     use = []
     for label, key in (("5h", "five"), ("Week", "week"), ("Context", "context")):
@@ -237,7 +297,7 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     use.append(f"Rate    {u['rate'] or '—'}")
     issues = []  # the counts of blocked and questions live in Progress and in the question group
     if why:
-        issues += wrap2(f"{why['id']}: {why['why']}", w - 4)
+        issues += [[(x, "red")] for x in wrap2(f"{why['id']}: {why['why']}", w - 4)]
     issues += [["Warnings  ", alert(count(pr.get("warnings")), "yellow")]]
     issues += ["  " + cut(f"{x['id']} {x['why']}", w - 6) for x in pr["warned_why"][:3]]  # the reason of each warning
     if not pr["warned_why"]:
@@ -274,11 +334,15 @@ def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     detail = rt and iw - 56 >= 13 or not rt and iw - 44 >= 14
     tw = iw - 25 - (12 if rt else 0) - (19 if detail else 0)
 
-    def line(n, title, status, time, det, style=None, sstyle=None, risk="", tries=""):
+    def line(n, title, status, time, det, style=None, sstyle=None, risk="", tries="", tstyle=None, rstyle=None,
+             ystyle=None, model=0):
         parts = [(n.rjust(3), style), (" ", None), (fit(title, tw), style), (" ", None), (fit(status, 13), sstyle),
-                 (" ", None), (fit(time, 6), style)]
-        parts += [(" ", None), (fit(risk, 5), style), (" ", None), (tries.rjust(5), style)] if rt else []
-        return parts + ([(" ", None), (fit(det, 18), style)] if detail else [])
+                 (" ", None), (fit(time, 6), tstyle or style)]
+        parts += [(" ", None), (fit(risk, 5), rstyle or style), (" ", None), (tries.rjust(5), ystyle or style)] if rt else []
+        if detail:  # the model name is blue, the rest of the cell keeps the row style
+            cell = fit(det, 18)
+            parts += [(" ", None), (cell[:model], "blue"), (cell[model:], style)]
+        return parts
     rows = [line("#", "Task", "Status", "Time", "Detail", "dim", "dim", "Risk", "Tries")]
     other = d["project"]["other"]  # J13/15: the time in no task, so the tasks and this row add up to Elapsed
     room = h - 3 - (1 if other else 0)
@@ -287,8 +351,12 @@ def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     start = min(max(focus - room // 2, 0), max(len(tasks) - room, 0))
     for t in tasks[start:start + room]:
         sym, word, st = STATUS.get(t["status"], ("○", t["status"] or "Pending", "dim"))
+        risk, rstyle = RISK.get(t["risk"], (t["risk"][:4] or "—", None))
         rows.append(line(t["n"], t["title"], f"{sym} {word}", t["time"], t["detail"],
-                         "value" if t["status"] == "running" else None, st, t["risk"][:4] or "—", t["tries"] or "—"))
+                         "value" if t["status"] == "running" else None, st, risk, t["tries"] or "—",
+                         "yellow" if t["slow"] else None, rstyle, "yellow" if count(t["tries"]) >= 2 else None,
+                         0 if t["detail"].endswith(" tries") and " · " not in t["detail"]
+                         else len(t["detail"].partition(" · ")[0])))
     if other:
         rows.append(line("", "Other: decide, research, docs, audit, waits", "", other, "", "dim", "dim"))
     return box("Tasks", rows, w, h, color, asof_note(d, False))
@@ -303,8 +371,15 @@ def live_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
             rows.append([(e["text"], KIND[e["kind"]])])
         else:
             took = e.get("took")
-            rows.append([(fit(e["at"], 5), "dim"), "  ", (fit(e["text"], w - 4 - 7 - 7) if took else e["text"], KIND.get(e["kind"])),
-                         *([(" " + took.rjust(6), "dim")] if took else [])])
+            text = fit(e["text"], w - 4 - 7 - 7) if took else e["text"]
+            if e["kind"] == "step" and "test" in text.lower():  # a test run is cyan
+                body = [(text, "cyan")]
+            elif e["kind"] == "step":  # the verb is grey, what it works on stays white
+                k = len(text.split(" ", 1)[0]) + 1
+                body = [(text[:k], "dim"), (text[k:], None)]
+            else:
+                body = [(text, "dim yellow" if e["kind"] == "wait" else KIND.get(e["kind"]))]
+            rows.append([(fit(e["at"], 5), "dim"), "  ", *body, *([(" " + took.rjust(6), "dim")] if took else [])])
     return box("Live output", rows or [[("No output yet.", "dim")]], w, h, color, asof_note(d, False))
 
 
@@ -320,19 +395,22 @@ def status_bar(d: dict, cols: int, color: bool) -> str:
     st = p["state"]
     state = ("Stopped", "dim") if p["status"] and p["status"] != "running" or a and a["stopped"] else \
         (({"Commit": "Merge", "Block": "Wait"}.get(st, st)), "cyan")
+    sp = spin_cell(d)  # J13/18: the spinner sits before the state word; a stopped run says so instead of the word
+    state_cells = [(sp[0], sp[1]), (" ", None), state] if sp and d["spin"]["kind"] != "stopped" else \
+        [sp] if sp else [state]
     age = (f"{a['age']}s" if a["age"] < 60 else f"{a['age'] // 60}m", "yellow" if a["age"] > 30 else "dim") \
         if a and a["age"] is not None and not a["stopped"] else ("", None)
     q = count(pr.get("questions"))
     blk = [(f"Blocked {blocked}", "red" if blocked > 0 else "dim")] + ([(" ", None), (f"Q {q}", "red" if q > 0 else "dim")] if wide else [])
     # (cells, core): core items stay under 100 columns
-    items = [([(p["name"], None)], True), ([(p["branch"], None)], False), ([state], True),
-             ([(task, "value")] if total else [], True), ([(bar(d["share"]), None)] if pr else [], True),
+    items = [([(p["name"], None)], True), ([(p["branch"], None)], False), (state_cells, True),
+             ([(task, "value")] if total else [], True), (bar_segs(d["share"]) if pr else [], True),
              ([(f"Left{':' if p['eta'].startswith('after') else ''} {p['eta']}", None)] if p["eta"] else [], True),
              ([(f"5h {round(five * 100)}%", "yellow" if five >= 0.75 else None)] if five is not None else [], False),
              ([(now.get("model") or p["model"], "blue")], False), (blk if pr else [], True),
              ([(f"Tok {u['tokens_text']}", None)] if u["tokens_text"] else [], False),
              ([(u["cost_text"], "magenta")], False), ([age], True)]
-    items = [(c, core) for c, core in items if (core or wide) and c and c[0][0]]
+    items = [(c, core) for c, core in items if (core or wide) and any(t for t, _ in c)]
     tail = [items.pop()] if age[0] else []  # the data age drops last
     while sum(sum(len(t) for t, _ in c) + 3 for c, _ in items + tail) - 2 > cols and len(items) > 1:
         # from the right; the items that stay under 100 columns go last
@@ -366,14 +444,19 @@ def normalize(data) -> dict:
     models = [m for m in u.get("models") or [] if isinstance(m, dict)]
     def one(x, keys):
         return {k: clean(x.get(k)) for k in keys} if isinstance(x, dict) else None
-    now = one(sub("project").get("now"), ("n", "title", "attempt", "max_attempts", "time", "model"))
+    now = one(sub("project").get("now"), ("n", "title", "attempt", "max_attempts", "time", "model", "since"))
+    sp = sub("spin")
+    spin = ({"kind": clean(sp.get("kind")), "text": clean(sp.get("text")), "age": count(sp["age"]) if isinstance(
+        sp.get("age"), (int, float)) else None, "clock": float(sp["clock"]) if isinstance(sp.get("clock"), (int, float))
+        else 0.0} if sp else None)
     size = data.get("size") if isinstance(data.get("size"), dict) else None
     return {
         "project": {**{k: clean(p.get(k)) for k in ("name", "branch", "model", "started", "status", "tone", "stale",
                                                     "state_words", "state", "elapsed", "eta", "next", "last_commit",
                                                     "last_commit_age", "other", "runner", "login", "resets",
                                                     "last_error")},
-                    "stale_min": count(p.get("stale_min"))},
+                    "stale_min": count(p.get("stale_min")), "commit_stalled": bool(p.get("commit_stalled"))},
+        "spin": spin,
         "progress": {**pr, "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6],
                      "warned_why": [x for x in (one(r, ("id", "why")) for r in pr.get("warned_why") or []) if x]},
         "share": num(share) or 0.0, "now": now, "size": size,
@@ -383,7 +466,9 @@ def normalize(data) -> dict:
                  if isinstance(t, (list, tuple)) and t],
         "needs_you": [x for x in (one(r, ("id", "title")) for r in data.get("needs_you") or []) if x],
         "blocked_why": one(data.get("blocked_why"), ("id", "why")),
-        "tasks": rows("tasks", ("n", "id", "title", "status", "time", "detail", "risk", "tries")),
+        "tasks": [{**r, "slow": bool(o.get("slow"))} for r, o in zip(
+            rows("tasks", ("n", "id", "title", "status", "time", "detail", "risk", "tries")),
+            [x for x in data.get("tasks") or [] if isinstance(x, dict)])],
         "live": rows("live", ("at", "text", "kind", "took")),
         "usage": {**u, "tokens_text": clean(u.get("tokens_text")), "cost_text": cost_text,
                   "reset_in": clean(u.get("reset_in")), "rate": clean(u.get("rate")),

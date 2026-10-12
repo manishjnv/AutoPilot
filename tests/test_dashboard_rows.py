@@ -23,7 +23,7 @@ def test_project_rows_risk_tries_rate_retries_and_reasons(tmp_path):
     orch.state.set_meta("window_seen", {"five_hour": {"pct": 0.2, "reset": time.time() + 3600}})
     d = dashboard_data(orch.cfg, orch.plan, orch.state, {"status": "finished", "started_at": at(0), "updated_at": at(40)})
     p = d["project"]
-    assert p["runner"] == "claude" and p["login"] == "—" and len(p["resets"]) == 5 and p["resets"] != "—"
+    assert p["runner"] == "claude" and p["login"] == "not checked" and len(p["resets"]) == 5 and p["resets"] != "—"
     assert p["last_error"] == "the checks fail."
     assert [(t["risk"], t["tries"]) for t in d["tasks"]] == [("low", 1), ("low", 3), ("low", 0)]
     assert d["usage"]["rate"] == "10 min per task"  # (10 + 11) / 2 = 10.5 -> 10 (round half to even)
