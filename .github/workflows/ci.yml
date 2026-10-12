@@ -5,29 +5,55 @@ on:
     paths-ignore: ["**.md", "docs/**", "assets/**", ".vale/**", ".vale.ini"]  # docs have their own workflow
   pull_request:
     paths-ignore: ["**.md", "docs/**", "assets/**", ".vale/**", ".vale.ini"]
+  schedule:
+    - cron: "30 0 * * *"  # nightly: the Windows 3.10 row runs here, not on every push
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true  # a newer push to the same branch replaces the run that is still in the queue
 jobs:
   test:
+    # a push gets Ubuntu 3.10 + 3.13 and Windows 3.13; the slowest row (Windows 3.10) is the nightly job below
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        python: ["3.10", "3.13"]
+        include:
+          - { os: ubuntu-latest, python: "3.10" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: windows-latest, python: "3.13" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-          cache: pip
-      - run: pip install -e ".[dev]"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv pip install --system -e ".[dev]"  # uv installs in seconds; pip took about a minute
       - name: Git identity (tests create git repos)
         run: |
           git config --global user.name ci
           git config --global user.email ci@example.com
-      - run: python -m pytest -q -n auto  # one worker per core; the Windows rows went from 30 to about 8 minutes
+      - run: python -m pytest -q -n auto  # one worker per core; the Windows row went from 30 to about 8 minutes
+      - run: autopilot --version
+  test-windows-310:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv pip install --system -e ".[dev]"
+      - name: Git identity (tests create git repos)
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.com
+      - run: python -m pytest -q -n auto
       - run: autopilot --version

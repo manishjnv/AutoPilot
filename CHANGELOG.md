@@ -9,7 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
-- CI: tests run in parallel (`pytest -n auto`, `pytest-xdist` in the dev extras), pip cache, docs-only pushes skip CI, a newer push cancels the queued run; the Release job builds without a second test run. Push to release went from about 35 minutes to about 10.
+- CI: tests run in parallel (`pytest -n auto`, `pytest-xdist` in the dev extras), pip cache, docs-only pushes skip CI, a newer push cancels the queued run; the Release job builds without a second test run; `uv` installs the package in CI; the Windows 3.10 row runs nightly and on request, not on every push. Push to release went from about 35 minutes to about 10.
 
 ## [0.5.1] - 2026-10-12
 

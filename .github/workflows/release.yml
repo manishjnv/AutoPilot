@@ -12,11 +12,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: pip
+      - uses: astral-sh/setup-uv@v5
       # No test run here: `scripts/bump.py --tag` puts a tag only on a commit whose CI run is green, so a second run
       # of the suite would prove nothing and cost four minutes.
-      - run: pip install build
-      - run: python -m build
+      - run: uv build
       - name: Release notes and checksums
         run: |
           v="${GITHUB_REF_NAME#v}"
