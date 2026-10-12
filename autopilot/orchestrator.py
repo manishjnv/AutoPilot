@@ -24,7 +24,7 @@ from .backends import SessionRequest, SessionResult, get_backend
 from .config import RISKS, Config, load_yaml
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
-from .docs import Documenter, redact_secrets, research_path
+from .docs import Documenter, redact_secrets, research_path, task_not_proven
 from .gate import (TEST_GLOBS, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
                    test_tamper)
 from .gitops import Git, GitError
@@ -1403,7 +1403,7 @@ class Orchestrator:
         self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}{new_file_lines(res.report)}\n\n"
                             f"model: {model}, attempt {attempt}")
         if self.cfg.get("git.mode", "direct") == "pr":
-            sha = self._merge_pr(task, branch)
+            sha = self._merge_pr(task, branch, phase, gate.warnings)
         else:
             sha = self.git.merge(branch, self.main, f"[autopilot] merge {task.id}: {task.title}")
         self.git.delete_branch(branch)
@@ -1629,13 +1629,17 @@ class Orchestrator:
             raise GitError(f"gh {' '.join(args[:2])} failed: {(p.stderr or p.stdout).strip()[-1500:]}")
         return p
 
-    def _merge_pr(self, task, branch: str) -> str:
+    def _merge_pr(self, task, branch: str, phase=None, warnings: list[str] | None = None) -> str:
         """Push the gated task branch, open a PR, wait for its CI checks, merge it on GitHub, then pull main.
-        Red or timed-out CI closes the PR and raises GitError, which the task loop treats as a failed attempt."""
+        Red or timed-out CI closes the PR and raises GitError, which the task loop treats as a failed attempt.
+        W6: warnings or a criterion without a test open a draft PR with the list under `## Not proven`."""
         remote = self.cfg.get("git.remote", "origin")
         self.git.run("push", "-q", "-f", remote, f"refs/heads/{branch}:refs/heads/{branch}")
+        open_items = task_not_proven(self.cfg, phase, task, list(warnings or [])) if phase is not None else []
+        lines = "\n".join(f"- {i}" for i in open_items) or "Nothing"
+        body = f"Task {task.id}, built by Autopilot. The local gate passed; merged when CI is green.\n\n## Not proven\n\n{lines}"
         self._gh("pr", "create", "--base", self.main, "--head", branch, "--title", f"[autopilot] {task.id}: {task.title}",
-                 "--body", f"Task {task.id}, built by Autopilot. The local gate passed; merged when CI is green.")
+                 "--body", body, *(["--draft"] if open_items else []))
         minutes = float(self.cfg.get("git.pr_timeout_min", 30))
         try:
             p = self._gh("pr", "checks", branch, "--watch", "--fail-fast", check=False, timeout=minutes * 60)
@@ -1644,6 +1648,8 @@ class Orchestrator:
                 raise GitError(f"CI on the pull request did not finish within {minutes:g} minutes")
             if p.rc != 0 and "no checks reported" not in out:
                 raise GitError(f"CI failed on the pull request:\n{out[-2000:]}")
+            if open_items:
+                self._gh("pr", "ready", branch)  # a draft cannot be merged; the list stays in the body
             self._gh("pr", "merge", branch, "--merge")
         except GitError:
             self._gh("pr", "close", branch, check=False)

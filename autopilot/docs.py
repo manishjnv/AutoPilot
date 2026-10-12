@@ -103,6 +103,12 @@ def not_proven(cfg, phase, got: dict) -> list[str]:
     return items + [f"Scope added, {s}" for s in scope_added(cfg, phase)]
 
 
+def task_not_proven(cfg, phase, task, warnings: list[str]) -> list[str]:
+    """W6: the open items of one task for a PR body: gate warnings, then its criteria no test mentions."""
+    mine = [c for c in untested_criteria(cfg, phase) if c.startswith(f"{task.id}: ")]
+    return [f"Gate warning, {w}" for w in warnings] + [f"Criterion without a test, {c}" for c in mine]
+
+
 def not_verified(warned: int, unchecked: int) -> str:
     """G11: one line that says what no check covered; '' when there is nothing to say."""
     n = lambda k, word: f"{k} {word}{'' if k == 1 else 's'}"  # noqa: E731
