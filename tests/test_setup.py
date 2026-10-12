@@ -49,9 +49,13 @@ class Machine:
             fake = Path(self.path) / "fake.py"
             if not fake.exists():
                 fake.write_text(__import__("test_runner_detect").FAKE)
-            exe = d / row.binary
-            exe.write_text(f"#!/bin/sh\nexec \"{sys.executable}\" \"{fake}\" out \"{self.tmp / (row.binary + '.log')}\" \"$@\"\n")
-            exe.chmod(0o755)
+            log = self.tmp / (row.binary + ".log")
+            if sys.platform == "win32":
+                (d / f"{row.binary}.cmd").write_text(f'@"{sys.executable}" "{fake}" out "{log}" %*\n')
+            else:
+                exe = d / row.binary
+                exe.write_text(f"#!/bin/sh\nexec \"{sys.executable}\" \"{fake}\" out \"{log}\" \"$@\"\n")
+                exe.chmod(0o755)
             return Proc(0, "installed\n", "")
         from autopilot.proc import run_proc
         return run_proc(cmd, **kw)
@@ -216,3 +220,19 @@ def test_plan_lines_read_from_the_table_only():
     assert "found     git version 2" in lines and "runner    none found: one question follows" in lines
     assert sum(l.startswith("skipped   ") and ": not installed, not chosen" in l for l in lines) == len(RUNNERS)
     assert json.dumps(lines)  # plain strings only
+
+
+def test_install_workflow_has_four_jobs_including_git_bash():
+    """Q8: Linux, macOS, Windows PowerShell and Git Bash; every real install names the runner; the fixtures stay fake here."""
+    import yaml
+    wf = yaml.safe_load((Path(__file__).resolve().parents[1] / ".github" / "workflows" / "install.yml").read_text(encoding="utf-8"))
+    assert set(wf["jobs"]) == {"linux", "macos", "windows", "gitbash"}
+    gb = wf["jobs"]["gitbash"]
+    assert gb["runs-on"].startswith("windows") and gb["defaults"]["run"]["shell"] == "bash"
+    steps = " ".join(str(s.get("run", "")) for s in gb["steps"])
+    assert "--dry-run" in steps and "--skip-login" in steps and "install.cmd -DryRun" in steps
+    for job in wf["jobs"].values():
+        for step in job["steps"]:
+            run = str(step.get("run", ""))
+            if "Real install" == step.get("name"):
+                assert "--runner claude" in run or "-Runner claude" in run

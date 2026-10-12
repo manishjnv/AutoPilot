@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- Q8: `tests/test_setup.py`, `tests/test_install_errors.py` and `tests/test_install_scripts.py` run every runner as a fake script on a temporary PATH; the install workflow has four jobs (Linux, macOS, Windows PowerShell, Git Bash) and each real install names the runner.
 - Q7: the README has one install line per shell (PowerShell, bash, CMD) and the `pip install dev-autopilot && ap setup` line; HOWTO points the checksum check at the `SHA256SUMS` asset of the release; REFERENCE documents `ap setup`, the runner table and the exit codes; `.gitattributes` fixes the line endings of `*.ps1` and `*.cmd`.
 - Q5: thin install scripts: four steps (pre-check with a reachability probe, uv, Python, the package), then `ap setup`; Git Bash hands over to `install.ps1` with the same options; a Schannel curl that fails with 35 retries once with `--ssl-no-revoke`; new `install.cmd` for CMD; the scripts install no runner.
 - Q4: install errors in plain words: every install step is captured, the raw text goes to `~/.autopilot/install.log` (token values scrubbed), the screen gets what failed, one sentence and one command; a catalogue of 20 lines (Schannel revocation, no host, timeout, 403, 404, disk full, permission, not on PATH, old Node, Store Python, execution policy, each runner's logged-out and no-plan wording); exit codes 0 ok, 1 failed, 2 usage, 3 choice needed.
