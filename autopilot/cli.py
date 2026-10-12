@@ -298,6 +298,10 @@ def preflight(cfg) -> bool:
     """Before quickstart or a run: fix the machine where possible (PATH, the claude CLI), then make sure the agent CLI
     can start. False = it can't, and the reason is printed."""
     from .doctor import FAIL, autofix, check_claude, check_path, check_runner_login
+    if cfg is not None:  # Q15: a project in OneDrive, on a share or under /mnt gets one sentence and one command
+        from .move import warning
+        for line in warning(cfg.root):
+            print(f"note  {line}")
     if cfg is not None and not runner_set(cfg.root):
         if not pick_runner(cfg.root):
             return False
@@ -1218,6 +1222,13 @@ def cmd_doctor(args):
     root = Path(args.path).resolve()
     if getattr(args, "runner", False):
         return doctor_runner(root)
+    if getattr(args, "project", False):  # Q15: where the project lives
+        from .move import warning
+        lines = warning(root)
+        print("ok    project place  this folder is a good place for a project" if not lines else "WARN  project place  " + lines[0])
+        if lines:
+            print("      " + lines[1])
+        return 0
     if not (root / AGENT_DIR / "project.yaml").exists():
         print(f"FAIL  project        no {AGENT_DIR}/project.yaml in {root}: run `autopilot init` first")
         return 1
@@ -1604,6 +1615,7 @@ def main(argv=None):
     p = add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
     p.add_argument("--fix", action="store_true", help="also fix what needs no person: PATH, reinstall the claude CLI")
     p.add_argument("--runner", action="store_true", help="send one test prompt through the runner and say if it answers")
+    p.add_argument("--project", action="store_true", help="say if the project folder is in a bad place (OneDrive, a share, /mnt)")
     p = add("run", cmd_run, "run autonomously until the app is complete")
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("--no-page", action="store_true", help="don't start the live status page")
@@ -1645,6 +1657,10 @@ def main(argv=None):
     p.add_argument("--check", action="store_true"); p.add_argument("--ref"); p.add_argument("--daily", action="store_true", help=argparse.SUPPRESS)
     p = add("install", cmd_install, "install or repair Autopilot for this user; --rights = the one rights step")
     p.add_argument("--rights", action="store_true")
+    from .move import cmd_move
+    p = add("move", cmd_move, "move the project out of OneDrive, a network share or /mnt (clone, copy .agent, keep the remotes)")
+    p.add_argument("target", nargs="?", help="the new folder (default: %%LOCALAPPDATA%%\\dev\\NAME on Windows, ~/dev/NAME elsewhere)")
+    p.add_argument("--yes", action="store_true", help="move at once, no question")
     from .commands.setup import cmd_setup
     p = add("setup", cmd_setup, "find the AI you pay for, install its CLI, check the login, write the choice (one question at most)")
     p.add_argument("--dry-run", action="store_true", help="scan and print the plan; install and write nothing")

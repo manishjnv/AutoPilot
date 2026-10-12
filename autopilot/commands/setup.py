@@ -277,6 +277,10 @@ def run_setup(root: Path | None = None, *, dry_run: bool = False, wanted: str = 
     snap.platform = platform or snap.platform
     for id_, status, text in apply(check(snap), snap, run=run, dry_run=dry_run):
         say(f"{status:<9} {text}")
+    if root is not None:  # Q15: why a project in OneDrive, on a share or under /mnt hurts, and the one command
+        from ..move import warning
+        for n, line in enumerate(warning(Path(root), env=env, platform=platform, home=home)):
+            say(f"{'found' if n == 0 else 'next':<9} {line}")
     if dry_run:
         say("dry run: nothing installed, nothing written")
         return EXIT_OK
