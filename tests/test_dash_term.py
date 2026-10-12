@@ -462,11 +462,11 @@ def test_rendered_values_carry_the_colour_of_their_meaning():
     assert "\x1b[35m███" in out and "\x1b[33m████████" in out and "\x1b[31m██████████" in out
     assert "\x1b[32m████████" in out
     assert "\x1b[33m\x1b[2mA tool runs for 2m." in out  # a wait over 60 s: dim yellow
-    assert "Error   : \x1b[31mthe checks fail" in out and "\x1b[33m2m" in out  # a slow time is yellow
+    assert "Error    : \x1b[31mthe checks fail" in out and "\x1b[33m2m" in out  # a slow time is yellow
     d = rich()
     d["project"].update(login="—", last_error="—")
     out = "".join(frame(d, 190, 60, True))
-    assert "\x1b[33mnot checked" in out and "Error   : \x1b[2m—" in out
+    assert "\x1b[33mnot checked" in out and "Error    : \x1b[2m—" in out
     d["project"]["login"] = "free"
     assert "\x1b[31mfree" in "".join(frame(d, 190, 60, True))
     d["project"]["now"]["attempt"] = 1

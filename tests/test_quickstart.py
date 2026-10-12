@@ -248,7 +248,7 @@ def test_no_terminal_prints_the_banner_and_asks_nothing(tmp_path, monkeypatch, c
     monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("a question was asked with no terminal"))
     assert cli_main([]) == 0
     out = capsys.readouterr().out
-    assert "builds your project with Claude Code" in out and "What you can do next" in out
+    assert "builds your software project while you are away" in out and "What you can do next" in out
     assert list(work.iterdir()) == []
 
 

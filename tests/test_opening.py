@@ -36,9 +36,10 @@ def test_descriptions_are_the_opening():
 
 @pytest.mark.parametrize("name,printer", [("install.ps1", "Write-Host"), ("install.sh", "echo")])
 def test_install_scripts_print_the_opening_first(name, printer):
-    lines = [line for line in (ROOT / name).read_text(encoding="utf-8").splitlines()
-             if line.lstrip().startswith(printer) and "Step" not in line and "FAILED" not in line]
-    assert lines and OPENING in lines[0], name
+    text = (ROOT / name).read_text(encoding="utf-8")
+    first = text.index(OPENING)  # the opening is the first line the script prints on a normal run
+    assert text[first - 12:first].count(printer[:4]) == 1, name
+    assert first < text.index("This script installs"), name
 
 
 def test_help_and_page_title_open_in_plain_words():

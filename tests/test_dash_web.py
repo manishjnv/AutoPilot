@@ -49,7 +49,7 @@ def test_escape_everywhere():
     d["project"] = dict(d["project"], last_commit=XSS, now={"n": 2, "title": XSS, "attempt": 1})
     h = render(d)
     assert XSS not in h and h.count("&lt;script&gt;alert(1)&lt;/script&gt;") == 7
-    assert "<title>Run &lt;b&gt; 1/3</title>" in h
+    assert "<title>Run &lt;b&gt; 1/3 · Autopilot builds your software project while you are away</title>" in h
 
 
 def test_refresh_and_script():
