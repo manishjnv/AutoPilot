@@ -311,6 +311,23 @@ show it after `Done`, for example `Done VERIFIED`. `ap status` shows `outcome: <
 
 A stop with Ctrl+C sets no word.
 
+## Tour recording
+
+`examples/tour/events.jsonl` is a recorded run: one JSON object per line, with `t` rising. `scripts/make_tour.py`
+builds it from `examples/self-build` (history files and `features.json`); run it again to get the same file.
+The script scrubs paths, addresses and `@`, so the file holds no local data.
+
+| Key | Meaning |
+|---|---|
+| `t` | Seconds from the start of the run (number, rising) |
+| `kind` | `run_start`, `phase_start`, `task_start`, `session`, `criterion`, `files`, `gate`, `task_done`, `phase_done`, `feature`, `run_end` |
+| `message` | Plain text, up to 300 characters |
+| `task_id` | The task id, or an empty string |
+| `state` | `running`, `checking`, `done` or `failed` |
+| `usage` | Object with `cost_usd` on `task_done`, `phase_done` and `run_end`; empty otherwise |
+
+`examples/tour/PROOF.md` is the proof that goes with it: the outcome word and the Not proven list.
+
 ## Self-healing
 
 A run stops only for a problem that needs a person. Each repair sends a `heal` alert.

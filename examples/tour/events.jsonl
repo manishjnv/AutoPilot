@@ -1,0 +1,180 @@
+{"kind": "run_start", "message": "Run started", "state": "running", "t": 0.5, "task_id": "", "usage": {}}
+{"kind": "phase_start", "message": "Phase P01 \u2014 N1 Adopt rules in onboarding", "state": "running", "t": 3.5, "task_id": "", "usage": {}}
+{"kind": "task_start", "message": "P01-T01 plan.yaml `status: done` marks finished work", "state": "running", "t": 7.5, "task_id": "P01-T01", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 1), risk medium", "state": "running", "t": 9.5, "task_id": "P01-T01", "usage": {}}
+{"kind": "criterion", "message": "A plan with 6 tasks marked `status: done` and 2 open tasks: after sync_plan the state has those 6 as done and `next_ready` returns the first open task", "state": "running", "t": 12.5, "task_id": "P01-T01", "usage": {}}
+{"kind": "criterion", "message": "`status: blocked` (or any value other than done) in plan.yaml fails validation with a message naming the task id", "state": "running", "t": 15.5, "task_id": "P01-T01", "usage": {}}
+{"kind": "criterion", "message": "A task already blocked or running in the state DB is not changed by a `status: done` in the plan", "state": "running", "t": 18.5, "task_id": "P01-T01", "usage": {}}
+{"kind": "criterion", "message": "Existing plan.yaml files without `status` load and behave exactly as before (existing tests pass unchanged)", "state": "running", "t": 21.5, "task_id": "P01-T01", "usage": {}}
+{"kind": "files", "message": "5 files changed: REFERENCE.md, autopilot/plan.py, autopilot/state.py, autopilot/templates/agent/plan.yaml", "state": "running", "t": 26.5, "task_id": "P01-T01", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 32.5, "task_id": "P01-T01", "usage": {}}
+{"kind": "task_done", "message": "P01-T01 done", "state": "done", "t": 34.5, "task_id": "P01-T01", "usage": {"cost_usd": 0.32}}
+{"kind": "task_start", "message": "P01-T02 Discovery pack for onboarding", "state": "running", "t": 38.5, "task_id": "P01-T02", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 1), risk medium", "state": "running", "t": 40.5, "task_id": "P01-T02", "usage": {}}
+{"kind": "criterion", "message": "A fixture git repository with 3 commits, PLAN.md, notes/session-3.md, .cursor/rules/x.mdc and pyproject.toml: the pack contains the 3 commit subjects, all four paths, and the PLAN.md checkbox lines", "state": "running", "t": 43.5, "task_id": "P01-T02", "usage": {}}
+{"kind": "criterion", "message": "Files under node_modules/, .venv/ and .git/ never appear in the pack", "state": "running", "t": 46.5, "task_id": "P01-T02", "usage": {}}
+{"kind": "criterion", "message": "The test command result section shows the exit code and output tail; a hanging test command is stopped at the timeout and reported, not raised", "state": "running", "t": 49.5, "task_id": "P01-T02", "usage": {}}
+{"kind": "criterion", "message": "A folder that is not a git repository gives a pack with an empty git log section and no exception", "state": "running", "t": 52.5, "task_id": "P01-T02", "usage": {}}
+{"kind": "files", "message": "3 files changed: REFERENCE.md, autopilot/context.py, tests/test_adopt.py", "state": "running", "t": 57.5, "task_id": "P01-T02", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 63.5, "task_id": "P01-T02", "usage": {}}
+{"kind": "task_done", "message": "P01-T02 done", "state": "done", "t": 65.5, "task_id": "P01-T02", "usage": {"cost_usd": 0.3}}
+{"kind": "task_start", "message": "P01-T03 Onboarding prompt: four adopt rules and the pack", "state": "running", "t": 69.5, "task_id": "P01-T03", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 1), risk medium", "state": "running", "t": 71.5, "task_id": "P01-T03", "usage": {}}
+{"kind": "criterion", "message": "The prompt given to the fake onboarding agent contains the git log, the PLAN.md path and all four rules", "state": "running", "t": 74.5, "task_id": "P01-T03", "usage": {}}
+{"kind": "criterion", "message": "Fixture: a fake agent that writes plan.yaml with the 6 done tasks marked `status: done` -> `ap validate` passes and `ap next` lists the first open task first, not a done one", "state": "running", "t": 77.5, "task_id": "P01-T03", "usage": {}}
+{"kind": "criterion", "message": "Fixture: a fake agent that creates docs/PLAN2.md -> cmd_onboard prints a warning that names docs/PLAN2.md", "state": "running", "t": 80.5, "task_id": "P01-T03", "usage": {}}
+{"kind": "criterion", "message": "`ap onboard --plan-doc X` still works as before (existing onboarding tests pass unchanged)", "state": "running", "t": 83.5, "task_id": "P01-T03", "usage": {}}
+{"kind": "files", "message": "4 files changed: REFERENCE.md, autopilot/cli.py, autopilot/prompts/onboard.md, tests/test_adopt.py", "state": "running", "t": 88.5, "task_id": "P01-T03", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 94.5, "task_id": "P01-T03", "usage": {}}
+{"kind": "task_done", "message": "P01-T03 done", "state": "done", "t": 96.5, "task_id": "P01-T03", "usage": {"cost_usd": 0.32}}
+{"kind": "phase_done", "message": "P01 closed", "state": "done", "t": 98.5, "task_id": "", "usage": {"cost_usd": 0.94}}
+{"kind": "phase_start", "message": "Phase P02 \u2014 N2 Dependency install without a prompt", "state": "running", "t": 101.5, "task_id": "", "usage": {}}
+{"kind": "task_start", "message": "P02-T01 Detect missing project dependencies and the standard install command", "state": "running", "t": 105.5, "task_id": "P02-T01", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 1), risk medium", "state": "running", "t": 107.5, "task_id": "P02-T01", "usage": {}}
+{"kind": "criterion", "message": "A Node fixture with package-lock.json and no node_modules/ -> missing_deps returns one item with command `npm ci` and tool `npm`; with node_modules/ present it returns nothing", "state": "running", "t": 110.5, "task_id": "P02-T01", "usage": {}}
+{"kind": "criterion", "message": "Fixtures for uv.lock, poetry.lock, requirements.txt, go.sum and Cargo.lock each return their standard command", "state": "running", "t": 113.5, "task_id": "P02-T01", "usage": {}}
+{"kind": "criterion", "message": "system_tool_hint gives a non-empty install command for python, node and git on both Windows and Linux (platform passed as a parameter so both are tested on WSL)", "state": "running", "t": 116.5, "task_id": "P02-T01", "usage": {}}
+{"kind": "criterion", "message": "`ap doctor` shows a WARN row naming the missing dependencies and the command", "state": "running", "t": 119.5, "task_id": "P02-T01", "usage": {}}
+{"kind": "files", "message": "4 files changed: .agent/DECISIONS.md, REFERENCE.md, autopilot/doctor.py, tests/test_deps.py", "state": "running", "t": 124.5, "task_id": "P02-T01", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 130.5, "task_id": "P02-T01", "usage": {}}
+{"kind": "task_done", "message": "P02-T01 done", "state": "done", "t": 132.5, "task_id": "P02-T01", "usage": {"cost_usd": 0.43}}
+{"kind": "task_start", "message": "P02-T02 Preflight installs project dependencies", "state": "running", "t": 136.5, "task_id": "P02-T02", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 1), risk medium", "state": "running", "t": 138.5, "task_id": "P02-T02", "usage": {}}
+{"kind": "criterion", "message": "Node fixture with no node_modules/ and an empty commands.setup: preflight runs the fake `npm ci` once, writes `npm ci` into commands.setup, and the project.yaml comments are still present", "state": "running", "t": 141.5, "task_id": "P02-T02", "usage": {}}
+{"kind": "criterion", "message": "A second preflight on the same fixture runs nothing (the fake npm call log has one entry)", "state": "running", "t": 144.5, "task_id": "P02-T02", "usage": {}}
+{"kind": "criterion", "message": "With commands.setup set, preflight runs that command instead of the standard one", "state": "running", "t": 147.5, "task_id": "P02-T02", "usage": {}}
+{"kind": "criterion", "message": "With no npm on PATH, preflight prints the exact install command for Node and returns False without running anything", "state": "running", "t": 150.5, "task_id": "P02-T02", "usage": {}}
+{"kind": "files", "message": "4 files changed: HOWTO.md, REFERENCE.md, autopilot/cli.py, tests/test_deps.py", "state": "running", "t": 155.5, "task_id": "P02-T02", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 161.5, "task_id": "P02-T02", "usage": {}}
+{"kind": "task_done", "message": "P02-T02 done", "state": "done", "t": 163.5, "task_id": "P02-T02", "usage": {"cost_usd": 0.49}}
+{"kind": "phase_done", "message": "P02 closed", "state": "done", "t": 165.5, "task_id": "", "usage": {"cost_usd": 0.92}}
+{"kind": "phase_start", "message": "Phase P03 \u2014 N3 Runner auto-detect and presets", "state": "running", "t": 168.5, "task_id": "", "usage": {}}
+{"kind": "task_start", "message": "P03-T01 Presets for kiro, cursor and aider", "state": "running", "t": 172.5, "task_id": "P03-T01", "usage": {}}
+{"kind": "session", "message": "Session on opus (attempt 1), risk high", "state": "running", "t": 174.5, "task_id": "P03-T01", "usage": {}}
+{"kind": "criterion", "message": "`command_template` returns a command for agent.preset kiro, cursor and aider whose executable is kiro-cli, cursor-agent and aider", "state": "running", "t": 177.5, "task_id": "P03-T01", "usage": {}}
+{"kind": "criterion", "message": "A test runs each preset through CommandBackend with a fake executable of that name on PATH and gets the JSON report parsed", "state": "running", "t": 180.5, "task_id": "P03-T01", "usage": {}}
+{"kind": "criterion", "message": "model_flag works for each new preset (mapped model gives the flag; unsafe model names still raise)", "state": "running", "t": 183.5, "task_id": "P03-T01", "usage": {}}
+{"kind": "criterion", "message": "Existing codex, gemini and opencode presets are unchanged", "state": "running", "t": 186.5, "task_id": "P03-T01", "usage": {}}
+{"kind": "files", "message": "5 files changed: .agent/DECISIONS.md, REFERENCE.md, autopilot/backends/command.py, autopilot/templates/agent/project.yaml", "state": "running", "t": 191.5, "task_id": "P03-T01", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 197.5, "task_id": "P03-T01", "usage": {}}
+{"kind": "task_done", "message": "P03-T01 done", "state": "done", "t": 199.5, "task_id": "P03-T01", "usage": {"cost_usd": 2.15}}
+{"kind": "task_start", "message": "P03-T02 Detect the installed and logged-in runner", "state": "running", "t": 203.5, "task_id": "P03-T02", "usage": {}}
+{"kind": "session", "message": "Session on opus (attempt 1), risk high", "state": "running", "t": 205.5, "task_id": "P03-T02", "usage": {}}
+{"kind": "criterion", "message": "PATH with only a fake `kiro-cli` that reports logged in -> detect_runner returns `kiro`", "state": "running", "t": 208.5, "task_id": "P03-T02", "usage": {}}
+{"kind": "criterion", "message": "PATH with fake `claude` (not logged in) and fake `kiro-cli` (logged in) -> returns `kiro`", "state": "running", "t": 211.5, "task_id": "P03-T02", "usage": {}}
+{"kind": "criterion", "message": "PATH with fake `claude` logged in and fake `kiro-cli` -> returns `claude_cli` (order respected)", "state": "running", "t": 214.5, "task_id": "P03-T02", "usage": {}}
+{"kind": "criterion", "message": "Empty PATH -> None; a login check that hangs is stopped by the timeout", "state": "running", "t": 217.5, "task_id": "P03-T02", "usage": {}}
+{"kind": "files", "message": "2 files changed: autopilot/doctor.py, tests/test_runner_detect.py", "state": "running", "t": 222.5, "task_id": "P03-T02", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 228.5, "task_id": "P03-T02", "usage": {}}
+{"kind": "task_done", "message": "P03-T02 done", "state": "done", "t": 230.5, "task_id": "P03-T02", "usage": {"cost_usd": 1.0}}
+{"kind": "task_start", "message": "P03-T03 Preflight writes the detected runner to project.yaml", "state": "running", "t": 234.5, "task_id": "P03-T03", "usage": {}}
+{"kind": "session", "message": "Session on opus (attempt 1), risk high", "state": "running", "t": 236.5, "task_id": "P03-T03", "usage": {}}
+{"kind": "criterion", "message": "PATH with only a fake kiro-cli and no agent.backend in project.yaml -> project.yaml gets agent.backend: command and agent.preset: kiro, comments kept, the runner name is printed", "state": "running", "t": 239.5, "task_id": "P03-T03", "usage": {}}
+{"kind": "criterion", "message": "Smoke: after that preflight, one fixture task runs end to end with the fake kiro-cli and its state is done", "state": "running", "t": 242.5, "task_id": "P03-T03", "usage": {}}
+{"kind": "criterion", "message": "A project.yaml with agent.backend already set is never changed by preflight", "state": "running", "t": 245.5, "task_id": "P03-T03", "usage": {}}
+{"kind": "criterion", "message": "No runner on PATH -> preflight returns False and prints the install command", "state": "running", "t": 248.5, "task_id": "P03-T03", "usage": {}}
+{"kind": "files", "message": "8 files changed: .agent/DECISIONS.md, .agent/HANDOFF.md, HOWTO.md, REFERENCE.md", "state": "running", "t": 253.5, "task_id": "P03-T03", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 259.5, "task_id": "P03-T03", "usage": {}}
+{"kind": "task_done", "message": "P03-T03 done", "state": "done", "t": 261.5, "task_id": "P03-T03", "usage": {"cost_usd": 2.29}}
+{"kind": "phase_done", "message": "P03 closed", "state": "done", "t": 263.5, "task_id": "", "usage": {"cost_usd": 5.44}}
+{"kind": "phase_start", "message": "Phase P04 \u2014 N4 `ap` with no arguments does the right thing", "state": "running", "t": 266.5, "task_id": "", "usage": {}}
+{"kind": "task_start", "message": "P04-T01 One-screen adopt summary: done, open, next", "state": "running", "t": 270.5, "task_id": "P04-T01", "usage": {}}
+{"kind": "session", "message": "Session on haiku (attempt 1), risk low", "state": "running", "t": 272.5, "task_id": "P04-T01", "usage": {}}
+{"kind": "criterion", "message": "A fixture plan with 6 done and 4 open tasks gives a summary that shows 6 done, 4 open and the first open task as next", "state": "running", "t": 275.5, "task_id": "P04-T01", "usage": {}}
+{"kind": "criterion", "message": "The summary has at most 20 lines and no escape codes when color is off", "state": "running", "t": 278.5, "task_id": "P04-T01", "usage": {}}
+{"kind": "criterion", "message": "No state DB yet -> the summary still works from plan.yaml", "state": "running", "t": 281.5, "task_id": "P04-T01", "usage": {}}
+{"kind": "files", "message": "2 files changed: autopilot/report.py, tests/test_adopt.py", "state": "running", "t": 286.5, "task_id": "P04-T01", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 292.5, "task_id": "P04-T01", "usage": {}}
+{"kind": "task_done", "message": "P04-T01 done", "state": "done", "t": 294.5, "task_id": "P04-T01", "usage": {"cost_usd": 0.83}}
+{"kind": "task_start", "message": "P04-T02 Plain `ap`: adopt a project that has code and no .agent/", "state": "running", "t": 298.5, "task_id": "P04-T02", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 1), risk medium", "state": "running", "t": 300.5, "task_id": "P04-T02", "usage": {}}
+{"kind": "criterion", "message": "Empty fixture folder with a TTY -> the idea prompt is shown (existing behavior)", "state": "running", "t": 303.5, "task_id": "P04-T02", "usage": {}}
+{"kind": "criterion", "message": "Fixture with source files and a PLAN.md and no .agent/ -> init and onboarding run, the summary with done/open/next is printed, and answering 2 does not start the run", "state": "running", "t": 306.5, "task_id": "P04-T02", "usage": {}}
+{"kind": "criterion", "message": "Fixture with .agent/ present -> no onboarding runs; the banner and next steps are printed", "state": "running", "t": 309.5, "task_id": "P04-T02", "usage": {}}
+{"kind": "criterion", "message": "Without a TTY, plain `ap` never asks a question in any of the three cases", "state": "running", "t": 312.5, "task_id": "P04-T02", "usage": {}}
+{"kind": "files", "message": "4 files changed: GUIDE.md, README.md, autopilot/cli.py, tests/test_quickstart.py", "state": "running", "t": 317.5, "task_id": "P04-T02", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 323.5, "task_id": "P04-T02", "usage": {}}
+{"kind": "task_done", "message": "P04-T02 done", "state": "done", "t": 325.5, "task_id": "P04-T02", "usage": {"cost_usd": 0.29}}
+{"kind": "phase_done", "message": "P04 closed", "state": "done", "t": 327.5, "task_id": "", "usage": {"cost_usd": 1.12}}
+{"kind": "phase_start", "message": "P05", "state": "running", "t": 330.5, "task_id": "", "usage": {}}
+{"kind": "task_start", "message": "P05-T01 Install scripts: Python when missing, `ap` on PATH, one final line", "state": "running", "t": 334.5, "task_id": "P05-T01", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 2), risk medium", "state": "running", "t": 336.5, "task_id": "P05-T01", "usage": {}}
+{"kind": "criterion", "message": "`bash install.sh --dry-run` exits 0 and its last line is: Open a project folder and type `ap`.", "state": "running", "t": 339.5, "task_id": "P05-T01", "usage": {}}
+{"kind": "criterion", "message": "Both scripts contain a Python install step that runs only when no Python >= 3.10 is found, and print the command in dry-run", "state": "running", "t": 342.5, "task_id": "P05-T01", "usage": {}}
+{"kind": "criterion", "message": "Both scripts check that `ap` is on PATH after the install", "state": "running", "t": 345.5, "task_id": "P05-T01", "usage": {}}
+{"kind": "criterion", "message": "Existing installer tests pass unchanged", "state": "running", "t": 348.5, "task_id": "P05-T01", "usage": {}}
+{"kind": "files", "message": "5 files changed: .agent/LEARNINGS.md, HOWTO.md, install.ps1, install.sh", "state": "running", "t": 353.5, "task_id": "P05-T01", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 359.5, "task_id": "P05-T01", "usage": {}}
+{"kind": "task_done", "message": "P05-T01 done", "state": "done", "t": 361.5, "task_id": "P05-T01", "usage": {"cost_usd": 0.36}}
+{"kind": "task_start", "message": "P05-T02 README: one install line per system and honest limits", "state": "running", "t": 365.5, "task_id": "P05-T02", "usage": {}}
+{"kind": "session", "message": "Session on haiku (attempt 1), risk low", "state": "running", "t": 367.5, "task_id": "P05-T02", "usage": {}}
+{"kind": "criterion", "message": "README.md has one Windows install line and one Linux/macOS/WSL install line, followed by: Open a project folder and type `ap`.", "state": "running", "t": 370.5, "task_id": "P05-T02", "usage": {}}
+{"kind": "criterion", "message": "README.md has an honest-limits section that names Replit and the Kiro/Cursor chat panel and lists the supported CLI runners", "state": "running", "t": 373.5, "task_id": "P05-T02", "usage": {}}
+{"kind": "criterion", "message": "The documented `| sh` (or `| bash`) form actually runs the script: a test pipes install.sh into that shell with --dry-run on WSL", "state": "running", "t": 376.5, "task_id": "P05-T02", "usage": {}}
+{"kind": "criterion", "message": "A test checks that every relative link in README.md points to an existing file", "state": "running", "t": 379.5, "task_id": "P05-T02", "usage": {}}
+{"kind": "files", "message": "4 files changed: .vale/styles/config/vocabularies/Autopilot/accept.txt, HOWTO.md, README.md, tests/test_quickstart.py", "state": "running", "t": 384.5, "task_id": "P05-T02", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 390.5, "task_id": "P05-T02", "usage": {}}
+{"kind": "task_done", "message": "P05-T02 done", "state": "done", "t": 392.5, "task_id": "P05-T02", "usage": {"cost_usd": 0.03}}
+{"kind": "phase_done", "message": "P05 closed", "state": "done", "t": 394.5, "task_id": "", "usage": {"cost_usd": 0.39}}
+{"kind": "phase_start", "message": "Phase P06 \u2014 N6 IDE rules file on first start", "state": "running", "t": 397.5, "task_id": "", "usage": {}}
+{"kind": "task_start", "message": "P06-T01 Autopilot block in IDE rule files and CLAUDE.md", "state": "running", "t": 401.5, "task_id": "P06-T01", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 1), risk medium", "state": "running", "t": 403.5, "task_id": "P06-T01", "usage": {}}
+{"kind": "criterion", "message": "Fixture with `.cursor/rules/` -> init writes the Cursor rule file with the block; a second init does not duplicate it", "state": "running", "t": 406.5, "task_id": "P06-T01", "usage": {}}
+{"kind": "criterion", "message": "Fixture with AGENTS.md containing user text -> the block is appended once after the user text, which is unchanged byte for byte", "state": "running", "t": 409.5, "task_id": "P06-T01", "usage": {}}
+{"kind": "criterion", "message": "Fixtures with `.kiro/`, `.vscode/` and GEMINI.md each get their block; a folder with no marker gets only CLAUDE.md", "state": "running", "t": 412.5, "task_id": "P06-T01", "usage": {}}
+{"kind": "criterion", "message": "CLAUDE.md contains `ap status`, `ap next` and `ap start` after init, once", "state": "running", "t": 415.5, "task_id": "P06-T01", "usage": {}}
+{"kind": "files", "message": "5 files changed: REFERENCE.md, autopilot/cli.py, autopilot/templates/agent/CLAUDE.md.snippet, autopilot/templates/agent/ide_rules.md", "state": "running", "t": 420.5, "task_id": "P06-T01", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 426.5, "task_id": "P06-T01", "usage": {}}
+{"kind": "task_done", "message": "P06-T01 done", "state": "done", "t": 428.5, "task_id": "P06-T01", "usage": {"cost_usd": 0.6}}
+{"kind": "phase_done", "message": "P06 closed", "state": "done", "t": 430.5, "task_id": "", "usage": {"cost_usd": 0.6}}
+{"kind": "phase_start", "message": "P07", "state": "running", "t": 433.5, "task_id": "", "usage": {}}
+{"kind": "task_start", "message": "P07-T01 New-file rule and reasons in the commit message", "state": "running", "t": 437.5, "task_id": "P07-T01", "usage": {}}
+{"kind": "session", "message": "Session on opus (attempt 1), risk high", "state": "running", "t": 439.5, "task_id": "P07-T01", "usage": {}}
+{"kind": "criterion", "message": "system.md contains the new-file rule; the task prompt asks for `new_files` in the report", "state": "running", "t": 442.5, "task_id": "P07-T01", "usage": {}}
+{"kind": "criterion", "message": "The task report schema accepts a report with new_files and one without it", "state": "running", "t": 445.5, "task_id": "P07-T01", "usage": {}}
+{"kind": "criterion", "message": "A fake-agent task run whose report has new_files [{path: src/parser.py, reason: \"new module: no file owns the parser\"}] gets a commit message containing `new file src/parser.py: new module: no file owns the parser`", "state": "running", "t": 448.5, "task_id": "P07-T01", "usage": {}}
+{"kind": "files", "message": "7 files changed: ARCHITECTURE.md, autopilot/gate.py, autopilot/orchestrator.py, autopilot/prompts/system.md", "state": "running", "t": 453.5, "task_id": "P07-T01", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 459.5, "task_id": "P07-T01", "usage": {}}
+{"kind": "task_done", "message": "P07-T01 done", "state": "done", "t": 461.5, "task_id": "P07-T01", "usage": {"cost_usd": 2.12}}
+{"kind": "task_start", "message": "P07-T02 Gate: a new file with no reason gets a retry with the rule quoted", "state": "running", "t": 465.5, "task_id": "P07-T02", "usage": {}}
+{"kind": "session", "message": "Session on opus (attempt 1), risk high", "state": "running", "t": 467.5, "task_id": "P07-T02", "usage": {}}
+{"kind": "criterion", "message": "A fake session that adds NOTES2.md with summary \"add notes\" and no new_files -> the gate fails with the rule quoted, and the next attempt's prompt contains the rule", "state": "running", "t": 470.5, "task_id": "P07-T02", "usage": {}}
+{"kind": "criterion", "message": "The same change with new_files [{path: NOTES2.md, reason: \"new module: no file owns the parser\"}] -> the gate passes", "state": "running", "t": 473.5, "task_id": "P07-T02", "usage": {}}
+{"kind": "criterion", "message": "A new test file under tests/ and a renamed file need no reason", "state": "running", "t": 476.5, "task_id": "P07-T02", "usage": {}}
+{"kind": "criterion", "message": "Existing gate tests pass unchanged", "state": "running", "t": 479.5, "task_id": "P07-T02", "usage": {}}
+{"kind": "files", "message": "6 files changed: ARCHITECTURE.md, REFERENCE.md, autopilot/gate.py, autopilot/orchestrator.py", "state": "running", "t": 484.5, "task_id": "P07-T02", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 490.5, "task_id": "P07-T02", "usage": {}}
+{"kind": "task_done", "message": "P07-T02 done", "state": "done", "t": 492.5, "task_id": "P07-T02", "usage": {"cost_usd": 1.99}}
+{"kind": "phase_done", "message": "P07 closed", "state": "done", "t": 494.5, "task_id": "", "usage": {"cost_usd": 4.11}}
+{"kind": "phase_start", "message": "Phase P08 \u2014 N follow-ups: init keeps project.yaml, runner texts", "state": "running", "t": 497.5, "task_id": "", "usage": {}}
+{"kind": "task_start", "message": "P08-T01 `ap init --stack` keeps every block after `commands:`", "state": "running", "t": 501.5, "task_id": "P08-T01", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 1), risk medium", "state": "running", "t": 503.5, "task_id": "P08-T01", "usage": {}}
+{"kind": "criterion", "message": "After `cmd_init` with stack python on a fresh folder, project.yaml loads with yaml.safe_load and has every top-level key of the template project.yaml (agent, gate, models, scheduling, ...)", "state": "running", "t": 506.5, "task_id": "P08-T01", "usage": {}}
+{"kind": "criterion", "message": "The commands block holds the python preset commands, and a comment line from a block after commands (e.g. the `scheduling:` line) is still in the text", "state": "running", "t": 509.5, "task_id": "P08-T01", "usage": {}}
+{"kind": "criterion", "message": "Running `cmd_init` with `force=True` a second time leaves exactly one `commands:` block and the same top-level keys", "state": "running", "t": 512.5, "task_id": "P08-T01", "usage": {}}
+{"kind": "criterion", "message": "Existing preset and init tests pass unchanged", "state": "running", "t": 515.5, "task_id": "P08-T01", "usage": {}}
+{"kind": "files", "message": "2 files changed: autopilot/cli.py, tests/test_presets.py", "state": "running", "t": 520.5, "task_id": "P08-T01", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 526.5, "task_id": "P08-T01", "usage": {}}
+{"kind": "task_done", "message": "P08-T01 done", "state": "done", "t": 528.5, "task_id": "P08-T01", "usage": {"cost_usd": 0.3}}
+{"kind": "task_start", "message": "P08-T02 Config error lists all presets; an existing CLAUDE.md gets the `ap` lines", "state": "running", "t": 532.5, "task_id": "P08-T02", "usage": {}}
+{"kind": "session", "message": "Session on haiku (attempt 1), risk low", "state": "running", "t": 534.5, "task_id": "P08-T02", "usage": {}}
+{"kind": "criterion", "message": "A project.yaml with agent.backend command and neither command nor preset gives an error text that contains kiro, cursor and aider", "state": "running", "t": 537.5, "task_id": "P08-T02", "usage": {}}
+{"kind": "criterion", "message": "A CLAUDE.md with the old Autopilot snippet (no `ap status`) gets `ap status`, `ap next` and `ap start` after init; a second init adds nothing; the old text is an unchanged prefix of the new file", "state": "running", "t": 540.5, "task_id": "P08-T02", "usage": {}}
+{"kind": "criterion", "message": "Existing config and IDE rule tests pass unchanged", "state": "running", "t": 543.5, "task_id": "P08-T02", "usage": {}}
+{"kind": "files", "message": "4 files changed: autopilot/cli.py, autopilot/config.py, tests/test_ide_rules.py, tests/test_presets.py", "state": "running", "t": 548.5, "task_id": "P08-T02", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 554.5, "task_id": "P08-T02", "usage": {}}
+{"kind": "task_done", "message": "P08-T02 done", "state": "done", "t": 556.5, "task_id": "P08-T02", "usage": {"cost_usd": 0.03}}
+{"kind": "phase_done", "message": "P08 closed", "state": "done", "t": 558.5, "task_id": "", "usage": {"cost_usd": 0.33}}
+{"kind": "phase_start", "message": "Phase P09 \u2014 N7 guard on for new and adopted projects", "state": "running", "t": 561.5, "task_id": "", "usage": {}}
+{"kind": "task_start", "message": "P09-T01 Template turns the new-file guard on; old project.yaml stays off", "state": "running", "t": 565.5, "task_id": "P09-T01", "usage": {}}
+{"kind": "session", "message": "Session on sonnet (attempt 1), risk medium", "state": "running", "t": 567.5, "task_id": "P09-T01", "usage": {}}
+{"kind": "criterion", "message": "After `cmd_init` on a fresh tmp folder (with and without `--stack python`), `Config.load(root).get(\"gate.new_file_reasons\")` is True", "state": "running", "t": 570.5, "task_id": "P09-T01", "usage": {}}
+{"kind": "criterion", "message": "A project.yaml with a `gate:` block that has no `new_file_reasons` key loads with the value falsy, and `task_gate` with a report and an added non-test file has no new-file problem", "state": "running", "t": 573.5, "task_id": "P09-T01", "usage": {}}
+{"kind": "criterion", "message": "The template comment above or beside `new_file_reasons` is still in the project.yaml that init writes", "state": "running", "t": 576.5, "task_id": "P09-T01", "usage": {}}
+{"kind": "criterion", "message": "REFERENCE.md describes the new default; all existing tests pass unchanged", "state": "running", "t": 579.5, "task_id": "P09-T01", "usage": {}}
+{"kind": "files", "message": "4 files changed: REFERENCE.md, autopilot/config.py, autopilot/templates/agent/project.yaml, tests/test_new_file_gate.py", "state": "running", "t": 584.5, "task_id": "P09-T01", "usage": {}}
+{"kind": "gate", "message": "Gate: tests, secret scan, protected files", "state": "checking", "t": 590.5, "task_id": "P09-T01", "usage": {}}
+{"kind": "task_done", "message": "P09-T01 done", "state": "done", "t": 592.5, "task_id": "P09-T01", "usage": {"cost_usd": 0.26}}
+{"kind": "phase_done", "message": "P09 closed", "state": "done", "t": 594.5, "task_id": "", "usage": {"cost_usd": 0.26}}
+{"kind": "feature", "message": "P06-F01 IDE rule block written once: passes", "state": "done", "t": 598.5, "task_id": "", "usage": {}}
+{"kind": "run_end", "message": "VERIFIED", "state": "done", "t": 600.5, "task_id": "", "usage": {"cost_usd": 14.11}}
