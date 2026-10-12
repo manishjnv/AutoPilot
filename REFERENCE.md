@@ -184,6 +184,11 @@ Agent presets: with `agent.backend: command` and no `agent.command`, `agent.pres
 | `cursor` | `cursor-agent -p --force --trust` | standard input |
 | `aider` | `aider --message-file ... --yes-always --no-auto-commits` | a temporary file outside the project |
 
+`agent.fallback` (default empty = off) lists runner presets, for example `[codex, copilot]`. When a session ends on a
+usage limit that resets in more than 30 minutes, Autopilot commits the work, writes `HANDOFF.md` (goal, done, next, failing
+tests) and starts the first runner of the list on it. That runner needs its own subscription login. Later tasks use it
+until the first runner's window resets.
+
 In your own `agent.command`, `{prompt_file}` gives the path of a temporary file with the prompt, and `{model_flag}`
 gives the model option. The prompt also goes in on standard input. The `kiro` and `cursor` presets approve all tools,
 so run them in a virtual machine or a container.
