@@ -93,7 +93,7 @@ def test_cursor_is_found_under_its_new_name_and_its_old_one(tmp_path):
     old.mkdir()
     path = fake_bin(old, **{"cursor-agent": "in"})
     assert detect_runner(env_with(path)) == "cursor"
-    assert doctor.runner("cursor").which(path).endswith("cursor-agent")
+    assert Path(doctor.runner("cursor").which(path)).stem == "cursor-agent"  # .cmd on Windows
 
 
 def test_logged_out_wording_with_exit_0_is_not_logged_in(tmp_path):

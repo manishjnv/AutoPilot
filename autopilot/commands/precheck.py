@@ -58,7 +58,7 @@ def check(s: Snapshot) -> list[Line]:
     """Every line that applies to this machine, in a fixed order. No side effect: `apply()` does the fixes."""
     out: list[Line] = []
     p = s.platform
-    win = os_name(p) == "windows"
+    win = os_name(p) == "windows" or ("\\" in s.home and ":" in s.home[:3])  # a Windows home path, on any platform
     sep = "\\" if win else "/"
     local_bin = s.home.rstrip("\\/") + sep + ".local" + sep + "bin"
 

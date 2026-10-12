@@ -136,24 +136,25 @@ else { Capture 3 'Python' $pycmd }
 
 Step 4 'Autopilot'
 # N5.3 + T1: PyPI first for a release copy; the archive of $Ref (no git needed) when PyPI is behind or $Ref is a branch.
+# Single quotes around $addr: Windows PowerShell 5.1 drops inner double quotes on the way to a native program (the install CI job showed it).
 $addr = "dev-autopilot @ https://github.com/manishjnv/AutoPilot/archive/$Ref.zip"
 function ApVer { if (Has ap) { $w = "$(Run ap --version)".Split(' '); if ($w.Count -ge 2) { return $w[1] } } '' }
 function AtLeast($v) { if (-not $v) { return $false }; try { [version]$v -ge [version]$MinVersion } catch { $false } }
 if ((Has ap) -and (AtLeast (ApVer))) { Write-Host "found: $(Ver autopilot)"; Write-Host 'To update, run: ap upgrade' }
 elseif (Has ap) {
     Write-Host "found: $(Ver autopilot), older than this installer ($MinVersion): updating"
-    if ($DryRun) { Write-Host "would run: uv tool install --reinstall `"$addr`"" } else { Capture 4 'Autopilot' "uv tool install --reinstall `"$addr`""; Refresh }
+    if ($DryRun) { Write-Host "would run: uv tool install --reinstall '$addr'" } else { Capture 4 'Autopilot' "uv tool install --reinstall '$addr'"; Refresh }
 } elseif ($DryRun) {
-    Write-Host "would install. Command: uv tool install `"$addr`" (PyPI first when $Ref is a release)"
+    Write-Host "would install. Command: uv tool install '$addr' (PyPI first when $Ref is a release)"
 } else {
     $done = $false
     if ($Ref -match '^v\d') { Write-Host "run: uv tool install dev-autopilot==$($Ref.Substring(1))"; $null = Run uv tool install "dev-autopilot==$($Ref.Substring(1))"; $done = ($LASTEXITCODE -eq 0) }
-    if (-not $done) { Capture 4 'Autopilot' "uv tool install `"$addr`"" }
+    if (-not $done) { Capture 4 'Autopilot' "uv tool install '$addr'" }
     Refresh
 }
 if ($DryRun) { Write-Host "would check: ap is on PATH and at least $MinVersion" }
-elseif (-not (Has ap)) { Fail 4 'Autopilot' "uv tool install --reinstall `"$addr`" (then make sure $env:USERPROFILE\.local\bin is on PATH)" 'ap is not on PATH' }
-elseif (-not (AtLeast (ApVer))) { Fail 4 'Autopilot' "uv tool install --reinstall `"$addr`"" "ap $(ApVer) is older than $MinVersion" }
+elseif (-not (Has ap)) { Fail 4 'Autopilot' "uv tool install --reinstall '$addr' (then make sure $env:USERPROFILE\.local\bin is on PATH)" 'ap is not on PATH' }
+elseif (-not (AtLeast (ApVer))) { Fail 4 'Autopilot' "uv tool install --reinstall '$addr'" "ap $(ApVer) is older than $MinVersion" }
 else { Write-Host "found: ap $(ApVer)" }
 
 Step 5 'runner (ap setup)'
