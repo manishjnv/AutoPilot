@@ -38,4 +38,6 @@ Do one of these:
    7. Tell the user the short commands for a terminal: `ap watch` (follow the build), `ap status`, `ap stop`,
       `ap start` (continue the build). They need no folder. Do not show the long `autopilot ... -C` form.
 
+At the start of a session, run `autopilot upgrade --daily` once. It prints one line only when a newer release exists (it asks the network once a day). If it prints a line, suggest `ap upgrade` to the user once.
+
 Do not start a second build in a folder that has an active run: `autopilot status` shows it.

@@ -30,6 +30,8 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot watch --scroll` | Shows the scrolling view in plain words, also in a large window |
 | `autopilot watch --detail` | Shows each technical log line as it is |
 | `autopilot mcp` | Runs an MCP server on `stdin` and `stdout`. Its tools are `ap_status`, `ap_next`, `ap_start`, `ap_stop` and `ap_answer`. Each tool runs the `ap` command of the same name and returns its text. `init` adds the server to `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kilocode/mcp.json` and `.junie/mcp/mcp.json` when they exist |
+| `ap upgrade [--check] [--ref vX.Y.Z]` | Gets the newest release. It checks the wheel against `SHA256SUMS` before it installs. `--check` only prints. A git checkout gets `git pull --ff-only`, and only when it has no changes |
+| `ap install [--rights]` | Installs or repairs Autopilot for this user: `uv`, then the newest release. `--rights` shows the rights step, or the command that takes them |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
 | `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |

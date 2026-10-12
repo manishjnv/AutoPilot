@@ -87,7 +87,7 @@ curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh
 Open a project folder and type `ap`. For the result, see [What `ap` does](HOWTO.md#what-ap-does-in-a-folder).
 
 The script installs what is missing: git, uv, Claude Code, Python 3.10 or newer, and Autopilot. You need a paid
-Claude plan or an API key. The free Claude plan cannot use Claude Code. `ap` is the short name of `autopilot`.
+Claude plan or an API key. The free Claude plan cannot use Claude Code. `ap upgrade` gets the newest release.
 For the checksums and each step, see [Install with one script](HOWTO.md#install-with-one-script). To learn with a
 first project, see the [tutorial](GUIDE.md).
 

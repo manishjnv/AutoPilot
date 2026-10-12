@@ -1499,6 +1499,11 @@ def main(argv=None):
     add("mcp", cmd_mcp, "MCP server on stdin/stdout for IDE chats: ap_status, ap_next, ap_start, ap_stop, ap_answer")
     p = add("uninstall", cmd_uninstall, "--rights: remove the scheduled task / sudoers file the installer created")
     p.add_argument("--rights", action="store_true")
+    from .upgrade import cmd_install, cmd_upgrade
+    p = add("upgrade", cmd_upgrade, "get the newest Autopilot; --check only prints")
+    p.add_argument("--check", action="store_true"); p.add_argument("--ref"); p.add_argument("--daily", action="store_true", help=argparse.SUPPRESS)
+    p = add("install", cmd_install, "install or repair Autopilot for this user; --rights = the one rights step")
+    p.add_argument("--rights", action="store_true")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
@@ -1521,6 +1526,8 @@ def main(argv=None):
         print(f"autopilot {__version__}: builds your project with Claude Code, checks every step, never waits.")
         print(next_steps_text(Path.cwd()))
         return 0
+    if args.cmd in ("upgrade", "install"):  # no project: nothing to find or remember
+        return args.fn(args) or 0
     if args.path is None:  # J2: no -C
         found = "." if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists() else pick_project()
         if found is None:
