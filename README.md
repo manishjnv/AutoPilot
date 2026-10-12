@@ -85,6 +85,12 @@ Type `ap tour` to watch a recorded run in the watch window. It needs no login, n
 
 A fresh session reviews each finished task before it merges. Set `review.scope` in `project.yaml`. With `scope: all`, every task above low risk gets a review, and a finding blocks the merge. With `scope: critical`, or no key, only critical tasks get one. This is the code default, so old projects keep today's behavior. `ap init` writes `scope: all`. Any other value is an error with a plain message. The reviewer sees only the task spec (with the acceptance criteria), the diff and the gate's test output. It sees nothing from the build session. See [REFERENCE.md](REFERENCE.md).
 
+## Signed receipt and ap verify
+
+When a phase closes, Autopilot writes `history/<phase>/receipt.json` next to `PROOF.md`. The receipt holds a hash of each phase file and a signature. The key is `~/.autopilot/receipt.key`. Autopilot makes it on first use. It lives in your home folder (`AUTOPILOT_HOME` moves it), so it is never in the repository and never committed.
+
+Type `ap verify` to check every closed phase. It works offline. Use `ap verify <phase>` for one phase. An untouched phase prints `<phase> ok` and the command exits 0. If someone edits `PROOF.md`, it prints `<phase> CHANGED: ...` and exits 1. A different key gives a bad signature report. With no receipt, it prints `no receipt found` and exits 1.
+
 ## Install
 
 Three steps, no administrator prompt.
