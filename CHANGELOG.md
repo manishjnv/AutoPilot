@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W3: every `PROOF.md` has a `## Not proven` section: criteria that no test file changed by the task mentions, tasks with no verify and no test command, features not checked and scope added. When nothing is open it says so in one sentence.
 - W3: each run ends with one word (`VERIFIED`, `BLOCKED`, `BUDGET_STOP`, `STALLED`, `FAILED`) in the state meta key `outcome`, a `run_end` event, the log, the first word of the end alert, the window title (`Done VERIFIED`) and an `outcome:` line in `ap status`.
 
 - Q22 review: a vendor outage makes the run wait 15 minutes, up to four times, before it stops; a bare `50x` number is not an outage; an expired login stops the run only when the login check fails again; the same-error rule resets when a task merges.
@@ -118,3 +119,4 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 - First public version.
 - 2026-10-13 **P01-T01** Outcome word at the end of every run — Re-applied the outcome word. Every run end records VERIFIED, BLOCKED, BUDGET_STOP, STALLED or FAILED in state meta `outcome` (cleared at run start), a `run_end` event, the log, run.json `word`, and th
+- 2026-10-13 **P01-T02** Not proven section in PROOF.md — Every PROOF.md now has a `## Not proven` section after the header lines. It lists untested criteria (with task id), tasks with no verify and no test command, features not checked, and scope-added warn
