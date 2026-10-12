@@ -1120,8 +1120,10 @@ class Orchestrator:
             return False
         if self.state.get_meta(f"adr:{task.id}") is not None:  # one try per task
             return False
-        infra_first = bool(phase.infra.get("steps")) and phase.tasks and task is phase.tasks[0]  # K: ADR before infra
-        return infra_first or task.needs_decision or task.risk in (self.cfg.get("decide.risks") or [])
+        risky = task.risk in (self.cfg.get("decide.risks") or [])
+        if phase.infra.get("steps") and phase.tasks:  # K: ONE ADR before the infra phase, with its first task
+            return task is phase.tasks[0] or risky  # (plan.py marks every infra task needs_decision for the risk tier)
+        return task.needs_decision or risky
 
     def infra_brief(self, phase) -> str:
         """K: for the ADR before an infra phase: each step with its host and rollback, and the dry-run result (the

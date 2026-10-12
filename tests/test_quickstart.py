@@ -270,7 +270,7 @@ def test_an_empty_idea_prints_the_banner(tmp_path, monkeypatch, capsys):
 def test_guided_start_not_now(tmp_path, monkeypatch, capsys):
     work, _ = guided(tmp_path, monkeypatch, ["a todo list CLI with due dates", "", "", "2"])
     monkeypatch.setattr("autopilot.cli.cmd_run", lambda a: pytest.fail("the run started"))
-    assert cli_main([]) == 0
+    assert cli_main(["--ask"]) == 0  # N5.5: a plain plan starts by itself; --ask keeps the question
     out = capsys.readouterr().out
     proj = work / "a-todo-list-cli-with-due-dates"
     assert (proj / ".agent" / "project.yaml").exists() and (proj / "PLAN.md").exists()
@@ -369,7 +369,7 @@ def test_folder_safety(tmp_path, monkeypatch, capsys):
     answers = ["an app", "", str(home), str(Path(work.anchor)), str(full), "2", "", "2"]
     monkeypatch.setattr("builtins.input", lambda *a: answers.pop(0))
     monkeypatch.setattr("autopilot.cli.cmd_run", lambda a: pytest.fail("the run started"))
-    assert cli_main([]) == 0
+    assert cli_main(["--ask"]) == 0  # N5.5: --ask keeps the start question
     out = capsys.readouterr().out
     assert out.count("not this one") == 2 and "(12 entries)" in out and "f0.txt" in out and "f9.txt" not in out
     assert (work / "an-app" / ".agent" / "project.yaml").exists() and answers == []

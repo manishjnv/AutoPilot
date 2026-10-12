@@ -68,7 +68,7 @@ main() {
   # N5: Autopilot cannot run without Python 3.10 or newer. This is the one system install; uv installs it for this user.
   pycmd="uv python install 3.12"
   if pyok; then echo "found: $(have python3 && ver python3 || ver python)"
-  elif [ "$dry" = 1 ]; then echo "would run (no Python 3.10 or newer found). Command: $pycmd"
+  elif [ "$dry" = 1 ]; then echo "would install (no Python 3.10 or newer found). Command: $pycmd"
   else
     echo "run: $pycmd"
     uv python install 3.12 || fail 4 "$pycmd"

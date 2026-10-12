@@ -63,7 +63,7 @@ def test_handoff_continues_under_the_next_runner(tmp_path):
     assert all(h in text for h in ("## Goal", "## Done", "## Next", "## Failing tests"))
     assert "build a" in text and "a works" in text and "wip: handoff at usage limit" in text
     assert len(events(orch, "handoff")) == 1
-    assert not (root / "HANDOFF.md").exists() and "HANDOFF" not in git(root, "ls-files")
+    assert not (root / "HANDOFF.md").exists() and not re.search(r"^HANDOFF\.md$", git(root, "ls-files"), re.M)
     assert "wip.txt" in git(root, "ls-files")  # the first runner's work is kept
 
 
@@ -71,7 +71,7 @@ def test_short_reset_keeps_the_pause(tmp_path):
     _root, orch, claude, codex = build(tmp_path, 600, ["codex"])
     assert orch.run() == "app complete"
     assert not codex.calls and not events(orch, "handoff")
-    assert tasks_of(claude).count("P01-T01") == 2  # paused, then the same runner again
+    assert claude.limited and tasks_of(claude) == ["P01-T01", "P01-T02", "P01-T03"]  # paused, then the same runner
 
 
 def test_empty_fallback_keeps_the_pause(tmp_path):

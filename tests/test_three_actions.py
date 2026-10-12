@@ -30,7 +30,7 @@ def run_calls(monkeypatch):
 
 
 def test_a_plain_plan_starts_without_the_question(tmp_path, monkeypatch, capsys):
-    guided(tmp_path, monkeypatch, ["a todo app", ""])  # idea, folder; a third input() would fail
+    guided(tmp_path, monkeypatch, ["a todo app", "", ""])  # idea, end of idea, folder; a fourth input() would fail
     fake_quickstart(monkeypatch)
     calls = run_calls(monkeypatch)
     assert cli_main([]) == 0
@@ -42,7 +42,7 @@ def test_a_plain_plan_starts_without_the_question(tmp_path, monkeypatch, capsys)
 
 @pytest.mark.parametrize("kw", [{"risk": "critical"}, {"owner_only": True}])
 def test_a_critical_or_owner_task_keeps_the_question(tmp_path, monkeypatch, capsys, kw):
-    guided(tmp_path, monkeypatch, ["a todo app", "", "2"])
+    guided(tmp_path, monkeypatch, ["a todo app", "", "", "2"])
     fake_quickstart(monkeypatch, **kw)
     calls = run_calls(monkeypatch)
     assert cli_main([]) == 0
@@ -50,7 +50,7 @@ def test_a_critical_or_owner_task_keeps_the_question(tmp_path, monkeypatch, caps
 
 
 def test_ask_keeps_the_question(tmp_path, monkeypatch, capsys):
-    guided(tmp_path, monkeypatch, ["a todo app", "", "2"])
+    guided(tmp_path, monkeypatch, ["a todo app", "", "", "2"])
     fake_quickstart(monkeypatch)
     calls = run_calls(monkeypatch)
     assert cli_main(["--ask"]) == 0
