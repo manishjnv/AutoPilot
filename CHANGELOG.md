@@ -9,6 +9,25 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- O10: `profile: lean` is the default for new projects after the clean measure (39.5 percent fewer tokens per task, every task done); an old `project.yaml` without the key stays `full`.
+- O11: a docs session at each phase close writes the app's `docs/RCA.md`, README feature sections and `docs/DEVELOPING.md`.
+- O1: `scope_additions` count from attempt 2 only, at most 3 files, and each one is recorded in the task history, `PROOF.md` and the dashboard.
+- N8: the Windows rights step runs from `%ProgramData%\Autopilot` with an administrator-only ACL; `ap uninstall --rights` removes it.
+- N12: `high` first attempts join a parallel batch when their `files_in_scope` are disjoint; a colliding task is held, not the whole batch.
+- J13: terminal window v2: all phases shown, no wrapped row, data age and `stale`, no value in two panels, task time over every attempt, ETA with its basis, colour map v2, a running indicator.
+- J14: a repeated final report is not stuck; the own fix runs once before a question; questions are short with a default choice; `ap watch` survives a crash restart.
+- J15: every public document opens with three plain sentences: what Autopilot is, what you do, what you get.
+- N5.2: `ap upgrade` and `ap install`; release notes start with a heading.
+- N5.3: the release workflow publishes to PyPI with trusted publishing (`uv tool install dev-autopilot` once the owner registers the project).
+- N5.4: the install scripts take no administrator rights; the first `ap` run logs you in to Claude by itself.
+- N5.5: a plan with no owner or critical task starts without a question (`ap --ask` keeps it); the first run opens the status page once; the plugin installs `ap` when missing; `IDEA.md` is read as the idea.
+- N11: `agent.fallback` hands a task to the next runner at a usage limit with a long reset, with `HANDOFF.md` as the prompt.
+- O4: import-boundary rule with a baseline (`import-linter`, `dependency-cruiser`) when BRAIN.md names layers.
+- O9: one `[consolidate]` task at a phase close when duplicates, oversize files or layer violations grew.
+- K: an ADR before each infra phase (one per phase); `ap run --no-prod`; the credential recheck before each deploy step.
+- N1: when two documents disagree on a task, the git log and the code win, then the newest document; the summary names the conflict.
+- Fixes: the self-build's `.agent/` moved to `examples/self-build/`; a fresh clone starts clean; ten tests from session 30 corrected (RCA 2026-10-12).
+
 ## [0.3.0] - 2026-10-12
 
 - P10 pull-back fixes: venv install, presets security note, context imports, copilot file rule, git discard lock retry, doctor package row, parked-task test.

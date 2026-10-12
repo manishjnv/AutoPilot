@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh
 ```
 
 The script installs what is missing for your user: Python, uv, Claude Code and Autopilot. No administrator
-prompt. It ends with "Open a project folder and type `ap`".
+prompt. It ends with the line "Open a project folder and type `ap`."
 
 If you already use [uv](https://docs.astral.sh/uv/), `uv tool install dev-autopilot` does the same.
 
