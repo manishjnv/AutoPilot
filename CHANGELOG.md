@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-12
+
 - T1: the install scripts and the code move as one unit: `MIN_VERSION` in both scripts equals the package version, a script from `main` installs the archive of `main` (no git needed), a release copy tries PyPI first; an Autopilot older than the script is replaced, never trusted.
 - T2: `ap` updates itself once a day after a short command, in a process that starts after `ap` has ended; never during a build, in CI, in a git checkout, or with `upgrade.auto: false` / `AUTOPILOT_NO_AUTO_UPGRADE=1`.
 - T3: `ap uninstall --all` removes the rights, `~/.autopilot` and the package; `--dry-run` lists the steps.
