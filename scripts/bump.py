@@ -76,7 +76,7 @@ def tag(ver):
 def main(argv):
     if len(argv) not in (1, 2) or not re.fullmatch(r"\d+\.\d+\.\d+", argv[0]) or (len(argv) == 2 and argv[1] != "--tag"):
         sys.exit(__doc__)
-    if subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True).stdout.strip() \
+    if subprocess.run([*GIT, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True).stdout.strip() \
             and len(argv) == 1:
         sys.exit("the working tree has changes; commit or stash them first")
     (tag if len(argv) == 2 else bump)(argv[0])
