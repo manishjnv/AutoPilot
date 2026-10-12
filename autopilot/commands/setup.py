@@ -221,6 +221,11 @@ def run_setup(root: Path | None = None, *, dry_run: bool = False, wanted: str = 
         return rc
     for line in plan_lines(s, row, platform):
         say(line)
+    from .precheck import apply, check, gather
+    snap = gather(env, home, which, run, cwd=str(root) if root else None)
+    snap.platform = platform or snap.platform
+    for id_, status, text in apply(check(snap), snap, run=run, dry_run=dry_run):
+        say(f"{status:<9} {text}")
     if dry_run:
         say("dry run: nothing installed, nothing written")
         return EXIT_OK

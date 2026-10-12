@@ -162,3 +162,34 @@ def capture(step: str, cmd, *, shell: bool = False, env: dict | None = None, tim
         for line in three_lines(step, text, log, platform, shown):
             say(line)
     return rc
+
+
+# Q6: the environment pre-check lines of `ap setup` (one sentence each; the fix is a command or '' when there is none)
+PRECHECK: dict[str, tuple[str, dict | str]] = {
+    "local-bin": ("Programs install into ~/.local/bin, which is not on PATH.", LOCAL_BIN),
+    "proxy": ("A proxy is set; downloads and logins go through it.", ""),
+    "corporate-ca": ("The certificate chain failed: a company proxy signs connections with its own CA. Point SSL_CERT_FILE and REQUESTS_CA_BUNDLE at that CA file.",
+                     {"linux": "export SSL_CERT_FILE=/path/to/company-ca.pem REQUESTS_CA_BUNDLE=/path/to/company-ca.pem",
+                      "darwin": "export SSL_CERT_FILE=/path/to/company-ca.pem REQUESTS_CA_BUNDLE=/path/to/company-ca.pem",
+                      "windows": "$env:SSL_CERT_FILE = 'C:\\path\\company-ca.pem'; $env:REQUESTS_CA_BUNDLE = $env:SSL_CERT_FILE"}),
+    "offline": ("No download server is reachable: connect to the network, then run `ap setup` again.", "ap setup"),
+    "win32-bit": ("This is 32-bit Windows: uv and the AI CLIs ship 64-bit builds only.", ""),
+    "arm": ("This is an ARM machine: the installers pick the ARM build; a tool without one needs the x64 build through emulation.", ""),
+    "home-path": ("The home folder has a space or a non-ASCII character: some installers fail on it.", ""),
+    "home-cloud": ("The home folder is on OneDrive or a network share: installs there are slow and may sync half-written files.", ""),
+    "home-readonly": ("The home folder is not writable: nothing can install for this user.", {"linux": "ls -ld ~", "darwin": "ls -ld ~", "windows": "icacls $env:USERPROFILE"}),
+    "root": ("You run as root or through sudo: the install lands in the wrong home. Run the installer as your own user.", ""),
+    "python-shim": ("A conda or pyenv shim comes before the real Python: uv installs its own Python, so this is only a note.", ""),
+    "uv-old": ("uv is older than one year: update it.", "uv self update"),
+    "two-autopilots": ("Autopilot is installed twice, with pip and as a uv tool: remove the pip one.", {"linux": "python3 -m pip uninstall dev-autopilot", "darwin": "python3 -m pip uninstall dev-autopilot", "windows": "python -m pip uninstall dev-autopilot"}),
+    "wsl1": ("This is WSL 1: the Linux installers need WSL 2.", "wsl --set-version Ubuntu 2   # in PowerShell"),
+    "wsl-mnt": ("The project is under /mnt: a WSL run on a Windows drive is slow. Keep projects under the Linux home.", ""),
+    "windows-binary-in-wsl": ("A Windows copy of a runner is visible from WSL; it is skipped. Install the Linux one inside WSL.", ""),
+    "two-copies": ("Two copies of one CLI are on PATH: the first one runs; remove the other.", ""),
+    "token-overrides-login": ("A token variable is set and wins over the stored login of that runner.", ""),
+    "git-identity": ("git has no user.name or user.email: commits need both.",
+                     'git config --global user.name "Your Name"; git config --global user.email "you@example.com"'),
+    "long-paths": ("Windows long paths are off: deep node_modules folders fail.",
+                   "New-ItemProperty -Path HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force   # as administrator"),
+    "leftover": ("A folder of an AI CLI is left over, with no program: it is a note, nothing installs because of it.", ""),
+}
