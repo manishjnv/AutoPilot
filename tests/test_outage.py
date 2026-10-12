@@ -35,7 +35,7 @@ def err5xx(n=1):
 def test_three_5xx_in_a_row_say_the_service_is_down_and_never_loop(tmp_path):
     sleeps = []
     fake = Scripted(err5xx(9))
-    root, orch = make(tmp_path, fake, sleeps)
+    _root, orch = make(tmp_path, fake, sleeps)
     assert orch.run() == "The service is down, try again in 15 minutes."
     assert fake.sent == 3  # the third answer ends it: no fourth call, no retry loop
     assert sleeps[:2] == [60, 300]  # the old heal waits only between the first answers
@@ -45,7 +45,7 @@ def test_three_5xx_in_a_row_say_the_service_is_down_and_never_loop(tmp_path):
 
 
 def test_two_5xx_then_a_good_answer_keeps_the_old_heal(tmp_path):
-    root, orch = make(tmp_path, Scripted(err5xx(2)))
+    _root, orch = make(tmp_path, Scripted(err5xx(2)))
     assert orch.run() == "plan complete" and orch.state.task("P01-T01")["attempts"] == 1
 
 
@@ -74,7 +74,7 @@ def test_an_expired_login_parks_the_task_prints_the_login_command_and_resumes_af
 
 
 def test_a_first_time_missing_login_keeps_the_old_wait_and_retry(tmp_path):
-    root, orch = make(tmp_path, Scripted([SessionResult(ok=False, error="Please run /login", infra="auth")]))
+    _root, orch = make(tmp_path, Scripted([SessionResult(ok=False, error="Please run /login", infra="auth")]))
     assert orch.run() == "plan complete"
     assert any("/login" in e["message"] for e in orch.state.events(100) if e["kind"] == "heal")
 
@@ -86,7 +86,7 @@ def test_a_model_that_is_not_available_gets_one_sentence_with_the_alias_that_wor
 
 
 def test_a_model_error_in_a_task_session_names_the_alias_in_the_notice(tmp_path):
-    root, orch = make(tmp_path, Scripted([SessionResult(ok=False, error="model_not_found: the model xyz does not exist")]))
+    _root, orch = make(tmp_path, Scripted([SessionResult(ok=False, error="model_not_found: the model xyz does not exist")]))
     orch.run()
     heals = [e["message"] for e in orch.state.events(100) if e["kind"] == "heal"]
     assert any("is not available on this plan or in this region" in h and "alias" in h for h in heals)

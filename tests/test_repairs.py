@@ -130,7 +130,7 @@ def test_ap_upgrade_prints_the_migration_line_for_the_project_of_this_folder(tmp
 
 
 def test_fix_all_runs_the_repairs_and_a_second_run_prints_none_of_them_as_not_done(tmp_path):
-    run = lambda c, **k: P(0, "git version 2.43.0")  # noqa: E731
+    run = lambda c, **k: P(0, "git version 2.43.0")
     first = repairs.fix_all(tmp_path, home=tmp_path, platform="linux", run=run)
     again = repairs.fix_all(tmp_path, home=tmp_path, platform="linux", run=run)
     assert not any(line.startswith("fixed: `uv tool") or "Open a new terminal" in line for line in again)

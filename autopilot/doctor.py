@@ -81,8 +81,8 @@ class Runner:
     footprints: tuple = ()   # folders that suggest the runner (Q3); a footprint never installs by itself
     npm: str = ""            # the npm route, after the native one (Node is a project dependency, not Autopilot's)
     probe: tuple = ()        # Q11: argv after the binary that sends `{prompt}` once and prints one answer (docs checked 2026-10-12)
-    login_headless: str = ""  # Q13: the login form that prints an address and a code (device flow); docs checked 2026-10-13, not run live
-    uninstall: dict = field(default_factory=dict)  # Q12: install method -> the undo command (docs checked 2026-10-13, not run live)
+    login_headless: str = ""  # Q13: the login form that prints an address and a code (device flow); flags from the roadmap text of 2026-10-12, NOT checked against vendor docs, not run live (NEEDS-YOU)
+    uninstall: dict = field(default_factory=dict)  # Q12: install method -> the undo command; written from the install routes, NOT checked against vendor docs, not run live (NEEDS-YOU)
 
     @property
     def preset(self) -> str:

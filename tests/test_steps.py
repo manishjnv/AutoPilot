@@ -31,7 +31,7 @@ def test_every_step_writes_name_status_date_detail_when_it_ends():
 
 def test_a_run_that_dies_at_the_runner_step_resumes_there_and_skips_the_rest(tmp_path, monkeypatch):
     m = Machine(tmp_path, monkeypatch, gh="in")
-    dead = lambda cmd, **kw: Proc(35, "", "curl: (35) schannel: CRYPT_E_NO_REVOCATION_CHECK") if cmd[:1] == ["bash"] else m.run(cmd, **kw)  # noqa: E731
+    dead = lambda cmd, **kw: Proc(35, "", "curl: (35) schannel: CRYPT_E_NO_REVOCATION_CHECK") if cmd[:1] == ["bash"] else m.run(cmd, **kw)
     from autopilot.commands import setup as st
     rc = st.run_setup(m.root, run=dead, say=m.said.append, yes=True, home=m.home, env={**os.environ}, platform="linux", skip_probe=True)
     assert rc == 1 and steps.load()["runner"]["status"] == "failed" and steps.load()["autopilot"]["status"] == "done"
@@ -111,11 +111,11 @@ def test_a_dropped_connection_is_retried_once_after_five_seconds_before_the_erro
     assert rc == 0 and len(seen) == 2 and slept == [5]
     assert said == ["The connection dropped. One more try in 5 seconds."] and not any("FAILED" in s for s in said)
     seen.clear(), slept.clear(), said.clear()
-    always = lambda cmd, **kw: seen.append(cmd) or Proc(56, "", "curl: (56) Recv failure")  # noqa: E731
+    always = lambda cmd, **kw: seen.append(cmd) or Proc(56, "", "curl: (56) Recv failure")
     assert ie.capture("install x", ["bash", "-c", "x"], run=always, say=said.append, retry=True, sleep=slept.append, home=tmp_path) == 56
     assert len(seen) == 2 and slept == [5] and any(s.startswith("FAILED") for s in said)  # one retry, then the error line
     seen.clear(), slept.clear()
-    full = lambda cmd, **kw: seen.append(cmd) or Proc(1, "", "No space left on device")  # noqa: E731
+    full = lambda cmd, **kw: seen.append(cmd) or Proc(1, "", "No space left on device")
     ie.capture("install x", ["bash", "-c", "x"], run=full, say=said.append, retry=True, sleep=slept.append, home=tmp_path)
     assert len(seen) == 1 and slept == []  # another kind of error is never retried
 

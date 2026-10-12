@@ -145,7 +145,7 @@ def pytest_fail():
 
 def test_gather_sees_the_dubious_ownership_text(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", os.pathsep.join([str(tmp_path), os.path.dirname(shutil.which("git"))]))
-    fake = lambda cmd, **kw: _P(128, "", "fatal: detected dubious ownership in repository at 'x'") if "status" in cmd else _P(0, "git version 2.43.0")  # noqa: E731
+    fake = lambda cmd, **kw: _P(128, "", "fatal: detected dubious ownership in repository at 'x'") if "status" in cmd else _P(0, "git version 2.43.0")
     s = pc.gather(home=tmp_path, cwd=str(tmp_path), run=fake)
     assert s.git_version == (2, 43) or s.git_version is not None
 
@@ -222,7 +222,7 @@ def test_git_older_than_2_30():
 
 
 def test_console_not_utf8_on_windows_prints_the_chcp_line():
-    w = dict(platform="win32", home=r"C:\Users\u", path=[r"C:\Users\u\.local\bin"])
+    w = {"platform": "win32", "home": r"C:\Users\u", "path": [r"C:\Users\u\.local\bin"]}
     lines = pc.check(snap(console_utf8=False, **w))
     assert [i for i, _, _ in lines] == ["console-encoding"] and "chcp 65001" in lines[0][2] and "PYTHONIOENCODING=" in lines[0][2]
     assert ids(snap(console_utf8=True, **w)) == [] and ids(snap(console_utf8=False)) == []

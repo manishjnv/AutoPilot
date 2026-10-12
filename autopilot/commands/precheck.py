@@ -173,9 +173,9 @@ def apply(lines: list[Line], s: Snapshot, run=run_proc, dry_run: bool = False) -
             if id_ == "git-identity" and status == "fixed" and not dry_run:
                 run(["git", "config", "--global", "user.name", s.gh_user[0]], timeout=20)
                 run(["git", "config", "--global", "user.email", s.gh_user[1]], timeout=20)
-            if id_ == "git-dubious" and not dry_run:  # Q21.1: the one command git names itself
-                if run(["git", "config", "--global", "--add", "safe.directory", s.cwd], timeout=20).rc != 0:
-                    status = "skipped"
+            if (id_ == "git-dubious" and not dry_run  # Q21.1: the one command git names itself
+                    and run(["git", "config", "--global", "--add", "safe.directory", s.cwd], timeout=20).rc != 0):
+                status = "skipped"
             if id_ == "autocrlf" and not dry_run:  # Q21.2: for this project only, never the global setting
                 if run(["git", "-C", s.cwd, "config", "core.autocrlf", "false"], timeout=20).rc != 0:
                     status = "skipped"
@@ -282,7 +282,7 @@ def clock_skew(url: str = "https://api.github.com", fetch=None) -> float | None:
         if fetch is None:
             import urllib.request
             req = urllib.request.Request(url, method="HEAD")
-            with urllib.request.urlopen(req, timeout=5) as r:  # noqa: S310 - a fixed https address
+            with urllib.request.urlopen(req, timeout=5) as r:
                 text = r.headers.get("Date", "")
         else:
             text = fetch(url)
