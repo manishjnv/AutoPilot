@@ -1540,6 +1540,22 @@ def cmd_report(args):
     print(tokens_report(state) if args.tokens else build_report(cfg, plan, state))
 
 
+def cmd_verify(args):
+    """W7: check the signed receipt of each closed phase, offline. One line per phase; exit 1 on any problem."""
+    from . import receipt
+    root = Path(args.path).resolve()
+    hist = root / Config.load(root).get("docs.history_dir", ".agent/history")
+    found = [hist / args.phase / receipt.NAME] if args.phase else sorted(hist.glob(f"*/{receipt.NAME}"))
+    if not found:
+        print("no receipt found"); return 1
+    bad = False
+    for p in found:
+        probs = receipt.check(root, p) if p.exists() else [f"{receipt.NAME} missing"]
+        bad |= bool(probs)
+        print(f"{p.parent.name} " + (f"CHANGED: {', '.join(probs)}" if probs else "ok"))
+    return 1 if bad else 0
+
+
 NEW_PROJECT = ("init", "onboard", "quickstart", "mcp")  # these make a project: with no -C they use this folder
 
 
@@ -1707,6 +1723,8 @@ def main(argv=None):
     add("resume", cmd_resume, "clear the stop flag")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
     p.add_argument("--tokens", action="store_true", help="tokens and cost per step: build, retry, review, verify, audit, ...")
+    p = add("verify", cmd_verify, "check the signed receipt of each closed phase, offline")
+    p.add_argument("phase", nargs="?", help="one phase id (default: all)")
     p = add("audit", cmd_review, "run the completion audit now (the lean profile never runs it by itself)")
     p.set_defaults(kind="completion")
     p = add("review", cmd_review, "run an audit / completion audit / replan now")

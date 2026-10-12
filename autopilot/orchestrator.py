@@ -1974,6 +1974,7 @@ class Orchestrator:
         self.docs.phase_done(phase, self.state, status, note)
         self._commit_main(f"[autopilot] close phase {phase.id} ({status})")
         self.docs_phase(phase)  # O11: on a clean tree, so a dropped result discards nothing of ours
+        self.write_receipt(phase)
         self.notify.send("phase_done", f"{phase.id} {phase.title}: {status}. "
                                        f"{progress_line(self.plan, self.state.status_map())}. {note}")
         self.sync_plan_source(wait=False)  # N13: items added to the plan document meanwhile become tasks now
@@ -1990,6 +1991,17 @@ class Orchestrator:
             self.audit("periodic", phase.id)
         if self.cfg.get("replan.enabled") and replan_n and closed % replan_n == 0:
             self.replan(f"after {phase.id}")
+
+    def write_receipt(self, phase):
+        """W7: sign the phase files (PROOF.md, PHASE.md, task files). A failure never holds the phase."""
+        from . import receipt
+        hist = self.root / self.cfg.get("docs.history_dir", ".agent/history") / phase.id
+        try:
+            files = [f for f in hist.iterdir() if f.is_file() and f.name != receipt.NAME] if hist.is_dir() else []
+            receipt.write(self.root, phase.id, files, self.git.head(), hist)
+            self._commit_main(f"[autopilot] receipt for phase {phase.id}")
+        except Exception as e:  # key folder not writable, git error: the phase is closed anyway
+            log.warning("receipt for %s not written: %s", phase.id, e)
 
     # ------------------------------------------------------------------ O11: the agent documents the app it builds
     def docs_phase(self, phase):
