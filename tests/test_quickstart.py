@@ -392,7 +392,8 @@ def test_a_missing_login_stops_before_anything_is_created(tmp_path, monkeypatch,
 
 # ---- P05-T02: README install lines, honest limits, links ----
 README = ROOT_INSTALL.with_name("README.md")
-RUNNERS = ("Claude Code", "kiro-cli", "cursor-agent", "codex", "gemini", "aider")
+from autopilot.doctor import RUNNERS as _ROWS  # noqa: E402
+RUNNERS = ("Claude Code", *(r.binary for r in _ROWS if r.key != "claude_cli"))  # Q1: from the one table
 
 
 def test_readme_has_one_install_line_per_system():

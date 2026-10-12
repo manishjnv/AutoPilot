@@ -162,12 +162,28 @@ Your own settings add cost and context to each session. To load them too, for ex
 `apiKeyHelper`, set `agent.user_config: true`.
 
 Runner detection: when the project's own `.agent/project.yaml` sets no `agent.backend`, `agent.command` or
-`agent.preset`, preflight (before `ap run` and `ap onboard`) detects the first installed, logged-in CLI in this order and
-writes it: `claude`, `kiro-cli`, `cursor-agent`, `codex`, `gemini`, `aider`. It prints `runner: <name> (found on
-PATH)`. For `claude` it writes `backend: claude_cli`; for a different CLI, `backend: command` and the preset. When it
-finds no CLI, it prints the install command of Claude Code and stops. A value that you set is never changed.
+`agent.preset`, preflight (before `ap run` and `ap onboard`) detects the first installed, logged-in CLI in the order of
+the runner table and writes it: `claude`, `copilot`, `codex`, `agent` (Cursor; the old name `cursor-agent` still
+counts), `kiro-cli`. It prints `runner: <name> (found on PATH)`. For `claude` it writes `backend: claude_cli`; for a
+different CLI, `backend: command` and the preset. When it finds no CLI, it prints one line per runner with the install
+command for this system and stops; it never names one runner first. A value that you set is never changed. The runner
+that `ap setup` chose on this computer is used when no CLI is logged in.
 
-Runner login: before the first session, preflight checks that the configured runner is logged in with its own subscription (`claude auth status`, `codex login status`, `cursor-agent status`, `kiro-cli whoami`), with a 20 second limit and no prompt. A failed check prints the one login command (for example `codex login`) and stops. Autopilot never opens a browser and never reads a credential file. Runners that need an API key (`gemini`, `aider`, `opencode`) are not supported.
+Runner table (one source, `autopilot/doctor.py`): every runner fact lives in one table. Each row has the program name,
+the install command per system, the login command, the read-only status command and the token variables (presence
+only; a value is never read or shown).
+
+| Runner | Program | Login command | Status check | Token variables | You pay for |
+|---|---|---|---|---|---|
+| `claude` | `claude` | `claude auth login` | `claude auth status` | `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` and the gateway variables | a paid Claude plan (Pro or Max) |
+| `copilot` | `copilot` | `copilot login` | `gh auth status` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` | a paid GitHub Copilot plan |
+| `codex` | `codex` | `codex login` | `codex login status` | `CODEX_API_KEY` | a ChatGPT plan |
+| `cursor` | `agent` (`cursor-agent` before) | `agent login` | `agent status` | `CURSOR_API_KEY` | a Cursor plan |
+| `kiro` | `kiro-cli` | `kiro-cli login` | `kiro-cli whoami` | `KIRO_API_KEY` | a Kiro plan or an AWS Builder ID |
+
+Copilot in VS Code is not a command-line tool. Autopilot needs the Copilot CLI, which uses the same subscription.
+
+Runner login: before the first session, preflight checks that the configured runner is logged in with its own subscription (the status check of the table), with a 20 second limit and no prompt. A failed check prints the one login command (for example `codex login`) and stops. Autopilot never opens a browser and never reads a credential file. Runners that need an API key (`gemini`, `aider`, `opencode`) are not supported.
 
 Python setup: preflight never runs a bare `pip install` on the system Python. When a `requirements*.txt` file has no
 environment, preflight runs `python -m venv .venv`, then installs with the `.venv` Python. An active environment
@@ -182,7 +198,7 @@ Agent presets: with `agent.backend: command` and no `agent.command`, `agent.pres
 | `gemini` | `gemini -p` | standard input |
 | `opencode` | `opencode run` | standard input |
 | `kiro` | `kiro-cli chat --no-interactive --trust-all-tools` | standard input |
-| `cursor` | `cursor-agent -p --force --trust` | standard input |
+| `cursor` | `agent -p --force --trust` | standard input |
 | `aider` | `aider --message-file ... --yes-always --no-auto-commits` | a temporary file outside the project |
 
 `agent.fallback` (default empty = off) lists runner presets, for example `[codex, copilot]`. When a session ends on a

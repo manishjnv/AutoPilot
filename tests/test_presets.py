@@ -76,7 +76,7 @@ def test_config_and_doctor(tmp_path, monkeypatch):
 
 # P03-T01: kiro reads stdin (no positional argument), cursor gets _ASK + stdin, aider reads a temp message file
 NEW = {"kiro": ("kiro-cli", ['"chat"', '"--no-interactive"', '"--trust-all-tools"']),
-       "cursor": ("cursor-agent", ['"-p"', '"--force"', '"--trust"', "standard input"]),
+       "cursor": ("agent", ['"-p"', '"--force"', '"--trust"', "standard input"]),
        "aider": ("aider", ['"--message-file"', '"--yes-always"', '"--no-auto-commits"', '"--no-dirty-commits"'])}
 
 
@@ -110,6 +110,14 @@ def test_new_presets_model_flag(tmp_path, preset):
     for bad in ("haiku", "$(id)", "a;rm -rf ~", "x\"y"):
         with pytest.raises(ValueError, match="unsafe model name"):
             model_flag(cfg, bad)
+
+
+def test_cursor_preset_falls_back_to_the_old_binary_name(tmp_path, monkeypatch):
+    """Q1: the preset says `agent`; a PC that still has only `cursor-agent` runs that one."""
+    fake_cli(tmp_path, monkeypatch, "cursor-agent")
+    cfg = cfg_with(tmp_path, {"preset": "cursor"})
+    assert command_template(cfg).split()[0] == "cursor-agent"
+    assert PRESETS["cursor"].split()[0] == "agent"
 
 
 def test_old_presets_unchanged():

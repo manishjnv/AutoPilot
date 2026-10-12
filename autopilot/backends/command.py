@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -21,11 +22,12 @@ PRESETS = {
     # https://cursor.com/docs/cli/headless , https://cursor.com/docs/cli/reference/parameters ,
     # https://aider.chat/docs/config/options.html , https://aider.chat/docs/scripting.html
     # kiro: no _ASK, because a positional argument stops kiro-cli from reading the prompt on stdin.
-    # cursor: stdin is not documented (the Chief project, PR #48, uses it), so the short _ASK argument stays.
+    # cursor: stdin is not documented (the Chief project, PR #48, uses it), so the short _ASK argument stays. The binary
+    # is `agent` since the rename (docs checked 2026-10-12); `command_template` falls back to an installed `cursor-agent`.
     # aider: no stdin prompt, so it reads {prompt_file} (a temp file outside the worktree); git stays with the orchestrator.
     # --trust-all-tools (kiro) and --force (cursor) approve every tool, not only the workspace (like gemini yolo).
     "kiro": "kiro-cli chat --no-interactive --trust-all-tools{model_flag}",
-    "cursor": "cursor-agent -p --force --trust{model_flag} " + _ASK,
+    "cursor": "agent -p --force --trust{model_flag} " + _ASK,
     "aider": "aider --message-file {prompt_file} --yes-always --no-auto-commits --no-dirty-commits --no-gitignore"
              " --no-check-update --no-analytics --no-pretty --no-stream{model_flag}",
 }
@@ -35,7 +37,21 @@ SAFE_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}")
 
 
 def command_template(cfg) -> str:
-    return cfg.get("agent.command") or PRESETS.get(str(cfg.get("agent.preset") or ""), "")
+    """The shell template: `agent.command`, or the preset. When the preset's binary is not on PATH but an older name
+    of it is (the doctor table's aliases, for example `cursor-agent`), that name is used."""
+    own = cfg.get("agent.command")
+    if own:
+        return own
+    preset = str(cfg.get("agent.preset") or "")
+    tpl = PRESETS.get(preset, "")
+    if tpl:
+        from ..doctor import runner
+        row = runner(preset)
+        if row is not None and not shutil.which(row.binary):
+            alias = next((a for a in row.aliases if shutil.which(a)), "")
+            if alias:
+                tpl = alias + tpl[len(row.binary):]
+    return tpl
 
 
 def model_flag(cfg, model: str) -> str:

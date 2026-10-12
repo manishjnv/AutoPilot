@@ -383,34 +383,47 @@ def remember_setup(proj_path: Path, cmds: list[str]) -> None:
 
 
 def runner_set(root: Path) -> bool:
-    """N3: does the project's own project.yaml choose the agent CLI? Read raw: Config merges the claude_cli default.
-    An unusual `agent:` value (not a mapping) counts as set, so the file is left alone."""
-    path = Path(root) / AGENT_DIR / "project.yaml"
-    try:
-        agent = (load_yaml(path) if path.exists() else {}).get("agent") or {}
-    except (yaml.YAMLError, AttributeError):
-        return True  # a file preflight cannot read is never edited; validate reports it
-    return not isinstance(agent, dict) or any(agent.get(k) for k in ("backend", "command", "preset"))
+    """N3: does the project's own project.yaml choose the agent CLI? One reader: `doctor.runner_chosen`."""
+    from .doctor import runner_chosen
+    return runner_chosen(root)
 
 
 def pick_runner(root: Path) -> bool:
-    """N3: no runner set -> write the first installed, logged-in agent CLI on PATH. False = none (install hint printed).
-    A claude that is installed but logged out stays the default with no write, so the H2 login offer still runs."""
+    """N3: no runner set -> write the first installed, logged-in agent CLI on PATH. False = none: the neutral list of
+    every runner with its install command (Q1), never 'Install Claude Code' first. A claude that is installed but
+    logged out stays the default with no write, so the H2 login offer still runs. The runner `ap setup` chose on this
+    PC (Q3, `~/.autopilot/runner`) is written when it is installed and nothing else is logged in."""
     from .backends.claude_cli import ClaudeCLIBackend
-    from .doctor import INSTALL, RUNNERS, detect_runner
+    from .doctor import detect_runner, installed_runners, no_runner_text, runner
     if os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN"):
         return True  # an explicit claude binary is a choice: keep the claude_cli default
     choice = detect_runner()
+    if not choice:
+        row = runner(setup_choice())
+        if row is not None and row.which():
+            choice = row.key
     if choice:
         if not remember_runner(Path(root) / AGENT_DIR / "project.yaml", choice):
             return False
-        print(f"runner: {next(b for b, be, *_ in RUNNERS if be == choice)} (found on PATH)")
+        print(f"runner: {runner(choice).binary} (found on PATH)")
         return True
     if shutil.which(ClaudeCLIBackend.resolve_binary()):
         return True
-    print(f"FAIL  no agent CLI found. Install Claude Code with: {INSTALL['native'][1]}\n"
-          f"      supported: {', '.join(b for b, *_ in RUNNERS)}")
+    found = installed_runners()
+    if found:  # installed, logged out: say which login is missing, nothing else
+        row = found[0][0]
+        print(f"FAIL  {row.binary} is installed but not logged in: run `{row.login}`, then start again")
+        return False
+    print(f"FAIL  {no_runner_text()}")
     return False
+
+
+def setup_choice() -> str:
+    """Q3: the runner `ap setup` chose on this PC (one word in `~/.autopilot/runner`), '' when none."""
+    try:
+        return (_recent_file().with_name("runner").read_text(encoding="utf-8").strip())
+    except OSError:
+        return ""
 
 
 def remember_runner(proj_path: Path, choice: str) -> bool:

@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- Q1: one runner table in `doctor.py` (claude, copilot, codex, cursor as `agent`, kiro) feeds detection, the login check, `ap doctor` and the missing-runner message, which now lists every runner with its install command instead of "Install Claude Code".
+
 ## [0.4.0] - 2026-10-12
 
 - O10: `profile: lean` is the default for new projects after the clean measure (39.5 percent fewer tokens per task, every task done); an old `project.yaml` without the key stays `full`.

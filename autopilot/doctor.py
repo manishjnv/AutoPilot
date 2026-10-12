@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import sysconfig
+from dataclasses import dataclass
 from pathlib import Path
 
 from .config import Config
@@ -57,26 +58,125 @@ def check_login(binary: str, version: tuple, cfg, timeout: float = 30) -> tuple[
     return FAIL, "claude login", f"not logged in: {LOGIN_FIX}"
 
 
-# N3: agent CLIs in the order preflight tries them -> (binary, backend choice, read-only status argv or None,
-# documented key variables). A key variable counts first: no process to start. Never a `login` argument here.
+# Q1: the one runner table. Every runner fact (binary, aliases, preset, install command per OS, login command,
+# read-only status argv, token variables, plan) lives here; `pick_runner`, `check_runner_login`, `detect_runner`,
+# `ap doctor`, `ap setup`, the N11 fallback, the template comment and REFERENCE read it (a test checks the copies).
+# Rows: subscription runners only (owner rule 2026-10-11). Install commands and flags: docs checked 2026-10-12, not
+# run live. A token variable counts first (presence only, never the value): no process to start. Never `login` here.
 LOGIN_TIMEOUT = 20  # N10
+VSCODE_SENTENCE = ("Copilot in VS Code is not a command-line tool. Autopilot needs the Copilot CLI, which uses the "
+                   "same subscription.")
+
+
+@dataclass(frozen=True)
+class Runner:
+    key: str                 # the `agent.preset` value, or `claude_cli`
+    binary: str              # the program on PATH
+    aliases: tuple           # older names of the same program
+    install: dict            # os (`linux`, `darwin`, `windows`) -> the native install command (a link when there is none)
+    login: str               # the one interactive login command; Autopilot prints it, never runs it (N10)
+    status: tuple | None     # read-only status argv; `status[0]` may name another program (`gh`); None = token or claude
+    tokens: tuple            # token variables that count as a login (presence only)
+    plan: str                # what the user pays for
+    footprints: tuple = ()   # folders that suggest the runner (Q3); a footprint never installs by itself
+    npm: str = ""            # the npm route, after the native one (Node is a project dependency, not Autopilot's)
+
+    @property
+    def preset(self) -> str:
+        return "" if self.key == "claude_cli" else self.key
+
+    @property
+    def name(self) -> str:
+        """The plain name a user reads: `claude`, `copilot`, `codex`, `cursor`, `kiro`."""
+        return "claude" if self.key == "claude_cli" else self.key
+
+    @property
+    def name(self) -> str:
+        """The plain name a user reads: `claude`, `copilot`, `codex`, `cursor`, `kiro`."""
+        return "claude" if self.key == "claude_cli" else self.key
+
+    @property
+    def names(self) -> tuple:
+        return (self.binary, *self.aliases)
+
+    def install_cmd(self, platform: str | None = None) -> str:
+        p = platform or sys.platform
+        os_ = "windows" if p.startswith("win") else "darwin" if p == "darwin" else "linux"
+        return self.install[os_]
+
+    def which(self, path: str | None = None) -> str | None:
+        """The program's path, under its current name or an alias; None when it is not on PATH."""
+        for n in self.names:
+            exe = shutil.which(n, path=path) if path is not None else shutil.which(n)
+            if exe:
+                return exe
+        return None
+
+
+_CLAUDE_SH = "curl -fsSL https://claude.ai/install.sh | bash"
 RUNNERS = (
-    ("claude", "claude_cli", None, OTHER_AUTH),
-    ("kiro-cli", "kiro", ("whoami",), ("KIRO_API_KEY",)),
-    ("cursor-agent", "cursor", ("status",), ("CURSOR_API_KEY",)),
-    ("codex", "codex", ("login", "status"), ("CODEX_API_KEY",)),
-    ("gemini", "gemini", None, ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
-    ("aider", "aider", None, ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY",
-                              "DEEPSEEK_API_KEY")),
+    Runner("claude_cli", "claude", (), {"linux": _CLAUDE_SH, "darwin": _CLAUDE_SH,
+                                        "windows": "irm https://claude.ai/install.ps1 | iex"},
+           "claude auth login", None, OTHER_AUTH, "a paid Claude plan (Pro or Max)", (".claude", ".claude.json"),
+           npm="npm i -g @anthropic-ai/claude-code"),
+    # copilot: docs checked 2026-10-12, not run live. Status through `gh` (no prompt-free copilot status command).
+    Runner("copilot", "copilot", (), {"linux": "curl -fsSL https://gh.io/copilot-install | bash",
+                                      "darwin": "brew install --cask copilot-cli",
+                                      "windows": "winget install GitHub.Copilot"},
+           "copilot login", ("gh", "auth", "status"), ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"),
+           "a paid GitHub Copilot plan", (".copilot",), npm="npm i -g @github/copilot"),
+    Runner("codex", "codex", (), {"linux": "npm i -g @openai/codex", "darwin": "npm i -g @openai/codex",
+                                  "windows": "npm i -g @openai/codex"},
+           "codex login", ("login", "status"), ("CODEX_API_KEY",), "a ChatGPT plan", (".codex",),
+           npm="npm i -g @openai/codex"),
+    # cursor renamed the binary from cursor-agent to agent (docs checked 2026-10-12)
+    Runner("cursor", "agent", ("cursor-agent",), {"linux": "curl https://cursor.com/install -fsS | bash",
+                                                  "darwin": "curl https://cursor.com/install -fsS | bash",
+                                                  "windows": "irm 'https://cursor.com/install?win32=true' | iex"},
+           "agent login", ("status",), ("CURSOR_API_KEY",), "a Cursor plan", (".cursor",)),
+    # kiro ships a download page on Windows, no script: the row prints the link
+    Runner("kiro", "kiro-cli", (), {"linux": "curl -fsSL https://cli.kiro.dev/install | bash",
+                                    "darwin": "curl -fsSL https://cli.kiro.dev/install | bash",
+                                    "windows": "https://kiro.dev/downloads/ (download page, no script)"},
+           "kiro-cli login", ("whoami",), ("KIRO_API_KEY",), "a Kiro plan or an AWS Builder ID", (".kiro",)),
 )
 # exit codes of the status commands are not documented: a logged-out CLI may still exit 0
 LOGGED_OUT = re.compile(r"not (logged|signed) in|not authenticated|unauthenticated|logged out|no (active )?"
                         r"(session|credentials)|please (log|sign) ?in", re.I)
-# N10: owner rule 2026-10-11, subscription login only. The one interactive login command per runner (never run by
-# Autopilot: it prints the line and stops), and the runners whose only login is an API key (not supported).
-LOGIN_CMD = {"claude_cli": "claude auth login", "codex": "codex login", "cursor": "cursor-agent login",
-             "kiro": "kiro-cli login", "copilot": "gh auth login"}
-NO_SUBSCRIPTION = ("gemini", "aider", "opencode", "amp", "qwen", "goose")
+# N10: owner rule 2026-10-11, subscription login only. Derived from the table: never a second copy.
+LOGIN_CMD = {r.key: r.login for r in RUNNERS}
+NO_SUBSCRIPTION = ("gemini", "aider", "opencode", "amp", "qwen", "goose")  # API key only: not supported
+
+
+def runner(key: str) -> Runner | None:
+    """The row of a preset name or `claude_cli` (`claude` is accepted too); None when there is none."""
+    return next((r for r in RUNNERS if r.key == key or r.binary == key), None)
+
+
+def runner_lines(platform: str | None = None) -> list[str]:
+    """One line per runner with its install command for this OS, for the neutral runner-missing message (Q1)."""
+    return [f"{r.name:<8} {r.install_cmd(platform)}" for r in RUNNERS]
+
+
+def no_runner_text(platform: str | None = None) -> str:
+    """The runner-missing message: neutral, one line per runner, then the VS Code sentence. Never 'Install Claude Code'."""
+    return ("no agent CLI found. Install the one you pay for, or run `ap setup` (it asks once):\n"
+            + "".join(f"      {line}\n" for line in runner_lines(platform)) + f"      {VSCODE_SENTENCE}")
+
+
+def runner_chosen(root) -> bool:
+    """N3: does the project's own project.yaml choose the agent CLI? Read raw: Config merges the claude_cli default.
+    An unusual `agent:` value (not a mapping) counts as chosen, so the file is left alone."""
+    import yaml
+
+    from . import AGENT_DIR
+    path = Path(root) / AGENT_DIR / "project.yaml"
+    try:
+        agent = (yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else {}) or {}
+        agent = agent.get("agent") or {}
+    except (yaml.YAMLError, AttributeError, OSError):
+        return True  # a file preflight cannot read is never edited; validate reports it
+    return not isinstance(agent, dict) or any(agent.get(k) for k in ("backend", "command", "preset"))
 
 
 def check_runner_login(cfg, env=None) -> tuple[str, str, str]:
@@ -88,47 +188,62 @@ def check_runner_login(cfg, env=None) -> tuple[str, str, str]:
     if preset in NO_SUBSCRIPTION:
         return (WARN, "runner login",
                 f"`{preset}` needs an API key, not supported (subscription runners: {', '.join(LOGIN_CMD)})")
-    row = next((r for r in RUNNERS if r[1] == preset), None)
+    row = runner(preset)
     if row is None:
         return WARN, "runner login", f"no login check for preset `{preset}`"
-    binary, _, status, keys = row
     env = dict(os.environ if env is None else env)
-    exe = shutil.which(binary, path=next((v for k, v in env.items() if k.upper() == "PATH"), None))
+    path = next((v for k, v in env.items() if k.upper() == "PATH"), None)
+    exe = row.which(path)
     if not exe:
-        return FAIL, "runner login", f"`{binary}` is not on PATH"
-    if _logged_in(exe, binary, status, keys, env):
-        return OK, "runner login", f"{binary} logged in"
-    return FAIL, "runner login", f"{binary} is not logged in: run `{LOGIN_CMD.get(preset, binary + ' login')}`, then start again"
+        return FAIL, "runner login", f"`{row.binary}` is not on PATH"
+    if _logged_in(exe, row, env):
+        return OK, "runner login", f"{row.binary} logged in"
+    return FAIL, "runner login", f"{row.binary} is not logged in: run `{row.login}`, then start again"
 
 
-def _logged_in(path: str, binary: str, status: tuple | None, keys: tuple, env: dict) -> bool:
-    """N3: True when a key variable is set (only its presence is read), or the status command exits 0 within
-    LOGIN_TIMEOUT without logged-out wording. A timeout or a program that does not start counts as logged out."""
-    if any(env.get(k) for k in keys):
+def _logged_in(path: str, row: Runner, env: dict) -> bool:
+    """N3: True when a token variable is set (only its presence is read), or the status command exits 0 within
+    LOGIN_TIMEOUT without logged-out wording. A timeout or a program that does not start counts as logged out.
+    A status argv that names another program (`gh auth status` for copilot) needs that program on PATH."""
+    if any(env.get(k) for k in row.tokens):
         return True
-    if binary == "claude":
+    if row.key == "claude_cli":
         return check_login(path, (0, 0, 0), None, timeout=LOGIN_TIMEOUT)[0] == OK
-    if not status:
+    if not row.status:
         return False
+    argv = [path, *row.status]
+    if row.status[0] == "gh":  # copilot: the status lives in another program
+        gh = shutil.which("gh", path=next((v for k, v in env.items() if k.upper() == "PATH"), None))
+        if not gh:
+            return False
+        argv = [gh, *row.status[1:]]
     try:
-        p = run_proc([path, *status], env={**env, "CI": "1"}, timeout=LOGIN_TIMEOUT)  # N10: no prompt, no browser
+        p = run_proc(argv, env={**env, "CI": "1"}, timeout=LOGIN_TIMEOUT)  # N10: no prompt, no browser
     except OSError:
         return False
     return p.rc == 0 and not p.timed_out and not LOGGED_OUT.search(p.stdout + p.stderr)
 
 
-def detect_runner(env=None) -> str | None:
-    """N3: the backend choice (`claude_cli`, or a preset name) of the first agent CLI on PATH that is installed and
-    logged in, in RUNNERS order; None when there is none. Read-only: never starts a login."""
+def _iter_runners(env=None):
+    """(row, path, logged_in) for each table runner on PATH, in table order, one at a time (a status command runs
+    only when the caller gets that far). Read-only: never starts a login."""
     env = dict(os.environ if env is None else env)
     path = next((v for k, v in env.items() if k.upper() == "PATH"), "")
-    if not path:
-        return None
-    for binary, backend, status, keys in RUNNERS:
-        exe = shutil.which(binary, path=path)
-        if exe and _logged_in(exe, binary, status, keys, env):
-            return backend
-    return None
+    for row in RUNNERS:
+        exe = row.which(path) if path else None
+        if exe:
+            yield row, exe, _logged_in(exe, row, env)
+
+
+def installed_runners(env=None) -> list[tuple[Runner, str, bool]]:
+    """Q3: every table runner on PATH as (row, path, logged_in), in table order."""
+    return list(_iter_runners(env))
+
+
+def detect_runner(env=None) -> str | None:
+    """N3: the backend choice (`claude_cli`, or a preset name) of the first agent CLI on PATH that is installed and
+    logged in, in RUNNERS order; None when there is none. Stops at the first hit: the later CLIs are never asked."""
+    return next((row.key for row, _, ok in _iter_runners(env) if ok), None)
 
 
 def check_claude(cfg=None) -> list[tuple[str, str, str]]:
@@ -428,7 +543,12 @@ def check_package(root) -> tuple[str, str, str]:
 def checks(cfg: Config) -> list[tuple[str, str, str]]:
     """(level, name, detail) per check. FAIL = the run would break; WARN = it runs, but something is missing."""
     out = [check_path(), check_package(cfg.root)]
-    if cfg.get("agent.backend", "claude_cli") == "claude_cli":
+    explicit = os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN")  # a choice, like pick_runner
+    if not runner_chosen(cfg.root) and not explicit:  # Q1: never `claude login` on a machine that never chose Claude
+        found = installed_runners()
+        out.append((WARN, "runner", "none chosen yet; `ap setup` picks one" + (": found " + ", ".join(
+            f"{r.binary} ({'logged in' if ok else 'logged out'})" for r, _, ok in found) if found else "")))
+    elif cfg.get("agent.backend", "claude_cli") == "claude_cli":
         out += check_claude(cfg)
         out += [g for g in [check_user_guards(cfg)] if g]
     elif cfg.get("agent.backend") == "command":

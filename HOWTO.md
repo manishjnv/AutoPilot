@@ -359,10 +359,12 @@ Open a project folder and type `ap`. The result depends on the folder:
 Autopilot starts a CLI agent for each session. It does not drive a chat panel in an IDE, so you watch the build in
 your IDE or terminal.
 
-- **Supported CLI runners:** Claude Code (the default), `kiro-cli`, `cursor-agent`, `codex`, `gemini` and `aider`. Autopilot
-  uses the one that is installed and logged in. To choose one, set `agent.backend` in `.agent/project.yaml`.
+- **Supported CLI runners:** Claude Code, the Copilot CLI (`copilot`), `codex`, Cursor (`agent`) and `kiro-cli`. Autopilot
+  uses the one that is installed and logged in. To choose one, run `ap setup`, or set `agent.backend` in `.agent/project.yaml`.
+  The `gemini` and `aider` presets need an API key and are not supported.
 - **Not supported:** Replit has no CLI that Autopilot can call. The Kiro and Cursor chat panels have none either.
-  Use the `kiro-cli` or `cursor-agent` CLI instead.
+  Use the `kiro-cli` or `agent` CLI instead. Copilot in VS Code is not a command-line tool. Autopilot needs the
+  Copilot CLI, which uses the same subscription.
 - **Approve-all presets:** `kiro` (`--trust-all-tools`), `cursor` (`--force`) and `gemini` (`yolo`) approve every tool,
   not only the worktree. They never ran live. See [SECURITY.md](SECURITY.md).
 - **Where you watch:** run `ap watch` in the terminal of your IDE, or open the status page in your browser.
@@ -373,8 +375,9 @@ your IDE or terminal.
 ## Use a different agent CLI
 
 Which agent CLI runs: when `.agent/project.yaml` has no `agent.backend`, preflight finds the first installed,
-logged-in CLI on PATH (`claude`, `kiro-cli`, `cursor-agent`, `codex`, `gemini`, `aider`) and writes it into the file.
-To choose a CLI yourself, do these steps:
+logged-in CLI on PATH (`claude`, `copilot`, `codex`, `agent`, `kiro-cli`) and writes it into the file. If none is
+logged in, run `ap setup`: it finds the AI you pay for, installs its CLI and writes the file. To choose a CLI yourself,
+do these steps:
 
 1. In `.agent/project.yaml`, set `agent.backend: command`.
 2. Set `agent.preset` to `codex`, `gemini`, `opencode`, `kiro`, `cursor` or `aider`. For a different CLI, write the command in `agent.command`.

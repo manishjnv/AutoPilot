@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -21,9 +22,9 @@ FAKE = (
 
 @pytest.fixture(autouse=True)
 def no_keys(monkeypatch):
-    """No real key from this machine may count: every key variable of RUNNERS is removed."""
-    for _, _, _, keys in RUNNERS:
-        for k in keys:
+    """No real key from this machine may count: every token variable of the runner table is removed."""
+    for row in RUNNERS:
+        for k in row.tokens:
             monkeypatch.delenv(k, raising=False)
 
 
@@ -78,11 +79,21 @@ def test_empty_path_is_none(tmp_path):
 
 def test_hanging_login_check_is_stopped_by_the_timeout(tmp_path, monkeypatch):
     monkeypatch.setattr(doctor, "LOGIN_TIMEOUT", 1)
-    path = fake_bin(tmp_path, **{"kiro-cli": "hang", "cursor-agent": "in"})
+    path = fake_bin(tmp_path, codex="hang", agent="in")
     start = time.monotonic()
     assert detect_runner(env_with(path)) == "cursor"
     assert time.monotonic() - start < 30
-    assert calls(tmp_path, "cursor-agent") == [["status"]]
+    assert calls(tmp_path, "agent") == [["status"]]
+
+
+def test_cursor_is_found_under_its_new_name_and_its_old_one(tmp_path):
+    """Q1: Cursor renamed the binary from cursor-agent to agent; both count, the new name first."""
+    assert detect_runner(env_with(fake_bin(tmp_path, agent="in"))) == "cursor"
+    old = tmp_path / "old"
+    old.mkdir()
+    path = fake_bin(old, **{"cursor-agent": "in"})
+    assert detect_runner(env_with(path)) == "cursor"
+    assert doctor.runner("cursor").which(path).endswith("cursor-agent")
 
 
 def test_logged_out_wording_with_exit_0_is_not_logged_in(tmp_path):
@@ -91,13 +102,14 @@ def test_logged_out_wording_with_exit_0_is_not_logged_in(tmp_path):
     assert calls(tmp_path, "codex") == [["login", "status"]]
 
 
-def test_key_variable_counts_without_a_status_command(tmp_path):
+def test_token_variable_counts_and_api_key_runners_are_no_rows(tmp_path):
     path = fake_bin(tmp_path, **{"kiro-cli": "out", "gemini": "out", "aider": "out"})
-    assert detect_runner(env_with(path)) is None  # gemini and aider have no status command and no key
-    assert detect_runner(env_with(path, GEMINI_API_KEY="fake-example-key")) == "gemini"
+    assert detect_runner(env_with(path)) is None
+    assert detect_runner(env_with(path, GEMINI_API_KEY="fake-example-key")) is None  # API key only: not a row (Q1)
     assert detect_runner(env_with(path, KIRO_API_KEY="fake-example-key")) == "kiro"
-    assert detect_runner(env_with(path, OPENROUTER_API_KEY="")) is None  # an empty key does not count
+    assert detect_runner(env_with(path, KIRO_API_KEY="")) is None  # an empty token does not count
     assert calls(tmp_path, "gemini") == [] and calls(tmp_path, "aider") == []
+    assert {r.key for r in RUNNERS} == {"claude_cli", "copilot", "codex", "cursor", "kiro"}
 
 
 def test_claude_key_counts(tmp_path):
@@ -107,7 +119,7 @@ def test_claude_key_counts(tmp_path):
 
 
 def test_never_starts_a_login(tmp_path):
-    names = {b: "out" for b, _, _, _ in RUNNERS}
+    names = {r.binary: "out" for r in RUNNERS}
     path = fake_bin(tmp_path, **names)
     assert detect_runner(env_with(path)) is None
     for name in names:
@@ -217,9 +229,78 @@ def test_no_runner_on_path_prints_the_install_command(tmp_path, monkeypatch, cap
     only_path(monkeypatch, tmp_path, str(empty))
     assert preflight(Config.load(root)) is False
     out = capsys.readouterr().out
-    assert doctor.INSTALL["native"][1] in out and "no agent CLI found" in out
-    assert "kiro-cli, cursor-agent, codex, gemini, aider" in out
+    assert "no agent CLI found" in out and "Install Claude Code" not in out  # Q1: neutral
+    for row in RUNNERS:  # five runners, each with its install command for this system
+        assert row.name in out and row.install_cmd() in out
+    assert out.index("claude") < out.index("copilot") and doctor.VSCODE_SENTENCE in out
     assert pj.read_bytes() == before
+
+
+def test_installed_but_logged_out_runner_names_only_its_login(tmp_path, monkeypatch, capsys):
+    root, _ = init_project(tmp_path)
+    only_path(monkeypatch, tmp_path, fake_bin(tmp_path, codex="out"))
+    assert preflight(Config.load(root)) is False
+    out = capsys.readouterr().out
+    assert "codex is installed but not logged in: run `codex login`" in out and "no agent CLI found" not in out
+
+
+def test_doctor_says_runner_none_when_no_runner_is_chosen(tmp_path, monkeypatch):
+    """Q1: `ap doctor` on a machine that never chose Claude never asks for `claude login`."""
+    from autopilot.doctor import WARN, checks
+    root, _ = init_project(tmp_path)
+    only_path(monkeypatch, tmp_path, fake_bin(tmp_path, codex="out"))
+    rows = {name: (level, detail) for level, name, detail in checks(Config.load(root))}
+    assert "claude login" not in rows and "claude CLI" not in rows
+    assert rows["runner"][0] == WARN and rows["runner"][1].startswith("none chosen yet")
+    assert "codex (logged out)" in rows["runner"][1]
+
+
+def test_setup_choice_is_used_when_nothing_is_logged_in(tmp_path, monkeypatch, capsys):
+    """Q3 hook: the runner `ap setup` chose on this PC is written when it is installed and no CLI is logged in."""
+    root, _ = init_project(tmp_path)
+    only_path(monkeypatch, tmp_path, fake_bin(tmp_path, codex="out"))
+    home = Path(os.environ["AUTOPILOT_HOME"])
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "runner").write_text("codex\n", encoding="utf-8")
+    from autopilot.cli import pick_runner
+    assert pick_runner(root) is True
+    assert "runner: codex (found on PATH)" in capsys.readouterr().out
+    assert Config.load(root).get("agent.preset") == "codex"
+
+
+def test_every_copy_of_a_runner_fact_matches_the_table():
+    """Q1 rule: the template comment, REFERENCE and the HOWTO guide repeat runner facts; each copy follows the table."""
+    from autopilot.backends.command import PRESETS
+    from autopilot.config import TEMPLATES
+    root = Path(__file__).resolve().parent.parent
+    tpl = (TEMPLATES / "agent" / "project.yaml").read_text(encoding="utf-8")
+    line = next(l for l in tpl.splitlines() if "# preset:" in l)
+    assert set(line.split("command:")[1].split("(")[0].replace("|", " ").split()) == set(PRESETS)
+    fb = next(l for l in tpl.splitlines() if "# fallback:" in l)
+    keys = {r.key for r in RUNNERS}
+    assert all(n in keys for n in fb.split("[")[1].split("]")[0].replace(",", " ").split())
+    ref = (root / "REFERENCE.md").read_text(encoding="utf-8")
+    table = ref[ref.index("| Runner | Program |"):ref.index("Copilot in VS Code")]
+    for row in RUNNERS:
+        assert f"| `{row.name}` | `{row.binary}`" in table and f"`{row.login}`" in table, row.key
+        for tok in row.tokens[:1]:
+            assert tok in table, row.key
+    assert doctor.VSCODE_SENTENCE in ref
+    for key, tpl_line in PRESETS.items():
+        assert f"| `{key}` | `{tpl_line.split()[0]}" in ref, key
+    howto = (root / "HOWTO.md").read_text(encoding="utf-8")
+    guide = " ".join(howto[howto.index("## Limits and supported agent CLIs"):howto.index("## Share Autopilot")].split())
+    for row in RUNNERS:
+        assert f"`{row.binary}`" in guide or row.name == "claude", row.key
+    assert doctor.VSCODE_SENTENCE in guide
+    assert "cursor-agent" not in tpl and "cursor-agent" not in guide
+
+
+def test_fallback_names_must_be_presets(tmp_path):
+    root, pj = init_project(tmp_path)
+    pj.write_text(pj.read_text(encoding="utf-8") + "agent:\n  fallback: [codex, nope]\n", encoding="utf-8")
+    errs = Config.load(root).validate()
+    assert any("agent.fallback names must be presets" in e and "nope" in e for e in errs)
 
 
 def test_remember_runner_without_agent_block_and_claude(tmp_path):
