@@ -64,7 +64,10 @@ def warning(root: Path, **kw) -> list[str]:
     kind = location_kind(root, **{k: v for k, v in kw.items() if k in ("env", "platform", "drive_type")})
     if not kind:
         return []
-    target = default_target(root.name, kw.get("env"), kw.get("platform"), kw.get("home"))
+    from pathlib import PurePosixPath, PureWindowsPath
+    win = str(kw.get("platform") or sys.platform).startswith("win")
+    name = (PureWindowsPath if win else PurePosixPath)(str(root)).name  # the project name by the target OS, on any host
+    target = default_target(name, kw.get("env"), kw.get("platform"), kw.get("home"))
     return [WHY[kind], f'Move it with: ap move "{target}"']
 
 def _git(cwd, *args, run=run_proc):
