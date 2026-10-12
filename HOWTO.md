@@ -387,7 +387,7 @@ To choose a CLI yourself, do these steps:
 
 1. Send the link to the repository: <https://github.com/manishjnv/AutoPilot>. The MIT license lets them use, change
    and share it.
-2. The other person does [steps 1 to 3 of the tutorial](GUIDE.md#step-1-install-three-programs) on their computer,
+2. The other person does [steps 1 and 2 of the tutorial](GUIDE.md#step-1-install-autopilot) on their computer,
    with their own Claude login.
 
 Autopilot never shares your login. To continue a project, the other person clones it and runs `ap run`. The
@@ -511,7 +511,7 @@ the step starts. A second run is safe: the script skips a program that is alread
    | macOS, Linux, WSL | `bash install.sh --dry-run` |
 
 4. Run the same command without the dry-run option.
-5. Open a new terminal. Then run `ap`.
+5. Run `ap`. If the terminal does not find it, open a new terminal.
 
 Run the script with `bash`, not `sh`: it uses bash features, such as `set -o pipefail`, that `sh` on Debian and
 Ubuntu does not have. The one-line form in the [README](README.md#install) uses `bash` for this reason.
@@ -570,11 +570,11 @@ The install script runs these commands. Use them when the script fails, or when 
 1. **Windows (PowerShell):**
 
    ```powershell
-   winget install --id Git.Git -e          # the one administrator prompt
+   winget install --id Git.Git -e --scope user   # per user, no administrator prompt
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # uv installs Python if needed
    irm https://claude.ai/install.ps1 | iex
    # Open a new terminal. Then:
-   uv tool install git+https://github.com/manishjnv/AutoPilot@v0.3.0
+   uv tool install dev-autopilot            # or: uv tool install git+https://github.com/manishjnv/AutoPilot@v0.3.0
    claude auth login                        # a paid Claude plan (Pro or Max)
    ap doctor
    ```
@@ -585,7 +585,7 @@ The install script runs these commands. Use them when the script fails, or when 
    curl -LsSf https://astral.sh/uv/install.sh | sh      # uv installs Python if needed
    curl -fsSL https://claude.ai/install.sh | bash
    # Open a new terminal. Then:
-   uv tool install git+https://github.com/manishjnv/AutoPilot@v0.3.0
+   uv tool install dev-autopilot            # or: uv tool install git+https://github.com/manishjnv/AutoPilot@v0.3.0
    claude auth login                                    # a paid Claude plan (Pro or Max)
    ap doctor
    ```

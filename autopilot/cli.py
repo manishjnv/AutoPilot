@@ -444,13 +444,11 @@ def remember_runner(proj_path: Path, choice: str) -> bool:
 
 def login_now() -> bool:
     """H2: with a terminal, offer the Claude login and run it. False = no terminal (never ask), or the owner stops."""
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+    if not (sys.stdin.isatty() and sys.stdout.isatty()) or os.environ.get("SSH_CONNECTION"):
         return False
-    print("Claude Code is not logged in. A paid Claude plan or an API key is necessary.\n"
-          "  1  log in now (this opens the browser)\n  2  stop")
+    # N5.4: no question. The login opens in the browser; the user types nothing here (a paid Claude plan is necessary).
+    print("Claude Code is not logged in. The login opens in your browser now (Ctrl+C stops).")
     try:
-        if input("> ").strip() != "1":
-            return False
         import subprocess
 
         from .backends.claude_cli import ClaudeCLIBackend

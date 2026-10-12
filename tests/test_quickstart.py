@@ -44,7 +44,7 @@ def test_a_missing_login_stops_quickstart_and_run_before_the_first_session(tmp_p
 
 
 def test_with_a_terminal_the_login_is_offered_and_the_start_continues(tmp_path, monkeypatch, capsys):
-    """H2: "1 log in now" runs `claude auth login`, the check runs again, and quickstart goes on."""
+    """H2 + N5.4: with a terminal, `claude auth login` runs by itself, the check runs again, and quickstart goes on."""
     for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
                  "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"):
         monkeypatch.delenv(name, raising=False)
@@ -60,11 +60,11 @@ def test_with_a_terminal_the_login_is_offered_and_the_start_continues(tmp_path, 
     (proj / "PLAN.md").write_text("# Plan\nA todo app.\n")
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda *a: "2")
-    assert cli_main(["quickstart", "-C", str(proj)]) == 1 and not flag.exists()  # "2 stop": nothing runs
-    monkeypatch.setattr("builtins.input", lambda *a: "1")
-    assert cli_main(["quickstart", "-C", str(proj)]) == 0 and flag.exists()
-    assert "onboarding session" in capsys.readouterr().out
+    monkeypatch.delenv("SSH_CONNECTION", raising=False)
+    monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(AssertionError("no question (N5.4)")))
+    assert cli_main(["quickstart", "-C", str(proj)]) == 0 and flag.exists()  # N5.4: the login runs, nothing typed
+    out = capsys.readouterr().out
+    assert "opens in your browser" in out and "onboarding session" in out
 
 
 def test_detach_starts_the_same_command_as_its_own_process(tmp_path, monkeypatch, capsys):
@@ -164,9 +164,9 @@ def test_root_install_script_dry_run_changes_nothing(tmp_path):
     assert p.returncode == 0, p.stderr
     for n in range(1, 7):
         assert f"==> Step {n} of 6:" in p.stdout
-    assert p.stdout.count("would install") == 4 and "uv tool install" in p.stdout  # N8: git too (sudo, one consent)
+    assert p.stdout.count("would install") == 4 and "uv tool install" in p.stdout  # N5.4: uv, Claude Code, Python, Autopilot; git is only checked
     assert "This script installs:" in p.stdout and "Rights it takes:" in p.stdout  # N8: the one consent list
-    assert "would write /etc/sudoers.d/autopilot" in p.stdout and "NOPASSWD" in p.stdout
+    assert "none taken (N5.4)" in p.stdout and "sudo tee" not in p.stdout  # N5.4: the script takes no rights
     assert list(home.iterdir()) == []
 
 

@@ -117,6 +117,34 @@ def install_system_tool(tool: str, hint: str, platform: str | None = None, wait:
     return rc == 0 and bool(shutil.which(tool))
 
 
+WIN_RIGHTS_CMD = ("irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 -OutFile install.ps1; "
+                  "powershell -ExecutionPolicy Bypass -File install.ps1 -Rights")
+
+
+def setup_rights(platform: str | None = None, run=run_proc, user: str | None = None, tmp: Path | None = None) -> list[str]:
+    """N5.4: the one rights step, from `ap install --rights` (the install scripts take no rights by default). Linux and
+    WSL: one sudo installs the sudoers file (mode 0440, checked with visudo). Windows: the elevated step stays in
+    `install.ps1 -Rights`; the one command is printed. Returns the lines to show."""
+    p = platform or sys.platform
+    if have_rights(p):
+        return [describe(p)]
+    if p.startswith("win"):
+        return ["Windows: run this once (one administrator prompt): " + WIN_RIGHTS_CMD]
+    if p == "darwin":
+        return ["macOS: none needed (brew needs none)"]
+    line = SUDO_LINE.format(user=user or os.environ.get("USER") or os.environ.get("LOGNAME") or "me")
+    draft = (tmp or Path(os.environ.get("TMPDIR") or "/tmp")) / "autopilot-sudoers"
+    draft.write_text(line + "\n", encoding="utf-8")
+    print(f"one sudo now: it installs {SUDOERS} (checked with visudo)")
+    ok = (run(["sudo", "install", "-m", "0440", "-o", "root", "-g", "root", str(draft), SUDOERS], timeout=600).rc == 0
+          and run(["sudo", "visudo", "-cf", SUDOERS], timeout=60).rc == 0)
+    draft.unlink(missing_ok=True)
+    if not ok:
+        run(["sudo", "rm", "-f", SUDOERS], timeout=60)
+        return [f"could not install {SUDOERS}; the line to add by hand (visudo -f {SUDOERS}): {line}"]
+    return [describe(p)]
+
+
 def remove_rights(platform: str | None = None, run=run_proc) -> list[str]:
     """`ap uninstall --rights`: remove the task and the sudoers file. Returns the lines to show; a step that needs
     elevation itself prints the one command to run by hand."""

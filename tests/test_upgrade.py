@@ -143,10 +143,11 @@ def test_install_uses_uv_and_the_checked_wheel(capsys):
     assert "Open a project folder and type ap" in capsys.readouterr().out
 
 
-def test_install_rights_prints_the_command_when_none(capsys, monkeypatch):
+def test_install_rights_runs_the_rights_step(capsys, monkeypatch):
     monkeypatch.setattr("autopilot.rights.have_rights", lambda platform=None: "")
-    assert cmd_install(Namespace(rights=True)) == 1
-    assert "install." in capsys.readouterr().out
+    monkeypatch.setattr("autopilot.rights.setup_rights", lambda *a, **k: ["one line"])
+    assert cmd_install(Namespace(rights=True)) == 1  # N5.4: the step ran; no rights afterwards = rc 1
+    assert "one line" in capsys.readouterr().out
 
 
 def test_daily_check_asks_once(tmp_path):

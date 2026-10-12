@@ -15,8 +15,8 @@ and you do not have to watch it.
 ```mermaid
 flowchart LR
     accTitle: The tutorial in five steps
-    accDescr: Install three programs, install Autopilot, log in, start the build, then examine the result.
-    A["1. Install<br/>three programs"] --> B["2. Install<br/>Autopilot"] --> C["3. Log in"] --> D["4. Start<br/>the build"] --> E["5. Examine<br/>the result"]
+    accDescr: Install Autopilot, log in, start the build, then examine the result.
+    A["1. Install<br/>Autopilot"] --> B["2. Log in"] --> C["3. Start<br/>the build"] --> D["4. Examine<br/>the result"]
 ```
 
 ## Before you start
@@ -25,51 +25,26 @@ You need a paid Claude plan (Pro or Max) or an API key (a key for pay-as-you-go 
 
 The first install takes approximately 4 minutes.
 
-## Step 1: Install three programs
+## Step 1: Install Autopilot
 
-You install git, uv, and Claude Code. Python is not necessary: uv gets it for you.
-
-- **Windows (PowerShell):**
-
-  ```powershell
-  winget install --id Git.Git -e
-  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-  irm https://claude.ai/install.ps1 | iex
-  ```
-
-- **macOS, Linux, WSL:**
-
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  curl -fsSL https://claude.ai/install.sh | bash
-  ```
-
-> [!NOTE]
-> If git is missing on macOS, run `xcode-select --install`. On Linux, run `sudo apt install git`. If `winget` is
-> absent or asks for administrator rights, get git from <https://git-scm.com/download/win>.
-
-Open a new terminal. The programs install into `~/.local/bin` (`%USERPROFILE%\.local\bin` on Windows), and the old
-terminal does not find them.
-
-## Step 2: Install Autopilot
+One line, on every system. It needs Python 3.10 or newer and [uv](https://docs.astral.sh/uv/):
 
 ```powershell
-uv tool install git+https://github.com/manishjnv/AutoPilot
+uv tool install dev-autopilot
 ```
+
+If you have no Python or no uv, run the one-line install script from the [README](README.md#install) instead. It
+installs uv, Claude Code, Python and Autopilot for your user, with no administrator prompt.
 
 The install adds two commands: `autopilot` and its short name `ap`. This tutorial uses `ap`. If the terminal does
 not find `ap`, run `uv tool update-shell`, and then open a new terminal.
 
-## Step 3: Log in to Claude
+## Step 2: Log in
 
-```powershell
-claude auth login
-```
+Nothing to type. The first `ap` run opens the Claude login in your browser when you are not logged in yet.
+You need a paid Claude plan (Pro or Max).
 
-If you skip this step, `ap quickstart` and `ap run` stop before the first session. An API key
-(`ANTHROPIC_API_KEY`) does not need a login.
-
-## Step 4: Start the build
+## Step 3: Start the build
 
 Give your idea to Autopilot:
 
@@ -107,7 +82,7 @@ To follow the run from a different terminal, run `cd myapp`, and then use one of
 If Autopilot has a question for you, it writes the question in `docs/NEEDS-YOU.md` and builds the other tasks. To
 answer, run `ap answer`. See [Answer a question from Autopilot](HOWTO.md#answer-a-question-from-autopilot).
 
-## Step 5: Examine the result
+## Step 4: Examine the result
 
 - At the end of the run, a message shows what Autopilot built, the blocked tasks, and the questions for you. It also
   shows an estimate of the work that remains.
