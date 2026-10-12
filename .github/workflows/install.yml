@@ -36,7 +36,7 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           out=$(bash install.sh --skip-login --runner claude)
           echo "$out"
-          [ "$(echo "$out" | grep -c '^found')" -ge 4 ]
+          [ "$(echo "$out" | grep -cE '^(found|done)')" -ge 4 ]  # Q12: a found tool is a `done` step on a second run
 
   macos:
     runs-on: macos-latest
@@ -83,7 +83,7 @@ jobs:
           $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
           $out = (.\install.ps1 -SkipLogin -Runner claude *>&1 | Out-String)
           $out
-          if (([regex]::Matches($out, '(?m)^found')).Count -lt 4) { exit 1 }
+          if (([regex]::Matches($out, '(?m)^(found|done)')).Count -lt 4) { exit 1 }  # Q12: a found tool is a `done` step
 
   gitbash:
     # Q5: the friend's shell. install.sh sees OSTYPE=msys and hands over to install.ps1 with the same options.
