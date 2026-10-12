@@ -9,6 +9,9 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- Fix: `install.ps1` under PowerShell 5.1 parses the archive address (single quotes); two Windows-only test fixes. The v0.5.0 release assets carry the old script; this release replaces them.
+- Release tooling: `scripts/bump.py X.Y.Z` commits and pushes the bump; `--tag` tags only when CI is green on that commit; both steps use the GitHub noreply identity.
+
 ## [0.5.0] - 2026-10-12
 
 - T1: the install scripts and the code move as one unit: `MIN_VERSION` in both scripts equals the package version, a script from `main` installs the archive of `main` (no git needed), a release copy tries PyPI first; an Autopilot older than the script is replaced, never trusted.
