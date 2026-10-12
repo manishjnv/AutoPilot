@@ -9,6 +9,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .doctor import LOGGED_OUT, RUNNERS
 from .log_scrub import scrub_secrets
 from .proc import run_proc
 
@@ -62,7 +63,72 @@ class Entry:
         return self.fix if isinstance(self.fix, str) else self.fix.get(os_name(platform), "")
 
 
-CATALOGUE: tuple[Entry, ...] = ()  # filled below (Q4); the runner rows add their own lines
+PS1 = "irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 | iex"
+SH = "https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh"
+PROXY = {"linux": "export HTTPS_PROXY=http://proxy.example:3128   # your proxy address", "darwin":
+         "export HTTPS_PROXY=http://proxy.example:3128   # your proxy address",
+         "windows": "$env:HTTPS_PROXY = 'http://proxy.example:3128'   # your proxy address"}
+LOCAL_BIN = {"linux": 'export PATH="$HOME/.local/bin:$PATH"', "darwin": 'export PATH="$HOME/.local/bin:$PATH"',
+             "windows": '$env:PATH = "$env:USERPROFILE\\.local\\bin;$env:PATH"'}
+
+
+def _runner_entries() -> list[Entry]:
+    """One logged-out line and one no-plan line per runner row (the table is the one source, Q1)."""
+    out = []
+    for r in RUNNERS:
+        names = "|".join(re.escape(n) for n in r.names)
+        out.append(Entry(f"logged-out-{r.name}", rf"(?s)^(?=.*\b(?:{names})\b)(?=.*(?:{LOGGED_OUT.pattern}))",
+                         f"{r.name} is not logged in: log in once, then start again (you need {r.plan}).", r.login))
+    out.append(Entry("no-plan-claude", r'subscriptionType"?\s*:\s*"?free|the free Claude plan|requires a (?:Pro|Max) (?:plan|subscription)',
+                     "The free Claude plan cannot use Claude Code: a paid plan (Pro or Max) is needed.",
+                     "claude auth login   # with the account that has the plan"))
+    # copilot: docs checked 2026-10-12, not run live; the exact wording comes from Q9
+    out.append(Entry("no-plan-copilot", r"no (?:active )?Copilot (?:subscription|plan|license|seat)|Copilot (?:subscription|plan|license) (?:is )?(?:required|needed)"
+                     r"|(?:do not|don't|does not) have access to (?:GitHub )?Copilot",
+                     "This GitHub account has no Copilot plan: Autopilot needs a paid Copilot plan.",
+                     "https://github.com/features/copilot/plans   # then: copilot login"))
+    out.append(Entry("premium-requests-copilot", r"premium requests? (?:limit|quota)|(?:limit|quota) (?:of|for|on) premium requests?"
+                     r"|premium requests? .{0,20}\b(?:exhausted|exceeded|used up)",
+                     "The Copilot premium requests of this month are used up: wait for the reset, or name a second runner.",
+                     "ap setup --runner claude   # or set agent.fallback in .agent/project.yaml"))
+    return out
+
+
+CATALOGUE: tuple[Entry, ...] = (
+    Entry("schannel", r"CRYPT_E_NO_REVOCATION_CHECK|curl: \(35\)|schannel: next InitializeSecurityContext failed",
+          "Windows could not check the certificate of the download server (a proxy or a security program blocks the revocation check).",
+          {"windows": f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{PS1}"', "linux": f"curl --ssl-no-revoke -fsSL {SH} | bash",
+           "darwin": f"curl -fsSL {SH} | bash"}),
+    Entry("no-host", r"Could not resolve host|getaddrinfo|ENOTFOUND|EAI_AGAIN|Name or service not known|No such host is known|nodename nor servname",
+          "No connection to the download server: check the network, and set HTTPS_PROXY when a proxy is in the way.", PROXY),
+    Entry("timeout", r"timed? out|ETIMEDOUT|curl: \(28\)|Connection timed out",
+          "The download server did not answer in time: the network or a proxy is slow or blocked.", PROXY),
+    Entry("http-403", r"\b403\b[^\n]{0,20}Forbidden|(?:HTTP|status|error)[^\n]{0,20}\b403\b",
+          "The download server refused the request (403): a proxy or a rate limit is in the way; wait a few minutes, then run it again.",
+          "ap install"),
+    Entry("http-404", r"\b404\b[^\n]{0,20}Not Found|(?:HTTP|status|error)[^\n]{0,20}\b404\b",
+          "The download address does not exist (404): the version or tag name is wrong.",
+          "ap install   # the newest release; or AUTOPILOT_REF=v0.4.0 for a fixed one"),
+    Entry("no-space", r"No space left on device|ENOSPC|not enough space on the disk",
+          "The disk is full: free some space, then run the step again.",
+          {"linux": "df -h ~", "darwin": "df -h ~", "windows": "Get-PSDrive C"}),
+    Entry("permission", r"EACCES|Permission denied|Access is denied",
+          "No permission to write to the install folder: install for your user only, without sudo or administrator.",
+          "uv tool install dev-autopilot"),
+    Entry("node-old", r"EBADENGINE|Unsupported engine|requires Node(?:\.js)? (?:version )?v?\d+|engine \"node\" is incompatible",
+          "Node.js is too old for this tool (version 22 or newer): use the native installer instead of npm.",
+          "ap setup   # the native install command comes first"),
+    Entry("store-python", r"Python was not found; run without arguments to install from the Microsoft Store|Microsoft Store",
+          "Windows has only the Store shortcut for Python, not Python itself.", "uv python install 3.12", ("windows",)),
+    Entry("execution-policy", r"running scripts is disabled on this system|UnauthorizedAccess|execution policy",
+          "PowerShell may not run scripts on this PC: start it with the Bypass option.",
+          "powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1", ("windows",)),
+    Entry("not-on-path", r"command not found|is not recognized as (?:an internal|the name)",
+          "The program is installed, but its folder is not on PATH in this terminal yet: add it, or open a new terminal.", LOCAL_BIN),
+    *_runner_entries(),
+    Entry("logged-out", LOGGED_OUT.pattern,
+          "The runner is not logged in: log in once, then start again.", "ap setup   # it prints the login command"),
+)
 
 
 def explain(text: str, platform: str | None = None) -> tuple[str, str, str]:

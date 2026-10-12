@@ -91,11 +91,6 @@ class Runner:
         return "claude" if self.key == "claude_cli" else self.key
 
     @property
-    def name(self) -> str:
-        """The plain name a user reads: `claude`, `copilot`, `codex`, `cursor`, `kiro`."""
-        return "claude" if self.key == "claude_cli" else self.key
-
-    @property
     def names(self) -> tuple:
         return (self.binary, *self.aliases)
 
@@ -308,12 +303,10 @@ def fix_claude() -> str:
     if not cmd:
         return f"cannot fix: Claude Code came from winget, which does not update it. Run `{shown}`"
     print(f"fix   claude CLI: running `{shown}` (this downloads and installs Claude Code)", flush=True)
-    try:
-        p = run_proc([shutil.which(cmd[0]) or cmd[0]] + cmd[1:], timeout=900)
-    except OSError as exc:
-        return f"cannot fix: {exc}. Run `{shown}` yourself"
-    return (f"reinstalled ({route})" if p.rc == 0 else
-            f"install failed (rc {p.rc}): {(p.stderr or p.stdout)[-300:]}. Run `{shown}` yourself")
+    from .install_errors import capture  # Q4: raw output to the log, one sentence on screen
+    lines: list[str] = []
+    rc = capture("reinstall claude", [shutil.which(cmd[0]) or cmd[0]] + cmd[1:], say=lines.append, run=run_proc)
+    return f"reinstalled ({route})" if rc == 0 else f"install failed: {lines[1].strip()} Run `{shown}` yourself"
 
 
 def write_launcher() -> str:
