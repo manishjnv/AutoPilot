@@ -376,7 +376,7 @@ your IDE or terminal.
 
 Which agent CLI runs: when `.agent/project.yaml` has no `agent.backend`, preflight finds the first installed,
 logged-in CLI on PATH (`claude`, `copilot`, `codex`, `agent`, `kiro-cli`) and writes it into the file. If none is
-logged in, run `ap setup`: it finds the AI you pay for, installs its CLI and writes the file. To choose a CLI yourself,
+logged in, run `ap setup`: it finds the AI you pay for, installs its CLI, and writes the file. To choose a CLI yourself,
 do these steps:
 
 1. In `.agent/project.yaml`, set `agent.backend: command`.
@@ -476,56 +476,51 @@ chat. Stop it with `ap stop -C "<folder>"`.
 
 ## Install with one script
 
-The script installs git, uv, Claude Code and Autopilot, and then it checks the login. It shows each step before
-the step starts. A second run is safe: the script skips a program that is already there.
+The script installs uv, Python and Autopilot for your user, then it runs `ap setup`. That command finds the AI you pay
+for, asks one question when it cannot tell, installs that one CLI, and checks its login. It shows each step before the
+step starts. A second run is safe: the script skips a program that is already there. The output of each tool goes to
+`~/.autopilot/install.log`; the screen shows one sentence and one command when a step fails.
 
 > [!WARNING]
-> Compare the checksum before you run the script. The script downloads and runs the installers of uv and Claude Code.
+> Compare the checksum before you run the script. The script downloads and runs the installer of uv, and `ap setup`
+> downloads and runs the installer of the one AI CLI you chose.
 
-1. Download the script. The address has a fixed commit, thus the file cannot change.
+1. Open the [newest release](https://github.com/manishjnv/AutoPilot/releases/latest). Its assets hold `install.sh`,
+   `install.ps1` and `SHA256SUMS`. Download the script for your shell and `SHA256SUMS`.
+2. Compare the hash of the script with its line in `SHA256SUMS`. Upper case and lower case letters are equal.
 
-   - **Windows (PowerShell):**
-
-     ```powershell
-     irm https://raw.githubusercontent.com/manishjnv/AutoPilot/d49382e72e814a8589137e29cee475f8fa1bb37b/install.ps1 -OutFile install.ps1
-     (Get-FileHash install.ps1 -Algorithm SHA256).Hash
-     ```
-
-   - **macOS, Linux, WSL:**
-
-     ```bash
-     curl -fsSLO https://raw.githubusercontent.com/manishjnv/AutoPilot/d49382e72e814a8589137e29cee475f8fa1bb37b/install.sh
-     sha256sum install.sh
-     ```
-
-2. Compare the result with this table. Upper case and lower case letters are equal. On macOS, use
-   `shasum -a 256 install.sh`.
-
-   | File | SHA-256 |
+   | System | Command |
    |---|---|
-   | `install.ps1` | `6e2a2cec709da55050764c705bb895ab0916c0a076d4d21a937100bc9d12e89b` |
-   | `install.sh` | `9a6af03b8cb93debc364f438c3c9f4559e005b25cdda721534e526728516b858` |
+   | Windows (PowerShell) | `(Get-FileHash install.ps1 -Algorithm SHA256).Hash` |
+   | Linux, WSL | `sha256sum install.sh` |
+   | macOS | `shasum -a 256 install.sh` |
 
+   A file from a checkout at a different commit hashes differently: the sums match only the files of that release.
 3. To see the steps with no change to your computer, do a dry run:
 
    | System | Command |
    |---|---|
-   | Windows | `powershell -ExecutionPolicy Bypass -File install.ps1 -DryRun` |
-   | macOS, Linux, WSL | `bash install.sh --dry-run` |
+   | Windows (PowerShell) | `powershell -ExecutionPolicy Bypass -File install.ps1 -DryRun` |
+   | Windows (CMD) | `install.cmd -DryRun` |
+   | macOS, Linux, WSL, Git Bash | `bash install.sh --dry-run` |
 
-4. Run the same command without the dry-run option.
+4. Run the same command without the dry-run option. Options: `--skip-login`, `--runner NAME`, `--yes` (PowerShell:
+   `-SkipLogin`, `-Runner NAME`, `-Yes`). `--runner` answers the one question in advance.
 5. Run `ap`. If the terminal does not find it, open a new terminal.
 
 Run the script with `bash`, not `sh`: it uses bash features, such as `set -o pipefail`, that `sh` on Debian and
-Ubuntu does not have. The one-line form in the [README](README.md#install) uses `bash` for this reason.
+Ubuntu does not have. The one-line form in the [README](README.md#install) uses `bash` for this reason. Under Git Bash
+the script hands over to `install.ps1`, because the Windows `curl` cannot run the Linux installers.
 
 | Fact | Detail |
 |---|---|
-| Administrator rights | Only on Windows, and only if `winget` installs git |
+| Administrator rights | None. `ap install --rights` sets up the no-prompt path for system tools once |
 | Python | If no Python 3.10 or newer is found, the script runs `uv python install 3.12` for you only. It is the one system install a run makes |
 | `ap` on PATH | The script checks that `ap` runs after the install. At the end it prints ``Open a project folder and type `ap`.`` |
-| git on macOS and Linux | The script does not use `sudo`. If git is missing, it shows the command and stops |
-| Login | The script does not log in for you. It shows `claude auth login` if the login is missing |
+| git | The script does not install git. If git is missing, it says so and continues; a project that uses git needs it |
+| The AI runner | `ap setup` installs one of: Claude Code, the Copilot CLI, Codex, Cursor, Kiro. Copilot in VS Code is not a command-line tool. Autopilot needs the Copilot CLI, which uses the same subscription |
+| Login | Nothing logs in for you. `ap setup` prints the login command of your runner, for example `copilot login` |
+| A failed step | The screen shows what failed, one sentence, and one command. The full text is in `~/.autopilot/install.log` |
 | Remove Autopilot | `uv tool uninstall dev-autopilot` |
 
 ## Update or remove Autopilot
@@ -573,22 +568,19 @@ The install script runs these commands. Use them when the script fails, or when 
 1. **Windows (PowerShell):**
 
    ```powershell
-   winget install --id Git.Git -e --scope user   # per user, no administrator prompt
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # uv installs Python if needed
-   irm https://claude.ai/install.ps1 | iex
    # Open a new terminal. Then:
-   uv tool install dev-autopilot            # or: uv tool install git+https://github.com/manishjnv/AutoPilot@v0.3.0
-   claude auth login                        # a paid Claude plan (Pro or Max)
+   uv tool install dev-autopilot            # or: uv tool install git+https://github.com/manishjnv/AutoPilot@v0.4.0
+   ap setup                                 # names the AI you pay for, installs its CLI, prints its login command
    ap doctor
    ```
 
-2. **macOS, Linux, WSL:** install git with your package manager if `git --version` fails. Then:
+2. **macOS, Linux, WSL:**
 
    ```bash
    curl -LsSf https://astral.sh/uv/install.sh | sh      # uv installs Python if needed
-   curl -fsSL https://claude.ai/install.sh | bash
    # Open a new terminal. Then:
-   uv tool install dev-autopilot            # or: uv tool install git+https://github.com/manishjnv/AutoPilot@v0.3.0
-   claude auth login                                    # a paid Claude plan (Pro or Max)
+   uv tool install dev-autopilot            # or: uv tool install git+https://github.com/manishjnv/AutoPilot@v0.4.0
+   ap setup                                 # names the AI you pay for, installs its CLI, prints its login command
    ap doctor
    ```

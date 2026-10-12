@@ -19,8 +19,7 @@ It is for one developer, or for a person with an idea and a developer friend.
 | Questions | The chat waits for you. | That task waits. Other tasks continue. |
 | Status | You scroll the chat. | `ap watch` shows tasks, output, progress and usage. |
 
-The [full comparison](ARCHITECTURE.md#13-claude-code-alone-and-with-autopilot) has ten rows. Use Claude Code alone
-for a small change, a question, or an open design.
+The [full comparison](ARCHITECTURE.md#13-claude-code-alone-and-with-autopilot) has ten rows.
 
 ## How it works
 
@@ -68,32 +67,32 @@ Two real projects built from a plan:
 | Agent time | 2.2 hours, 38 sessions | 1.4 hours, 42 sessions |
 | Cost at API prices | $17.13 | $19.01 |
 
-Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot fixed all. envguard is private; numbers come from the run log. A lean rerun of envguard used 39.5 percent fewer tokens per task.
+Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot fixed all. envguard is private; numbers come from the run log.
 
 ## Install
 
-One line, with [uv](https://docs.astral.sh/uv/) (it installs Python if needed):
-
-```powershell
-uv tool install dev-autopilot
-```
-
-No uv? The script installs uv, Python, Claude Code and Autopilot for your user, no administrator prompt.
-Windows (PowerShell):
+One line, in your shell. It installs uv, Python and Autopilot for your user, no administrator prompt. Then it asks
+which AI you pay for (Claude, GitHub Copilot, Codex, Cursor or Kiro) and installs that one CLI. Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 | iex
 ```
 
-macOS, Linux or WSL:
+macOS, Linux, WSL or Git Bash:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh | bash
 ```
 
-On Windows pick Windows or WSL, not both; WSL only for the sandbox.
-Open a project folder and type `ap`. The first run logs you in to Claude (a paid plan, Pro or Max), then starts.
-See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). After a release, run `ap upgrade`. For a repair or a
+Windows (CMD):
+
+```bat
+curl -o %TEMP%\install.cmd https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.cmd && %TEMP%\install.cmd
+```
+
+A PC with Python 3.10 or newer: `pip install dev-autopilot && ap setup`. Copilot in VS Code is not a command-line
+tool. Autopilot needs the Copilot CLI, which uses the same subscription.
+Open a project folder and type `ap`. See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). After a release, run `ap upgrade`. For a repair or a
 second machine, run `ap install`. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
 
 ## Example output
@@ -122,5 +121,5 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 > Use a sandbox on a server: sessions run without permission prompts. See
 > [Run Autopilot on a server](HOWTO.md#run-autopilot-on-a-server).
 
-- Version 0.3.0, an early release. [MIT license](LICENSE).
+- Version 0.4.0, an early release. [MIT license](LICENSE).
 - One CLI agent per session. See [limits and runners](HOWTO.md#limits-and-supported-agent-clis).
