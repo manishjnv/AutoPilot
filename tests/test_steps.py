@@ -95,6 +95,7 @@ def test_the_install_method_is_recorded_and_ap_upgrade_reads_it_back(tmp_path, m
 def test_upgrade_uses_the_command_of_the_recorded_method(monkeypatch):
     from test_upgrade import GH_JSON, fake_open
     monkeypatch.setattr("autopilot.upgrade.__version__", "0.3.0")
+    monkeypatch.setattr("autopilot.upgrade.checkout_root", lambda file=None: None)  # CI installs editable: not a checkout here
     steps.remember_method("autopilot", "pip")
     run = FakeRun({"gh release view": GH_JSON})
     assert cmd_upgrade(Namespace(check=False, ref=None), run=run, urlopen=fake_open()) == 0
