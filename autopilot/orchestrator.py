@@ -19,7 +19,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from . import AGENT_DIR, decisions
+from . import AGENT_DIR, decisions, outage
 from .backends import SessionRequest, SessionResult, get_backend
 from .config import RISKS, Config, load_yaml
 from .context import ContextBuilder, progress_line
@@ -174,6 +174,7 @@ class Orchestrator:
         self.max_sessions = limit or None
         self.sessions_this_run = 0
         self.rate_limit_streak = 0
+        self.tracker = outage.Tracker(now=lambda: time.time())  # Q22: outage and repeated-error counters of this run
         self.last_gate = ""  # N11
         self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
         self.env_repair_tried = False  # self-healing: one environment repair session per run
@@ -818,6 +819,25 @@ class Orchestrator:
 
     HEAL_WAIT = (60, 300, 900, 1800, 3600)
 
+    def mid_run_auth(self, res) -> bool:
+        """Q22.2: True when this auth failure is an expired login of the chosen runner (a token or login that worked
+        before this run), not a first-time missing login. The login check runs again; the command is remembered."""
+        if not outage.is_expired_login(res.error):
+            return False
+        from .doctor import check_runner_login
+        level, _, detail = check_runner_login(self.cfg)
+        self.state.set_meta("auth_paused", detail or "the login ran out")
+        self.state.event("auth", f"login check again: {level} {detail}")
+        return True
+
+    def auth_stop_text(self) -> str:
+        from .doctor import runner
+        row = runner(str(self.cfg.get("agent.preset") or "claude_cli"))
+        cmd = row.login if row else "claude auth login"
+        text = f"The login ran out. Log in again with `{cmd}`, then start again with `ap start`; no try was lost."
+        self.notify.send("heal", text)
+        return text
+
     def _run_backend(self, req) -> SessionResult:
         """Self-healing around one session: when the machinery fails (the CLI can't start, the login is gone, the
         network or the API is down), heal what can be healed, wait, and run the same session again. It never becomes a
@@ -831,7 +851,17 @@ class Orchestrator:
             if not res.infra:
                 if streak:
                     self.notify.send("heal", f"sessions run again after {streak} failed tries; continuing")
+                self.tracker.ok()
                 return res
+            # Q22.1: three 5xx or timeouts from the vendor within one minute: say so once, do not loop, do not ask for a login
+            if res.infra == "network" and self.tracker.outage(res.error):
+                self.notify.send("heal", outage.OUTAGE_SENTENCE)
+                self._journal(current="the service is down")
+                raise Stop(outage.OUTAGE_SENTENCE)
+            # Q22.2: a login that ran out mid-run: park the task, check the login again, print the command, stop;
+            # the next start continues and no try was spent
+            if res.infra == "auth" and self.mid_run_auth(res):
+                raise Stop(self.auth_stop_text())
             streak += 1
             what = {"cli": "the claude CLI could not run a session",
                     "auth": "Claude is not logged in (or the API key was rejected)",
@@ -941,6 +971,18 @@ class Orchestrator:
 
             if not res.ok and not cut:
                 last_error = f"agent session failed ({model}): {res.error}"
+                if outage.is_model_problem(res.error):  # Q22.3: one sentence with the alias that works
+                    last_error = f"agent session failed ({model}): {outage.model_sentence(model)}"
+                    self.notify.send("heal", outage.model_sentence(model))
+                same = self.tracker.repeat(task.id, res.error)  # Q22.4: the same parsed error from three tasks
+                if same:
+                    self.git.discard()
+                    self.git.checkout_main(self.main)
+                    self.git.delete_branch(branch)
+                    self.state.set_task(task.id, status="pending", attempts=attempts - 1)
+                    lines = outage.checklist(same, res.error)
+                    self.notify.send("fatal", "\n".join(lines))
+                    raise Stop("\n".join(lines))
             elif str(res.report.get("status", "done")).lower() == "blocked":
                 agent_blocked = True
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
