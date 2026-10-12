@@ -10,6 +10,10 @@ from datetime import datetime, timedelta
 LIMIT_RX = re.compile(r"^\s*(?:you've|you have) hit your (?:[\w-]+ ){0,3}limit"
                       r"(?:\s*[·•|\-–—,.]*\s*resets?\s+(?P<reset>[^\n]+))?", re.I | re.M)
 API_LIMIT_RX = re.compile(r"^\s*API Error: (?:429|529)\b|^\s*API Error:.*(?:rate_limit_error|overloaded_error)", re.I | re.M)
+# Q2 copilot: the premium-request quota message. Docs checked 2026-10-12, not run live: the exact wording and the exit
+# code are recorded in Q9; until then any line that names premium requests with a limit word counts.
+COPILOT_LIMIT_RX = re.compile(r"^\s*.{0,60}\b(?:premium requests? (?:limit|quota)|(?:limit|quota) (?:of|for|on) premium requests?"
+                              r"|premium requests? .{0,20}\b(?:exhausted|exceeded|used up))", re.I | re.M)
 _RESET_RX = re.compile(r"^(?:(?P<mon>[a-z]{3,9})\.?\s+(?P<day>\d{1,2})\s*(?:,|at)?\s*)?(?P<h>\d{1,2})(?::(?P<m>\d{2}))?"
                        r"\s*(?P<ap>am|pm)?\s*(?:\((?P<tz>[^)]+)\))?$", re.I)
 _MONTHS = {m: i + 1 for i, m in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split())}
@@ -57,7 +61,7 @@ def detect_limit(text: str, now: datetime | None = None) -> tuple[bool, float | 
     m = LIMIT_RX.search(text)
     if m:
         return True, (parse_reset(m["reset"], now or datetime.now().astimezone()) if m["reset"] else None)
-    return bool(API_LIMIT_RX.search(text)), None
+    return bool(API_LIMIT_RX.search(text) or COPILOT_LIMIT_RX.search(text)), None
 
 
 # Failures of the machinery, not of the work: retried by the orchestrator, never counted as a task attempt.

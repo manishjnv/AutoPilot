@@ -33,8 +33,8 @@ One line, on every system, with [uv](https://docs.astral.sh/uv/). It installs Py
 uv tool install dev-autopilot
 ```
 
-No uv? Run the install script instead. It installs uv, Python, Claude Code and Autopilot for your user, with no
-administrator prompt. Windows (PowerShell):
+No uv? Run the install script instead. It installs uv, Python and Autopilot for your user, with no administrator
+prompt, then asks which AI you pay for and installs that one CLI. Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.ps1 | iex
@@ -47,6 +47,8 @@ curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh
 ```
 
 Both end with the same result: `ap` is ready. The package name on PyPI is `dev-autopilot`; the command is `ap`.
+After `uv tool install`, run `ap setup` once: it names the AI you pay for (Claude, GitHub Copilot, Codex, Cursor or
+Kiro) and installs its CLI.
 
 The install adds two commands: `autopilot` and its short name `ap`. This tutorial uses `ap`.
 

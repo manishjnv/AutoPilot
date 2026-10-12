@@ -24,7 +24,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot init [--stack X]` | Makes `.agent/` only. `quickstart` does this for you. It also adds one short Autopilot block (`ap status`, `ap next`, `ap start`; no plan files, change the plan with `ap change`) to `CLAUDE.md` and to the rule file of each IDE it finds: `.cursor/` gets `.cursor/rules/autopilot.mdc`, `.kiro/` gets `.kiro/steering/autopilot.md`, `.vscode/` together with an existing `.github/` gets `.github/copilot-instructions.md` (`.vscode/` alone creates nothing), and `GEMINI.md` and `AGENTS.md` get the block at the end. The block has begin and end marker comments. A second `init` finds the marker and writes nothing. Your own text is never changed |
 | `autopilot onboard [--plan-doc FILE]` | One session writes `BRAIN.md`, the commands and `plan.yaml`. With no file, it reads the repository. The session gets a discovery pack (git log, documents, stack files, one test run) and four rules: read first, mark existing work `status: done`, link documents, keep file names. New files outside `.agent/` and `CLAUDE.md` are named in a warning |
 | `autopilot validate` | Checks `project.yaml` and `plan.yaml` for errors |
-| `autopilot doctor [--fix]` | Checks the Claude CLI and its login, git, `gh`, the sandbox tools, the alerts, the settings, and project dependencies that are not installed (a `WARN` with the install command). A missing login is a `FAIL`. `--fix` repairs what needs no person |
+| `autopilot doctor [--fix]` | Checks the runner (`runner: none chosen yet` when the project has none) and its login, git, `gh`, the sandbox tools, the alerts, the settings, and project dependencies that are not installed (a `WARN` with the install command). A missing login is a `FAIL`. `--fix` repairs what needs no person |
 | `autopilot run` (and `start`, `quickstart`) preflight | Before the first session, Autopilot checks the project dependencies (`node_modules/`, a virtual environment, the Go and Cargo caches). If some are missing, it runs `commands.setup`. When `commands.setup` is empty, it runs the standard command (for example `npm ci`) and writes it into `commands.setup` of `project.yaml`. The comments in the file stay. A failed install prints the command and the end of its output, and the run does not start. If the system tool is not installed (for example `npm`), Autopilot never installs it. It prints `FAIL  <tool> is not installed. Install it with: <command>` and stops |
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
 | `autopilot run` | Builds until the completion audit passes |
@@ -34,7 +34,8 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot watch --detail` | Shows each technical log line as it is |
 | `autopilot mcp` | Runs an MCP server on `stdin` and `stdout`. Its tools are `ap_status`, `ap_next`, `ap_start`, `ap_stop` and `ap_answer`. Each tool runs the `ap` command of the same name and returns its text. `init` adds the server to `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kilocode/mcp.json` and `.junie/mcp/mcp.json` when they exist |
 | `ap upgrade [--check] [--ref vX.Y.Z]` | Gets the newest release. It checks the wheel against `SHA256SUMS` before it installs. `--check` only prints. A git checkout gets `git pull --ff-only`, and only when it has no changes |
-| `ap install [--rights]` | Installs or repairs Autopilot for this user: `uv`, then the newest release. `--rights` shows the rights step, or the command that takes them |
+| `ap install [--rights]` | Installs or repairs Autopilot for this user: `uv`, then the newest release. `--rights` shows the rights step, or the command that takes them. At the end it runs `ap setup` |
+| `ap setup [--dry-run] [--runner NAME] [--yes] [--skip-login]` | Finds the AI you pay for and sets it up. The scan is read-only. It lists the runners on PATH with their logins, the token variables (names only), footprints such as `~/.claude`, `gh auth status`, uv, Python, Node, and git. It prints `found`, `will install` and `skipped` lines. A logged-in runner wins and nothing installs. An installed runner without a login stays, and its login command is printed. Otherwise it asks one question, "Which AI do you pay for?" The one clear signal is the default. `--runner`, `AUTOPILOT_RUNNER` or `--yes` answer it in advance. Then it installs that one CLI with the command of the runner table and checks the login. It writes `agent.backend` or `agent.preset` into `.agent/project.yaml` (in a project) and `~/.autopilot/runner`. A footprint never installs by itself. Exit codes: 0 OK, 1 a step failed, 2 bad usage, 3 a choice is needed. Code 3 means no terminal and no answer; it prints the line to run again. Each tool's output goes to `~/.autopilot/install.log`. The screen gets one sentence and one command when a step fails |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
 | `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
@@ -161,20 +162,39 @@ and the project's own `.claude/settings.json` and `.mcp.json` also load. Thus a 
 Your own settings add cost and context to each session. To load them too, for example a proxy or an
 `apiKeyHelper`, set `agent.user_config: true`.
 
-Runner detection: when the project's own `.agent/project.yaml` sets no `agent.backend`, `agent.command` or
-`agent.preset`, preflight (before `ap run` and `ap onboard`) detects the first installed, logged-in CLI in this order and
-writes it: `claude`, `kiro-cli`, `cursor-agent`, `codex`, `gemini`, `aider`. It prints `runner: <name> (found on
-PATH)`. For `claude` it writes `backend: claude_cli`; for a different CLI, `backend: command` and the preset. When it
-finds no CLI, it prints the install command of Claude Code and stops. A value that you set is never changed.
+Runner detection: this runs when the project's own `.agent/project.yaml` sets no `agent.backend`, `agent.command` or
+`agent.preset`. Preflight (before `ap run` and `ap onboard`) detects the first installed, logged-in CLI in the order of
+the runner table and writes it. The order is `claude`, `copilot`, `codex`, `agent`, `kiro-cli`. The program `agent` is
+Cursor; its old name `cursor-agent` still counts. It prints `runner: <name> (found on PATH)`. For `claude` it writes
+`backend: claude_cli`; for a different CLI, `backend: command` and the preset. When it finds no CLI, it prints one line
+per runner with the install command for this system, then stops. It never names one runner first. A value that you set
+is never changed. When no CLI is logged in, preflight uses the runner that `ap setup` chose on this computer.
 
-Runner login: before the first session, preflight checks that the configured runner is logged in with its own subscription (`claude auth status`, `codex login status`, `cursor-agent status`, `kiro-cli whoami`), with a 20 second limit and no prompt. A failed check prints the one login command (for example `codex login`) and stops. Autopilot never opens a browser and never reads a credential file. Runners that need an API key (`gemini`, `aider`, `opencode`) are not supported.
+Runner table (one source, `autopilot/doctor.py`): every runner fact lives in one table. Each row has the program name,
+the install command per system, the login command, the read-only status command and the token variables (presence
+only; a value is never read or shown).
+
+| Runner | Program | Login command | Status check | Token variables | You pay for |
+|---|---|---|---|---|---|
+| `claude` | `claude` | `claude auth login` | `claude auth status` | `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` and the gateway variables | a paid Claude plan (Pro or Max) |
+| `copilot` | `copilot` | `copilot login` | `gh auth status` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` | a paid GitHub Copilot plan |
+| `codex` | `codex` | `codex login` | `codex login status` | `CODEX_API_KEY` | a ChatGPT plan |
+| `cursor` | `agent` (`cursor-agent` before) | `agent login` | `agent status` | `CURSOR_API_KEY` | a Cursor plan |
+| `kiro` | `kiro-cli` | `kiro-cli login` | `kiro-cli whoami` | `KIRO_API_KEY` | a Kiro plan or an AWS Builder ID |
+
+Copilot in VS Code is not a command-line tool. Autopilot needs the Copilot CLI, which uses the same subscription.
+
+Runner login: before the first session, preflight checks that the configured runner is logged in with its own
+subscription. It uses the status check of the table, with a 20 second limit, and no prompt. A failed check prints the
+one login command (for example `codex login`) and stops. Autopilot never opens a browser and never reads a credential
+file. Runners that need an API key (`gemini`, `aider`, `opencode`) are not supported.
 
 Python setup: preflight never runs a bare `pip install` on the system Python. When a `requirements*.txt` file has no
 environment, preflight runs `python -m venv .venv`, then installs with the `.venv` Python. An active environment
 (`VIRTUAL_ENV`) or a project environment (`.venv`, `venv`, `env`) is used as is. `commands.setup` stores these commands.
 
 Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
-`agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor` and `aider` presets).
+`agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor`, `aider` and `copilot` presets). The `copilot` preset maps `haiku` to `claude-haiku-4.5` by itself; `sonnet` and `opus` use Copilot's default model until you map them.
 
 | Preset | Runs | The prompt goes in |
 |---|---|---|
@@ -182,8 +202,9 @@ Agent presets: with `agent.backend: command` and no `agent.command`, `agent.pres
 | `gemini` | `gemini -p` | standard input |
 | `opencode` | `opencode run` | standard input |
 | `kiro` | `kiro-cli chat --no-interactive --trust-all-tools` | standard input |
-| `cursor` | `cursor-agent -p --force --trust` | standard input |
+| `cursor` | `agent -p --force --trust` | standard input |
 | `aider` | `aider --message-file ... --yes-always --no-auto-commits` | a temporary file outside the project |
+| `copilot` | `copilot -p ... --allow-all-tools --no-ask-user -s --add-dir ...` | a temporary file outside the project, named in the prompt |
 
 `agent.fallback` (default empty = off) lists runner presets, for example `[codex, copilot]`. When a session ends on a
 usage limit that resets in more than 30 minutes, Autopilot commits the work, writes `HANDOFF.md` (goal, done, next, failing

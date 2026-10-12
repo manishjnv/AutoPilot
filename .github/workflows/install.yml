@@ -2,15 +2,17 @@ name: install
 
 on:
   push:
-    paths: ['install.sh', 'install.ps1', '.github/workflows/install.yml', 'pyproject.toml']
+    paths: ['install.sh', 'install.ps1', 'install.cmd', '.github/workflows/install.yml', 'pyproject.toml']
   pull_request:
-    paths: ['install.sh', 'install.ps1', '.github/workflows/install.yml', 'pyproject.toml']
+    paths: ['install.sh', 'install.ps1', 'install.cmd', '.github/workflows/install.yml', 'pyproject.toml']
 
 permissions:
   contents: read
 
 # The scripts install from the public repo, so the commit must exist there.
 # Pull requests from forks need a maintainer run (the fork commit is not in the main repo).
+# Q8: four install jobs: Linux, macOS, Windows PowerShell (5.1 and 7), Git Bash on Windows (handed to install.ps1).
+# Each real install names the runner (`--runner claude`): a CI machine has no terminal to answer the one question.
 env:
   AUTOPILOT_REF: ${{ github.sha }}
 
@@ -22,18 +24,34 @@ jobs:
       - run: bash -n install.sh
       - run: bash install.sh --dry-run
       - name: Real install
-        run: bash install.sh --skip-login
+        run: bash install.sh --skip-login --runner claude
       - name: Installed programs work
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           autopilot --version
           claude --version
+          ap setup --dry-run
       - name: Second run is safe
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          out=$(bash install.sh --skip-login)
+          out=$(bash install.sh --skip-login --runner claude)
           echo "$out"
-          [ "$(echo "$out" | grep -c '^found:')" -ge 4 ]
+          [ "$(echo "$out" | grep -c '^found')" -ge 4 ]
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n install.sh
+      - run: bash install.sh --dry-run
+      - name: Real install
+        run: bash install.sh --skip-login --runner claude
+      - name: Installed programs work
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          autopilot --version
+          claude --version
+          ap setup --dry-run
 
   windows:
     runs-on: windows-latest
@@ -53,15 +71,42 @@ jobs:
           if ($e.Count -ne 0) { $e; exit 1 }
       - run: .\install.ps1 -DryRun
       - name: Real install
-        run: .\install.ps1 -SkipLogin
+        run: .\install.ps1 -SkipLogin -Runner claude
       - name: Installed programs work
         run: |
           $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
           autopilot --version
           claude --version
+          ap setup --dry-run
       - name: Second run is safe
         run: |
           $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
-          $out = (.\install.ps1 -SkipLogin *>&1 | Out-String)
+          $out = (.\install.ps1 -SkipLogin -Runner claude *>&1 | Out-String)
           $out
-          if (([regex]::Matches($out, '(?m)^found:')).Count -lt 4) { exit 1 }
+          if (([regex]::Matches($out, '(?m)^found')).Count -lt 4) { exit 1 }
+
+  gitbash:
+    # Q5: the friend's shell. install.sh sees OSTYPE=msys and hands over to install.ps1 with the same options.
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n install.sh
+      - name: Dry run is handed to PowerShell
+        run: |
+          out=$(bash install.sh --dry-run)
+          echo "$out"
+          echo "$out" | grep -q "install.ps1 takes over"
+          echo "$out" | grep -q "would install"
+      - name: CMD wrapper parses and runs the dry run
+        run: cmd //c install.cmd -DryRun
+      - name: Real install
+        run: bash install.sh --skip-login --runner claude
+      - name: Installed programs work
+        run: |
+          export PATH="$USERPROFILE/.local/bin:$PATH"
+          autopilot --version
+          claude --version
+          ap setup --dry-run

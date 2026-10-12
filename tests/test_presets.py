@@ -53,7 +53,7 @@ def test_templates_and_model_flags(tmp_path):
     assert command_template(cfg).startswith("gemini --approval-mode=yolo")
     assert model_flag(cfg, "opus") == " -m pro" and model_flag(cfg, "sonnet") == ""  # unmapped alias: CLI default
     assert model_flag(cfg, "custom/model-1") == " -m custom/model-1"
-    assert set(PRESETS) == {"codex", "gemini", "opencode", "kiro", "cursor", "aider"}
+    assert set(PRESETS) == {"codex", "gemini", "opencode", "kiro", "cursor", "aider", "copilot"}
     own = cfg_with(tmp_path, {"preset": "codex", "command": "my-agent {model}"})
     assert command_template(own) == "my-agent {model}"  # an explicit command wins
 
@@ -76,7 +76,7 @@ def test_config_and_doctor(tmp_path, monkeypatch):
 
 # P03-T01: kiro reads stdin (no positional argument), cursor gets _ASK + stdin, aider reads a temp message file
 NEW = {"kiro": ("kiro-cli", ['"chat"', '"--no-interactive"', '"--trust-all-tools"']),
-       "cursor": ("cursor-agent", ['"-p"', '"--force"', '"--trust"', "standard input"]),
+       "cursor": ("agent", ['"-p"', '"--force"', '"--trust"', "standard input"]),
        "aider": ("aider", ['"--message-file"', '"--yes-always"', '"--no-auto-commits"', '"--no-dirty-commits"'])}
 
 
@@ -110,6 +110,79 @@ def test_new_presets_model_flag(tmp_path, preset):
     for bad in ("haiku", "$(id)", "a;rm -rf ~", "x\"y"):
         with pytest.raises(ValueError, match="unsafe model name"):
             model_flag(cfg, bad)
+
+
+def test_cursor_preset_falls_back_to_the_old_binary_name(tmp_path, monkeypatch):
+    """Q1: the preset says `agent`; a PC that still has only `cursor-agent` runs that one."""
+    fake_cli(tmp_path, monkeypatch, "cursor-agent")
+    cfg = cfg_with(tmp_path, {"preset": "cursor"})
+    assert command_template(cfg).split()[0] == "cursor-agent"
+    assert PRESETS["cursor"].split()[0] == "agent"
+
+
+COPILOT = r"""import json, os, pathlib, re, sys
+argv = sys.argv[1:]
+print("ARGV", json.dumps(argv))
+ask = argv[argv.index("-p") + 1]
+path = re.search(r"in the file (.+?)\. Read it", ask).group(1)
+print("FILE", json.dumps(pathlib.Path(path).read_text(encoding="utf-8")))
+print("ADD_DIR", json.dumps(argv[argv.index("--add-dir") + 1]))
+print("STDIN", json.dumps(sys.stdin.read()))
+pathlib.Path("hello.txt").write_text("hello\n", encoding="utf-8")
+rep = {"status": "done", "summary": "wrote hello.txt", "files_changed": ["hello.txt"], "tests_added": [],
+       "docs_updated": [], "decisions": [], "followups": []}
+print("```json\n" + json.dumps(rep) + "\n```")
+"""
+
+
+def fake_copilot(tmp_path, monkeypatch):
+    """A fake `copilot` that reads the file named in its -p text (docs checked 2026-10-12, not run live)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    (bindir / "copilot.py").write_text(COPILOT, encoding="utf-8")
+    if sys.platform == "win32":
+        (bindir / "copilot.cmd").write_text(f'@"{sys.executable}" "%~dp0copilot.py" %*\n')
+    else:
+        exe = bindir / "copilot"
+        exe.write_text(f"#!/bin/sh\nexec \"{sys.executable}\" \"{bindir / 'copilot.py'}\" \"$@\"\n")
+        exe.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ.get("PATH", ""))
+    return bindir
+
+
+def test_copilot_preset_reads_the_prompt_file_named_in_p(tmp_path, monkeypatch):
+    """Q2: the prompt goes to a temp file outside the worktree; -p names it; --add-dir opens its folder."""
+    fake_copilot(tmp_path, monkeypatch)
+    cfg = cfg_with(tmp_path, {"preset": "copilot"})
+    assert not cfg.validate() or not [e for e in cfg.validate() if "agent" in e]
+    res = get_backend(cfg).run(SessionRequest(prompt="build the login page", model="haiku", cwd=str(tmp_path),
+                                              system_append="PROJECT CONTEXT"))
+    assert res.ok and res.report["status"] == "done"
+    lines = {l.split(" ", 1)[0]: json.loads(l.split(" ", 1)[1]) for l in res.text.splitlines() if " " in l and l[:1].isupper()}
+    assert "--allow-all-tools" in lines["ARGV"] and "--no-ask-user" in lines["ARGV"] and "-s" in lines["ARGV"]
+    assert lines["ARGV"][lines["ARGV"].index("--model") + 1] == "claude-haiku-4.5"  # the default map for haiku
+    assert "build the login page" in lines["FILE"] and "PROJECT CONTEXT" in lines["FILE"]
+    path = lines["ARGV"][lines["ARGV"].index("-p") + 1].split("in the file ")[1].split(". Read it")[0]
+    assert not os.path.exists(path) and not path.startswith(str(tmp_path))  # removed after the run, outside the worktree
+    assert lines["ADD_DIR"] == os.path.dirname(path)
+    assert (tmp_path / "hello.txt").exists()
+
+
+def test_copilot_model_map_defaults_and_overrides(tmp_path):
+    cfg = cfg_with(tmp_path, {"preset": "copilot"})
+    assert model_flag(cfg, "haiku") == " --model claude-haiku-4.5"
+    assert model_flag(cfg, "sonnet") == "" and model_flag(cfg, "opus") == ""  # Copilot's default until Q9 names them
+    cfg = cfg_with(tmp_path, {"preset": "copilot", "model_map": {"haiku": "gpt-5.4", "sonnet": "claude-sonnet-4.5"}})
+    assert model_flag(cfg, "haiku") == " --model gpt-5.4" and model_flag(cfg, "sonnet") == " --model claude-sonnet-4.5"
+
+
+def test_copilot_premium_request_message_counts_as_a_limit():
+    from autopilot.backends import detect_limit
+    assert detect_limit("You have reached your premium requests limit for this month.")[0]
+    assert detect_limit("Error: monthly premium request quota exhausted")[0]
+    assert detect_limit("You have exceeded the quota of premium requests for this billing period.")[0]
+    assert not detect_limit("I will not use premium requests for this; the budget is fine.")[0]  # agent prose
+    assert not detect_limit("premium requests are great")[0]
 
 
 def test_old_presets_unchanged():

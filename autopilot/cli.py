@@ -383,34 +383,47 @@ def remember_setup(proj_path: Path, cmds: list[str]) -> None:
 
 
 def runner_set(root: Path) -> bool:
-    """N3: does the project's own project.yaml choose the agent CLI? Read raw: Config merges the claude_cli default.
-    An unusual `agent:` value (not a mapping) counts as set, so the file is left alone."""
-    path = Path(root) / AGENT_DIR / "project.yaml"
-    try:
-        agent = (load_yaml(path) if path.exists() else {}).get("agent") or {}
-    except (yaml.YAMLError, AttributeError):
-        return True  # a file preflight cannot read is never edited; validate reports it
-    return not isinstance(agent, dict) or any(agent.get(k) for k in ("backend", "command", "preset"))
+    """N3: does the project's own project.yaml choose the agent CLI? One reader: `doctor.runner_chosen`."""
+    from .doctor import runner_chosen
+    return runner_chosen(root)
 
 
 def pick_runner(root: Path) -> bool:
-    """N3: no runner set -> write the first installed, logged-in agent CLI on PATH. False = none (install hint printed).
-    A claude that is installed but logged out stays the default with no write, so the H2 login offer still runs."""
+    """N3: no runner set -> write the first installed, logged-in agent CLI on PATH. False = none: the neutral list of
+    every runner with its install command (Q1), never 'Install Claude Code' first. A claude that is installed but
+    logged out stays the default with no write, so the H2 login offer still runs. The runner `ap setup` chose on this
+    PC (Q3, `~/.autopilot/runner`) is written when it is installed and nothing else is logged in."""
     from .backends.claude_cli import ClaudeCLIBackend
-    from .doctor import INSTALL, RUNNERS, detect_runner
+    from .doctor import detect_runner, installed_runners, no_runner_text, runner
     if os.environ.get("AUTOPILOT_CLAUDE_BIN") or os.environ.get("AUTODEV_CLAUDE_BIN"):
         return True  # an explicit claude binary is a choice: keep the claude_cli default
     choice = detect_runner()
+    if not choice:
+        row = runner(setup_choice())
+        if row is not None and row.which():
+            choice = row.key
     if choice:
         if not remember_runner(Path(root) / AGENT_DIR / "project.yaml", choice):
             return False
-        print(f"runner: {next(b for b, be, *_ in RUNNERS if be == choice)} (found on PATH)")
+        print(f"runner: {runner(choice).binary} (found on PATH)")
         return True
     if shutil.which(ClaudeCLIBackend.resolve_binary()):
         return True
-    print(f"FAIL  no agent CLI found. Install Claude Code with: {INSTALL['native'][1]}\n"
-          f"      supported: {', '.join(b for b, *_ in RUNNERS)}")
+    found = installed_runners()
+    if found:  # installed, logged out: say which login is missing, nothing else
+        row = found[0][0]
+        print(f"FAIL  {row.binary} is installed but not logged in: run `{row.login}`, then start again")
+        return False
+    print(f"FAIL  {no_runner_text()}")
     return False
+
+
+def setup_choice() -> str:
+    """Q3: the runner `ap setup` chose on this PC (one word in `~/.autopilot/runner`), '' when none."""
+    try:
+        return (_recent_file().with_name("runner").read_text(encoding="utf-8").strip())
+    except OSError:
+        return ""
 
 
 def remember_runner(proj_path: Path, choice: str) -> bool:
@@ -1479,7 +1492,7 @@ def pick_project() -> str | None:
         print("This folder is no Autopilot project, and no other project is known on this PC.\n"
               "Go to the project folder, or name it with -C <folder>. To start a new one: autopilot quickstart")
         return None
-    print(f"project: {chosen}")
+    print(f"this folder is no project, using the last one used: {chosen}")  # Q10: say why, not only which
     return str(chosen)
 
 
@@ -1499,6 +1512,8 @@ def main(argv=None):
         if hasattr(s, "reconfigure"):
             s.reconfigure(encoding="utf-8", errors="replace")
     called = Path(sys.argv[0]).stem.lower() if argv is None else ""
+    if called not in ("ap", "autopilot"):  # `python -m autopilot` arrives as `__main__`: never a name a user reads
+        called = ""
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["start"]:  # J2: one plain word to start or continue the build in the background
         argv[:1] = ["run", "--clear-stop", "--detach"]
@@ -1574,6 +1589,12 @@ def main(argv=None):
     p.add_argument("--check", action="store_true"); p.add_argument("--ref"); p.add_argument("--daily", action="store_true", help=argparse.SUPPRESS)
     p = add("install", cmd_install, "install or repair Autopilot for this user; --rights = the one rights step")
     p.add_argument("--rights", action="store_true")
+    from .commands.setup import cmd_setup
+    p = add("setup", cmd_setup, "find the AI you pay for, install its CLI, check the login, write the choice (one question at most)")
+    p.add_argument("--dry-run", action="store_true", help="scan and print the plan; install and write nothing")
+    p.add_argument("--runner", help="answer the question in advance: claude, copilot, codex, cursor or kiro")
+    p.add_argument("--yes", action="store_true", help="take the default answer")
+    p.add_argument("--skip-login", action="store_true", help="do not check or start a login")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
@@ -1597,7 +1618,7 @@ def main(argv=None):
         print(f"autopilot {__version__}: {DESCRIPTION.split('. ')[0]}.")
         print(next_steps_text(Path.cwd()))
         return 0
-    if args.cmd in ("upgrade", "install"):  # no project: nothing to find or remember
+    if args.cmd in ("upgrade", "install", "setup"):  # no project needed: nothing to find or remember
         return args.fn(args) or 0
     if args.path is None:  # J2: no -C
         found = "." if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists() else pick_project()

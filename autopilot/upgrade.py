@@ -141,8 +141,13 @@ def cmd_upgrade(args, run=run_proc, urlopen=_open, detect=detect_install, root=N
     return 0
 
 
-def cmd_install(args, run=run_proc, urlopen=_open, which=shutil.which) -> int:
-    """`ap install [--rights]`: uv, then Autopilot at the latest tag; --rights = the one rights step."""
+def _setup(args) -> int:
+    from .commands.setup import cmd_setup
+    return cmd_setup(args)
+
+
+def cmd_install(args, run=run_proc, urlopen=_open, which=shutil.which, setup=_setup) -> int:
+    """`ap install [--rights]`: uv, then Autopilot at the latest tag, then `ap setup` (Q3); --rights = the one rights step."""
     if getattr(args, "rights", False):  # N5.4: the one rights step lives here, not in the install scripts
         from .rights import have_rights, setup_rights
         for line in setup_rights():
@@ -166,7 +171,7 @@ def cmd_install(args, run=run_proc, urlopen=_open, which=shutil.which) -> int:
         print("uv tool install failed")
         return 1
     print(f"installed {rel['tag']}. Open a project folder and type ap")
-    return 0
+    return setup(args)
 
 
 def _stamp() -> Path:

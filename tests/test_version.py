@@ -40,3 +40,15 @@ def test_ap_version_has_version_and_commit(capsys):
     out = capsys.readouterr().out
     assert "(" in out and out.split("(")[1].rstrip(")\n")
     assert any(c.isdigit() for c in out)
+
+
+def test_python_m_autopilot_version_says_autopilot_not_main(monkeypatch, capsys):
+    """Q10 (found in the session-32 Windows dry run): `python -m autopilot --version` printed `__main__ 0.4.0`."""
+    import sys
+    from autopilot.cli import main
+    monkeypatch.setattr(sys, "argv", ["C:\\x\\autopilot\\__main__.py", "--version"])
+    assert main() == 0
+    assert capsys.readouterr().out.startswith("autopilot ")
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/ap", "--version"])
+    main()
+    assert capsys.readouterr().out.startswith("ap ")

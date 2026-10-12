@@ -118,6 +118,9 @@ def test_package_row_shows_version_and_path_and_warns_when_shadowed(tmp_path, mo
     cfg = project(tmp_path)
     level, detail = by_name(checks(cfg))["autopilot"]
     assert level == OK and autopilot.__version__ in detail and Path(autopilot.__file__).parent.name in detail
+    assert any(f"installed as: {w}" in detail for w in ("editable checkout", "uv tool", "pip"))  # Q10: the install source
+    monkeypatch.setattr("autopilot.upgrade.detect_install", lambda *a, **k: "uv")
+    assert "installed as: uv tool" in by_name(checks(cfg))["autopilot"][1]
     monkeypatch.setattr(autopilot, "__file__", str(tmp_path / "autopilot" / "__init__.py"))
     level, detail = by_name(checks(cfg))["autopilot"]
     assert level == WARN and "the project's own autopilot/ folder is imported, not the installed Autopilot" in detail

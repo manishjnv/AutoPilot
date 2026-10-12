@@ -113,6 +113,14 @@ class Config:
                 errs.append(f"agent.preset must be one of {', '.join(PRESETS)}, got {preset!r}")
             elif not (self.get("agent.command") or preset):
                 errs.append(f"agent.backend=command needs agent.command or agent.preset ({', '.join(PRESETS)})")  # P08-T02
+        fallback = self.get("agent.fallback") or []
+        if fallback:  # N11 reads the runner table (Q1): a name that is no preset can never run
+            from .backends.command import PRESETS
+            from .doctor import RUNNERS
+            known = set(PRESETS) | {r.preset for r in RUNNERS if r.preset}
+            bad = [str(n) for n in (fallback if isinstance(fallback, list) else [fallback]) if n not in known]
+            if bad:
+                errs.append(f"agent.fallback names must be presets ({', '.join(sorted(known))}), got {', '.join(bad)}")
         for env in ("staging", "prod"):
             if self.get(f"deploy.{env}.enabled") and not self.get(f"deploy.{env}.cmd"):
                 errs.append(f"deploy.{env}.enabled but deploy.{env}.cmd is empty")

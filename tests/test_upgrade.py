@@ -139,8 +139,10 @@ def test_fetch_wheel_accepts_a_matching_hash():
 
 def test_install_uses_uv_and_the_checked_wheel(capsys):
     run = FakeRun({"gh release view": GH_JSON})
-    rc = cmd_install(Namespace(rights=False), run=run, urlopen=fake_open(), which=lambda n: "/bin/" + n)
-    assert rc == 0 and run.calls[-1][:3] == ["uv", "tool", "install"]
+    done = []
+    rc = cmd_install(Namespace(rights=False), run=run, urlopen=fake_open(), which=lambda n: "/bin/" + n,
+                     setup=lambda a: done.append(a) or 0)
+    assert rc == 0 and run.calls[-1][:3] == ["uv", "tool", "install"] and done  # Q3: `ap setup` runs last
     assert "Open a project folder and type ap" in capsys.readouterr().out
 
 

@@ -31,16 +31,17 @@ Autopilot masks the values of known secret variables in the error text of a fail
 
 ## Presets that approve every tool
 
-Three presets let the agent run every tool without a prompt. This is not limited to the worktree (the separate copy of the project for one task).
+Four presets let the agent run every tool without a prompt. This is not limited to the worktree (the separate copy of the project for one task).
 
 | Preset | Flag | What it allows |
 |---|---|---|
 | `kiro` | `--trust-all-tools` | Every tool, with no prompt. |
 | `cursor` | `--force` | Every command, with no prompt. |
+| `copilot` | `--allow-all-tools` and `--no-ask-user` | Every tool, with no prompt, and no question. |
 | `gemini` | `--approval-mode=yolo` (`yolo` mode) | Every tool, with no prompt. |
 
 - The worktree is the only boundary. The agent can still reach files and the network outside it.
-- These three presets never ran live. Autopilot wrote them from the vendor docs.
+- These four presets never ran live. Autopilot wrote them from the vendor docs.
 - Use them only on a PC and an account where you accept this risk.
 
 ## Rights the installer takes
