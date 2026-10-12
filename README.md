@@ -81,6 +81,10 @@ Each phase writes `history/<phase>/PROOF.md`. It has a `## Not proven` section. 
 
 Type `ap tour` to watch a recorded run in the watch window. It needs no login, no key, no network and no agent CLI. It writes no file, not in `.agent/` and not in your home folder. The replay runs at 10 times real time; use `--speed N` to change it. At the end it prints the proof (the outcome word `VERIFIED` and the Not proven list) and the lines `Install: uv tool install dev-autopilot` and `Start: ap`. Use `ap tour --once` to draw only the last frame and exit 0, for CI. The recording is `examples/tour/events.jsonl`: more than 40 events, with no user path, mail address or secret. `scripts/make_tour.py` builds it again from `examples/self-build`. See [REFERENCE.md](REFERENCE.md).
 
+## Fresh-context review on every task
+
+A fresh session reviews each finished task before it merges. Set `review.scope` in `project.yaml`. With `scope: all`, every task above low risk gets a review, and a finding blocks the merge. With `scope: critical`, or no key, only critical tasks get one. This is the code default, so old projects keep today's behavior. `ap init` writes `scope: all`. Any other value is an error with a plain message. The reviewer sees only the task spec (with the acceptance criteria), the diff and the gate's test output. It sees nothing from the build session. See [REFERENCE.md](REFERENCE.md).
+
 ## Install
 
 Three steps, no administrator prompt.
