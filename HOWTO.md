@@ -365,7 +365,7 @@ your IDE or terminal.
 - **Not supported:** Replit has no CLI that Autopilot can call. The Kiro and Cursor chat panels have none either.
   Use the `kiro-cli` or `agent` CLI instead. Copilot in VS Code is not a command-line tool. Autopilot needs the
   Copilot CLI, which uses the same subscription.
-- **Approve-all presets:** `kiro` (`--trust-all-tools`), `cursor` (`--force`) and `gemini` (`yolo`) approve every tool,
+- **Approve-all presets:** `kiro` (`--trust-all-tools`), `cursor` (`--force`), `copilot` (`--allow-all-tools`) and `gemini` (`yolo`) approve every tool,
   not only the worktree. They never ran live. See [SECURITY.md](SECURITY.md).
 - **Where you watch:** run `ap watch` in the terminal of your IDE, or open the status page in your browser.
 - **After the run:** the code is on `main`. Also read `CHANGELOG.md`, `docs/RCA.md` and `docs/NEEDS-YOU.md`.
@@ -380,7 +380,7 @@ logged in, run `ap setup`: it finds the AI you pay for, installs its CLI and wri
 do these steps:
 
 1. In `.agent/project.yaml`, set `agent.backend: command`.
-2. Set `agent.preset` to `codex`, `gemini`, `opencode`, `kiro`, `cursor` or `aider`. For a different CLI, write the command in `agent.command`.
+2. Set `agent.preset` to `codex`, `copilot`, `gemini`, `opencode`, `kiro`, `cursor` or `aider`. For a different CLI, write the command in `agent.command`.
 3. Optional: map the model names to the models of that CLI in `agent.model_map`.
 
 > [!NOTE]

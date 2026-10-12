@@ -190,7 +190,7 @@ environment, preflight runs `python -m venv .venv`, then installs with the `.ven
 (`VIRTUAL_ENV`) or a project environment (`.venv`, `venv`, `env`) is used as is. `commands.setup` stores these commands.
 
 Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
-`agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor` and `aider` presets).
+`agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor`, `aider` and `copilot` presets). The `copilot` preset maps `haiku` to `claude-haiku-4.5` by itself; `sonnet` and `opus` use Copilot's default model until you map them.
 
 | Preset | Runs | The prompt goes in |
 |---|---|---|
@@ -200,6 +200,7 @@ Agent presets: with `agent.backend: command` and no `agent.command`, `agent.pres
 | `kiro` | `kiro-cli chat --no-interactive --trust-all-tools` | standard input |
 | `cursor` | `agent -p --force --trust` | standard input |
 | `aider` | `aider --message-file ... --yes-always --no-auto-commits` | a temporary file outside the project |
+| `copilot` | `copilot -p ... --allow-all-tools --no-ask-user -s --add-dir ...` | a temporary file outside the project, named in the prompt |
 
 `agent.fallback` (default empty = off) lists runner presets, for example `[codex, copilot]`. When a session ends on a
 usage limit that resets in more than 30 minutes, Autopilot commits the work, writes `HANDOFF.md` (goal, done, next, failing

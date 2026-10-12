@@ -58,7 +58,7 @@ gate:
 agent:
   # backend: claude_cli   # claude_cli | command; unset = preflight writes the first agent CLI it finds on PATH (N3)
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
-  # preset: codex          # backend=command without a command: codex | gemini | opencode | kiro | cursor | aider (ready-made invocations)
+  # preset: codex          # backend=command without a command: codex | copilot | gemini | opencode | kiro | cursor | aider (ready-made invocations)
   # fallback: [codex, copilot]   # N11: at a usage limit that resets in over 30 min, the task continues with the first runner here (own login)
   # model_map: {haiku: <small model>, sonnet: <main model>, opus: <largest model>}   # ladder names -> CLI models;
   #                         an unmapped haiku/sonnet/opus uses the CLI's default model

@@ -1,6 +1,7 @@
 """Generic backend: any CLI agent (Aider, Codex, a LiteLLM wrapper...). Prompt on stdin, report in stdout."""
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import shutil
@@ -30,9 +31,20 @@ PRESETS = {
     "cursor": "agent -p --force --trust{model_flag} " + _ASK,
     "aider": "aider --message-file {prompt_file} --yes-always --no-auto-commits --no-dirty-commits --no-gitignore"
              " --no-check-update --no-analytics --no-pretty --no-stream{model_flag}",
+    # Q2 copilot: docs checked 2026-10-12, not run live (the live task is Q9). Sources: https://docs.github.com/en/copilot
+    # /how-tos/use-copilot-agents/use-copilot-cli . `-p` takes the prompt as an argument (stdin is not documented), so the
+    # prompt goes to a temp file outside the worktree (the aider pattern) and `--add-dir` lets copilot read that folder.
+    # --allow-all-tools and --no-ask-user approve every tool and never wait for a person; -s is the silent output.
+    "copilot": 'copilot -p "Your full instructions are in the file {prompt_path}. Read it, follow it, end with the '
+               'requested JSON report." --allow-all-tools --no-ask-user -s --add-dir {prompt_dir}{model_flag}',
 }
-_MODEL_OPT = {"kiro": "--model", "cursor": "--model", "aider": "--model"}  # P03-T01: aider -m means --message
+_MODEL_OPT = {"kiro": "--model", "cursor": "--model", "aider": "--model", "copilot": "--model"}  # aider -m = --message
 CLAUDE_ALIASES = ("haiku", "sonnet", "opus")
+# Q2: a preset's own names for the ladder aliases, used when agent.model_map does not map them. Copilot accepts Claude
+# model names (docs checked 2026-10-12, not run live: only `claude-haiku-4.5` is named in the docs; sonnet and opus stay
+# unmapped = Copilot's default model until Q9 records the exact names).
+DEFAULT_MODEL_MAP = {"copilot": {"haiku": "claude-haiku-4.5"}}
+_FILE_KEYS = ("{prompt_file}", "{prompt_path}", "{prompt_dir}")
 SAFE_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}")
 
 
@@ -57,10 +69,12 @@ def command_template(cfg) -> str:
 def model_flag(cfg, model: str) -> str:
     """` -m <model>` (` --model <model>` for kiro, cursor, aider) after `agent.model_map` (ladder names → this CLI's
     models); an unmapped Claude alias gets no flag, so the CLI uses its own default model."""
-    m = str((cfg.get("agent.model_map", {}) or {}).get(model, model))
+    preset = str(cfg.get("agent.preset") or "")
+    own = (cfg.get("agent.model_map", {}) or {})
+    m = str(own.get(model, DEFAULT_MODEL_MAP.get(preset, {}).get(model, model)))
     if not SAFE_MODEL.fullmatch(m):  # the command runs through a shell (sh or cmd.exe): no quoting tricks needed
         raise ValueError(f"unsafe model name for agent.preset: {m!r}")
-    opt = _MODEL_OPT.get(str(cfg.get("agent.preset") or ""), "-m")
+    opt = _MODEL_OPT.get(preset, "-m")
     return "" if m in CLAUDE_ALIASES else f" {opt} {m}"
 
 
@@ -73,7 +87,7 @@ class CommandBackend:
         # the project context lives in system_append (U7); a generic CLI has no system prompt, so it leads the prompt
         prompt = f"{req.system_append}\n\n---\n\n{req.prompt}" if req.system_append else req.prompt
         pf = ""
-        if "{prompt_file}" in self.template:  # P03-T01: for CLIs without a stdin prompt (aider); outside the worktree
+        if any(k in self.template for k in _FILE_KEYS):  # P03-T01: CLIs without a stdin prompt (aider, copilot); outside the worktree
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", prefix="autopilot-prompt-", suffix=".md",
                                              delete=False) as f:
                 f.write(prompt)
@@ -86,7 +100,7 @@ class CommandBackend:
     def _run(self, req: SessionRequest, prompt: str, pf: str) -> SessionResult:
         cmd = self.template.format(model=shlex.quote(req.model), budget=req.budget_usd or 0,
                                    read_only=int(req.read_only), model_flag=model_flag(self.cfg, req.model),
-                                   prompt_file=f'"{pf}"')
+                                   prompt_file=f'"{pf}"', prompt_path=pf, prompt_dir=f'"{os.path.dirname(pf)}"')
         env = {**agent_env(self.cfg), "AUTOPILOT_MODEL": req.model, "AUTOPILOT_READ_ONLY": str(int(req.read_only)),
                "AUTOPILOT_SYSTEM_APPEND": req.system_append}
         env.update({"AUTODEV_" + k[10:]: v for k, v in list(env.items()) if k.startswith("AUTOPILOT_")})

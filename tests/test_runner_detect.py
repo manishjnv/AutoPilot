@@ -244,6 +244,28 @@ def test_installed_but_logged_out_runner_names_only_its_login(tmp_path, monkeypa
     assert "codex is installed but not logged in: run `codex login`" in out and "no agent CLI found" not in out
 
 
+def test_copilot_login_counts_a_token_then_gh_auth_status(tmp_path, monkeypatch, capsys):
+    """Q2: copilot has no prompt-free status command: a token variable counts, else `gh auth status` exit 0."""
+    root, pj = init_project(tmp_path)
+    pj.write_text(pj.read_text(encoding="utf-8") + "agent:\n  backend: command\n  preset: copilot\n", encoding="utf-8")
+    only_path(monkeypatch, tmp_path, fake_bin(tmp_path, copilot="out", gh="out"))
+    assert not [e for e in Config.load(root).validate() if "agent" in e]  # `ap validate` passes
+    assert preflight(Config.load(root)) is False
+    assert "FAIL  runner login: copilot is not logged in: run `copilot login`" in capsys.readouterr().out
+    assert calls(tmp_path, "gh") == [["auth", "status"]] and calls(tmp_path, "copilot") == []
+    monkeypatch.setattr("autopilot.cli.install_deps", lambda cfg: True)
+    monkeypatch.setenv("GH_TOKEN", "fake-example-token")
+    assert preflight(Config.load(root)) is True
+    assert "copilot logged in" in capsys.readouterr().out and len(calls(tmp_path, "gh")) == 1  # the token: no process
+    monkeypatch.delenv("GH_TOKEN")
+    (tmp_path / "b").mkdir()
+    only_path(monkeypatch, tmp_path / "b", fake_bin(tmp_path / "b", copilot="out", gh="in"))
+    assert preflight(Config.load(root)) is True
+    (tmp_path / "c").mkdir()
+    only_path(monkeypatch, tmp_path / "c", fake_bin(tmp_path / "c", copilot="out"))  # no gh at all
+    assert preflight(Config.load(root)) is False
+
+
 def test_doctor_says_runner_none_when_no_runner_is_chosen(tmp_path, monkeypatch):
     """Q1: `ap doctor` on a machine that never chose Claude never asks for `claude login`."""
     from autopilot.doctor import WARN, checks
@@ -364,6 +386,37 @@ def kiro_bin(tmp_path):
         return str(bindir)
     except OSError:  # Windows, or no symlink right: the real git's folder goes last
         return str(bindir) + os.pathsep + os.path.dirname(git)
+
+
+def test_smoke_fake_copilot_runs_one_task_end_to_end(tmp_path, monkeypatch, capsys):
+    """Q2: a fake copilot (reads the file named in -p) plus a fake `gh auth status` 0 runs one task through the gate."""
+    from test_presets import COPILOT
+    from autopilot.orchestrator import Orchestrator
+    root, pj = init_project(tmp_path)
+    test = '"' + sys.executable + '" -c "import pathlib,sys; sys.exit(0 if pathlib.Path(\'hello.txt\').exists() else 1)"'
+    pj.write_text(SMOKE_YAML.replace("{test}", json.dumps([test])), encoding="utf-8")
+    plan = {"goal": "smoke", "phases": [{"id": "P01", "title": "One", "tasks": [
+        {"id": "P01-T01", "title": "write hello.txt", "risk": "low", "acceptance_criteria": ["hello.txt exists"]}]}]}
+    import yaml
+    (root / ".agent" / "plan.yaml").write_text(yaml.safe_dump(plan), encoding="utf-8")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    path = fake_bin(tmp_path, gh="in")
+    bindir = Path(path)
+    (bindir / "copilot.py").write_text(COPILOT, encoding="utf-8")
+    if sys.platform == "win32":
+        (bindir / "copilot.cmd").write_text(f'@"{sys.executable}" "%~dp0copilot.py" %*\n')
+    else:
+        (bindir / "copilot").write_text(f"#!/bin/sh\nexec \"{sys.executable}\" \"{bindir / 'copilot.py'}\" \"$@\"\n")
+        (bindir / "copilot").chmod(0o755)
+    git = shutil.which("git")
+    only_path(monkeypatch, tmp_path, path + os.pathsep + os.path.dirname(git))
+    assert preflight(Config.load(root)) is True
+    assert "runner: copilot (found on PATH)" in capsys.readouterr().out
+    assert "  preset: copilot\n" in pj.read_text(encoding="utf-8")
+    orch = Orchestrator(root, sleep=lambda s: None, max_sessions=1)
+    orch.run()
+    assert orch.state.task("P01-T01")["status"] == "done"
+    assert (root / "hello.txt").exists()
 
 
 def test_smoke_fake_kiro_runs_one_task_end_to_end(tmp_path, monkeypatch, capsys):
