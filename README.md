@@ -13,7 +13,7 @@ It is for one developer, or for a person with an idea and a developer friend.
 
 | | Claude Code alone | With Autopilot |
 |---|---|---|
-| Direction | Claude can choose the design as it works. | Your plan sets the design. The gate refuses a change to the plan. |
+| Direction | Claude can choose the design as it works. | Your plan sets the design. The gate refuses plan changes. |
 | Checks | The model can say that work is done. | Autopilot runs your build, lint and test commands. A task merges only if they pass. |
 | Failures | You find and repair a problem. | A stronger model tries again. Autopilot repairs a missing tool or a red main branch. |
 | Questions | The chat waits for you. | That task waits. Other tasks continue. |
@@ -54,7 +54,7 @@ flowchart LR
 
 ## Real results
 
-Two real projects, both CLIs built from a plan:
+Two real projects built from a plan:
 
 - **SecretScan** finds leaked secrets in a repository.
 - **envguard** checks `.env` files against a schema and finds secrets in the git history.
@@ -72,6 +72,13 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 
 ## Install
 
+With Python and [uv](https://docs.astral.sh/uv/), one line on every system:
+
+```powershell
+uv tool install dev-autopilot
+```
+
+No Python? The script installs everything for your user, with no administrator prompt.
 Windows (PowerShell):
 
 ```powershell
@@ -85,15 +92,13 @@ curl -fsSL https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.sh
 ```
 
 On Windows pick Windows or WSL, not both; WSL only for the sandbox.
-Open a project folder and type `ap`. See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder).
-
-The script installs what is missing: git, uv, Claude Code, Python, and Autopilot. You need a paid Claude plan (Pro
-or Max). After a release, run `ap upgrade`. For a repair or a second machine, run `ap install`. For the checksums
-and each step, see [Install with one script](HOWTO.md#install-with-one-script).
+Open a project folder and type `ap`. The first run logs you in to Claude (a paid plan, Pro or Max), then starts.
+See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). After a release, run `ap upgrade`. For a repair or a
+second machine, run `ap install`. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
 
 ## Example output
 
-Shortened real output, a skipped test and the retry:
+Shortened real output:
 
 ```text
 task P02-T01 attempt 1 failed: PROBLEM: skip/focus marker added in tests/test_walker.py
@@ -106,10 +111,10 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 
 | To | Read |
 |---|---|
-| Build your first project, step by step | [Tutorial](GUIDE.md) |
+| Build your first project | [Tutorial](GUIDE.md) |
 | Do one job: a server, phone alerts, an existing project | [How-to guides](HOWTO.md) |
-| Look up a command, a setting, a file, or a term | [Reference](REFERENCE.md) |
-| Understand how Autopilot works and why | [Architecture](ARCHITECTURE.md) |
+| Look up a command, setting, file or term | [Reference](REFERENCE.md) |
+| How Autopilot works and why | [Architecture](ARCHITECTURE.md) |
 
 ## Good to know
 
