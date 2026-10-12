@@ -975,6 +975,11 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
     return 0
 
 
+def cmd_tour(args):
+    from .commands.tour import cmd_tour as run_tour
+    return run_tour(args)
+
+
 def cmd_watch(args):
     """Follow a run from any terminal: progress, current step, then every live line until the run finishes."""
     import time
@@ -1659,6 +1664,9 @@ def main(argv=None):
     p.add_argument("--simple", action="store_true", help="plain words, also when the output is not a terminal")
     p.add_argument("--hold", action="store_true", help="at the end of the build, wait for Enter (a window of its own)")
     p.add_argument("--scroll", action="store_true", help="the scrolling view in plain words, not the dashboard")
+    p = add("tour", cmd_tour, "replay a recorded run offline: no login, no key, no cost")
+    p.add_argument("--speed", type=float, default=10, help="times real time (default 10)")
+    p.add_argument("--once", action="store_true", help="draw the last frame only and exit (for CI)")
     p = add("serve", cmd_serve, "live read-only status page in the browser")
     p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8765)
     p.add_argument("--refresh", type=int, default=30, help="seconds between page reloads")
@@ -1718,7 +1726,7 @@ def main(argv=None):
         print(f"autopilot {__version__}: {DESCRIPTION.split('. ')[0]}.")
         print(next_steps_text(Path.cwd()))
         return 0
-    if args.cmd in ("upgrade", "install", "setup", "uninstall"):  # no project needed: nothing to find or remember
+    if args.cmd in ("upgrade", "install", "setup", "uninstall", "tour"):  # no project needed: nothing to find or remember
         return args.fn(args) or 0
     if args.path is None:  # J2: no -C
         found = "." if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists() else pick_project()

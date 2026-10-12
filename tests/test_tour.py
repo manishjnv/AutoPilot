@@ -43,3 +43,41 @@ def test_make_tour_regenerates_the_same_file(tmp_path):
 def test_tour_proof_has_outcome_and_not_proven():
     md = (ROOT / "examples" / "tour" / "PROOF.md").read_text(encoding="utf-8")
     assert "Outcome: VERIFIED" in md and "## Not proven" in md
+
+
+def run_tour(tmp_path, *extra):
+    home = tmp_path / "home"; home.mkdir(exist_ok=True)
+    work = tmp_path / "work"; work.mkdir(exist_ok=True)
+    env = {"PATH": str(tmp_path / "empty"), "HOME": str(home), "USERPROFILE": str(home), "AUTOPILOT_HOME": str(home / ".ap"),
+           "PYTHONPATH": __import__("os").pathsep.join([str(ROOT), *sys.path]), "SYSTEMROOT": __import__("os").environ.get("SYSTEMROOT", "")}
+    r = subprocess.run([sys.executable, "-m", "autopilot", "tour", "--once", *extra], cwd=work, env=env,
+                       capture_output=True, text=True, encoding="utf-8", timeout=60)
+    return r, work, home
+
+
+def test_tour_once_prints_outcome_and_install_line(tmp_path):
+    r, work, home = run_tour(tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert "VERIFIED" in r.stdout
+    assert "uv tool install dev-autopilot" in r.stdout
+    assert "Start: ap" in r.stdout
+    assert "Not proven" in r.stdout
+
+
+def test_tour_writes_nothing(tmp_path):
+    r, work, home = run_tour(tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert list(work.iterdir()) == [] and list(home.iterdir()) == []
+
+
+def test_packaged_copy_matches_examples():
+    pkg = ROOT / "autopilot" / "templates" / "tour"
+    for name in ("events.jsonl", "PROOF.md"):
+        assert (pkg / name).read_bytes() == (ROOT / "examples" / "tour" / name).read_bytes()
+
+
+def test_snapshot_progresses():
+    from autopilot.commands.tour import load_events, snapshot
+    ev = load_events()
+    a, b = snapshot(ev, ev[-1]["t"] / 2), snapshot(ev, ev[-1]["t"])
+    assert 0 < a["progress"]["done"] < b["progress"]["done"] == b["progress"]["total"]

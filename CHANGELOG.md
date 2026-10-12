@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W2: `ap tour [--speed N] [--once]` replays a recorded run in the watch window with no login, no key and no network, then prints the proof and the install line.
 - W3: every `PROOF.md` has a `## Not proven` section: criteria that no test file changed by the task mentions, tasks with no verify and no test command, features not checked and scope added. When nothing is open it says so in one sentence.
 - W3: each run ends with one word (`VERIFIED`, `BLOCKED`, `BUDGET_STOP`, `STALLED`, `FAILED`) in the state meta key `outcome`, a `run_end` event, the log, the first word of the end alert, the window title (`Done VERIFIED`) and an `outcome:` line in `ap status`.
 
@@ -121,3 +122,4 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - 2026-10-13 **P01-T01** Outcome word at the end of every run — Re-applied the outcome word. Every run end records VERIFIED, BLOCKED, BUDGET_STOP, STALLED or FAILED in state meta `outcome` (cleared at run start), a `run_end` event, the log, run.json `word`, and th
 - 2026-10-13 **P01-T02** Not proven section in PROOF.md — Every PROOF.md now has a `## Not proven` section after the header lines. It lists untested criteria (with task id), tasks with no verify and no test command, features not checked, and scope-added warn
 - 2026-10-13 **P02-T01** Recording format and the examples/tour data — Added examples/tour/events.jsonl (180 events, 31 KB, rising t) and PROOF.md, generated deterministically from examples/self-build by scripts/make_tour.py, which scrubs paths, addresses and '@' and use
+- 2026-10-13 **P02-T02** ap tour command — Added `ap tour [--speed N] [--once]`. It reads the recording from `autopilot/templates/tour/`, builds dashboard data per second of recorded time, and draws it with `dash_term.frame`. At the end it pri
