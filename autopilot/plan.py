@@ -293,6 +293,20 @@ def append_phase(path: Path | str, phase: dict) -> None:
         yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True, width=100)
 
 
+def insert_task(path: Path | str, phase_id: str, task: dict) -> None:
+    """O9: put a task at the head of a phase and re-validate; a PlanError means nothing was written."""
+    import yaml
+
+    path = Path(path)
+    data = load_yaml(path)
+    for i, p in enumerate(data.get("phases") or []):
+        if str(p.get("id") or f"P{i + 1:02d}") == phase_id:
+            p["tasks"] = [task] + list(p.get("tasks") or [])
+    Plan.from_dict(data)
+    with open(path, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True, width=100)
+
+
 def clear_reopen_flags(path: Path | str, task_ids: list[str]) -> None:
     import yaml
 
