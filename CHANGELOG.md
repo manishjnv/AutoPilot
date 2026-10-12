@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-12
+
 - Fix: `install.ps1` under PowerShell 5.1 parses the archive address (single quotes); two Windows-only test fixes. The v0.5.0 release assets carry the old script; this release replaces them.
 - Release tooling: `scripts/bump.py X.Y.Z` commits and pushes the bump; `--tag` tags only when CI is green on that commit; both steps use the GitHub noreply identity.
 

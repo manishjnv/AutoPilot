@@ -10,7 +10,7 @@ set -o pipefail
 # T1: a script from main installs main; the release workflow points the asset copy at its tag. MIN_VERSION is this
 # script's own version (bump.py writes it): an Autopilot below it, found or fresh from PyPI, is replaced.
 DEFAULT_REF=main
-MIN_VERSION=0.5.0
+MIN_VERSION=0.5.1
 RAW=https://raw.githubusercontent.com/manishjnv/AutoPilot
 
 step() { echo "==> Step $1 of 5: $2"; }
