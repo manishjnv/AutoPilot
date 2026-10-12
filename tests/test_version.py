@@ -23,7 +23,9 @@ def test_bump_updates_files_commits_and_tags(tmp_path):
     for a in (["init", "-q"], ["config", "user.name", "t"], ["config", "user.email", "t@t"],
               ["add", "."], ["commit", "-qm", "base"]):
         git(tmp_path, *a)
-    subprocess.run([sys.executable, str(BUMP), "0.2.0"], cwd=tmp_path, check=True)
+    subprocess.run([sys.executable, str(BUMP), "0.2.0"], cwd=tmp_path, check=True)  # step 1: files + commit, no tag
+    assert git(tmp_path, "tag").split() == []  # the tag waits for green CI (no origin here: a local tag on --tag)
+    subprocess.run([sys.executable, str(BUMP), "0.2.0", "--tag"], cwd=tmp_path, check=True)  # step 2
     assert 'version = "0.2.0"' in (tmp_path / "pyproject.toml").read_text()
     assert '"version": "0.2.0"' in (tmp_path / "plugin/.claude-plugin/plugin.json").read_text()
     assert '"0.2.0"' in (tmp_path / "autopilot/__init__.py").read_text()

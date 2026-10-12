@@ -37,6 +37,11 @@ def head():
     return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
 
 
+def has_origin() -> bool:
+    """A repository without `origin` (a test fixture, a plain clone) bumps and tags locally; the guard needs a remote."""
+    return subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True).returncode == 0
+
+
 def ci_state(sha) -> str:
     """'success', 'failure', 'pending' or 'none' for the CI workflow on this commit (needs gh)."""
     p = subprocess.run(["gh", "run", "list", "--commit", sha, "--workflow", "CI", "--json", "status,conclusion",
@@ -59,16 +64,23 @@ def bump(ver):
     sub("install.ps1", r"^\$MinVersion = .*", f"$MinVersion = '{ver}'")
     git("add", "-u")
     git("commit", "-m", f"release: v{ver}")
+    if not has_origin():
+        print(f"bump commit {head()[:7]} made; no origin, nothing pushed. Tag with: python scripts/bump.py {ver} --tag")
+        return
     git("push", "origin", "HEAD")
     print(f"pushed the bump commit {head()[:7]}. When CI is green: python scripts/bump.py {ver} --tag")
 
 
 def tag(ver):
     sha = head()
-    state = ci_state(sha)
-    if state != "success":
-        sys.exit(f"CI on {sha[:7]} is {state}; tag only on green. Check: gh run list --commit {sha}")
+    if has_origin():
+        state = ci_state(sha)
+        if state != "success":
+            sys.exit(f"CI on {sha[:7]} is {state}; tag only on green. Check: gh run list --commit {sha}")
     git("tag", "-a", f"v{ver}", "-m", f"v{ver}")
+    if not has_origin():
+        print(f"tagged v{ver} on {sha[:7]}; no origin, nothing pushed")
+        return
     git("push", "origin", f"v{ver}")
     print(f"tagged v{ver} on {sha[:7]} and pushed; the Release workflow publishes it")
 
