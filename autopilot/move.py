@@ -52,10 +52,11 @@ def _drive_type(letter: str) -> int:
 def default_target(name: str, env: dict | None = None, platform: str | None = None, home: Path | None = None) -> str:
     """`%LOCALAPPDATA%\\dev\\<name>` on Windows, `~/dev/<name>` on WSL and everywhere else."""
     env = os.environ if env is None else env
+    from pathlib import PurePosixPath, PureWindowsPath  # the target OS decides the separators, not the test host
     if (platform or sys.platform).startswith("win"):
-        base = env.get("LOCALAPPDATA") or str(Path(home or Path.home()) / "AppData" / "Local")
-        return str(Path(base) / "dev" / name)
-    return str(Path(home or Path.home()) / "dev" / name)
+        base = env.get("LOCALAPPDATA") or str(PureWindowsPath(str(home or Path.home())) / "AppData" / "Local")
+        return str(PureWindowsPath(base) / "dev" / name)
+    return str(PurePosixPath(str(home or Path.home()).replace("\\", "/")) / "dev" / name)
 
 
 def warning(root: Path, **kw) -> list[str]:

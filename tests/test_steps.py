@@ -38,7 +38,8 @@ def test_a_run_that_dies_at_the_runner_step_resumes_there_and_skips_the_rest(tmp
     m.said.clear()
     assert m.setup(yes=True) == 0  # the second run, the install now works
     text = m.text
-    assert "done      autopilot:" in text and "done      python:" in text
+    assert "done      autopilot:" in text
+    assert "done      python:" in text or "skipped   python3: not installed" in text  # the fake PATH has no python on Windows
     assert text.index("done      autopilot:") < text.index("install   copilot:")  # the finished steps come first
     assert m.installed == ["curl -fsSL https://gh.io/copilot-install | bash"]  # only the runner installed
     assert steps.load()["runner"]["status"] == "done"
