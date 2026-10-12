@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- CI: tests run in parallel (`pytest -n auto`, `pytest-xdist` in the dev extras), pip cache, docs-only pushes skip CI, a newer push cancels the queued run; the Release job builds without a second test run. Push to release went from about 35 minutes to about 10.
+
 ## [0.5.1] - 2026-10-12
 
 - Fix: `install.ps1` under PowerShell 5.1 parses the archive address (single quotes); two Windows-only test fixes. The v0.5.0 release assets carry the old script; this release replaces them.

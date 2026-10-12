@@ -28,7 +28,7 @@ Changelog = "https://github.com/manishjnv/AutoPilot/blob/main/CHANGELOG.md"
 Issues = "https://github.com/manishjnv/AutoPilot/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "pytest-xdist>=3"]
 aws = ["boto3>=1.26"]
 
 [project.scripts]

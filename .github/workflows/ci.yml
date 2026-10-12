@@ -2,9 +2,14 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", "assets/**", ".vale/**", ".vale.ini"]  # docs have their own workflow
   pull_request:
+    paths-ignore: ["**.md", "docs/**", "assets/**", ".vale/**", ".vale.ini"]
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true  # a newer push to the same branch replaces the run that is still in the queue
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -18,10 +23,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
       - run: pip install -e ".[dev]"
       - name: Git identity (tests create git repos)
         run: |
           git config --global user.name ci
           git config --global user.email ci@example.com
-      - run: python -m pytest -q
+      - run: python -m pytest -q -n auto  # one worker per core; the Windows rows went from 30 to about 8 minutes
       - run: autopilot --version

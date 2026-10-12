@@ -567,10 +567,11 @@ Use this route only if you change Autopilot itself. For normal use, see the [tut
 Do the steps in [Install from a clone to change the code](#install-from-a-clone-to-change-the-code). Then run:
 
 ```bash
-pytest -q
+pytest -q -n auto
 ```
 
-The tests use a fake agent and make no API calls. CI runs them on Ubuntu and Windows.
+`-n auto` runs one worker per CPU core; the suite takes about a minute on Linux. The tests use a fake agent and
+make no API calls. CI runs them on Ubuntu and Windows.
 
 ## What the script does
 
