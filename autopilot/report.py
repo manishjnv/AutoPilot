@@ -209,7 +209,8 @@ def status_line(cfg, plan, state, run: dict, width: int | None = None) -> str:
     short = lambda m: next((s for k, s in MODEL_SHORT.items() if k in str(m).lower()), str(m)[:4])  # noqa: E731
     five = open_window(state)
     parts = {
-        "head": "ON" if live else "Done" if run.get("status") == "finished" else "Idle",
+        "head": "ON" if live else ("Done" + (f" {run['word']}" if run.get("word") else ""))  # W3: the outcome word
+                if run.get("status") == "finished" else "Idle",
         "runtime": _runtime(run.get("started_at")) if live else "",
         "state": str(run.get("state") or "") if live else "",
         "task": f"{run['task']} Try {run.get('attempt') or 1}/{run.get('max_attempts') or '?'}" if live and run.get("task") else "",

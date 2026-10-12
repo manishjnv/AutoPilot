@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W3: each run ends with one word (`VERIFIED`, `BLOCKED`, `BUDGET_STOP`, `STALLED`, `FAILED`) in the state meta key `outcome`, a `run_end` event, the log, the first word of the end alert, the window title (`Done VERIFIED`) and an `outcome:` line in `ap status`.
+
 - Q22 review: a vendor outage makes the run wait 15 minutes, up to four times, before it stops; a bare `50x` number is not an outage; an expired login stops the run only when the login check fails again; the same-error rule resets when a task merges.
 
 - Q20: five repairs without a question, in `ap setup` and `ap doctor --fix`: git `safe.directory` and `autocrlf` for the project; a persistent PATH once (`uv tool update-shell`, or the user PATH on Windows, with a marker so it prints once); one printed line for a Defender exclusion; duplicate installs of one CLI named with the removal command; and `ap upgrade` backs up an older `.agent/` to `.agent/backup-<version>/`, migrates it and says what changed.
@@ -115,3 +117,4 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 ## [0.1.0]
 
 - First public version.
+- 2026-10-13 **P01-T01** Outcome word at the end of every run — Re-applied the outcome word. Every run end records VERIFIED, BLOCKED, BUDGET_STOP, STALLED or FAILED in state meta `outcome` (cleared at run start), a `run_end` event, the log, run.json `word`, and th
