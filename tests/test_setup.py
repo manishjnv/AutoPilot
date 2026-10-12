@@ -63,6 +63,7 @@ class Machine:
     def setup(self, ask=None, **kw):
         kw.setdefault("env", {**os.environ})
         kw.setdefault("platform", "linux")
+        kw.setdefault("skip_probe", True)  # Q11: the probe has its own tests below
         return st.run_setup(self.root, run=self.run, say=self.said.append, ask=ask, home=self.home, **kw)
 
     @property
@@ -236,3 +237,89 @@ def test_install_workflow_has_four_jobs_including_git_bash():
             run = str(step.get("run", ""))
             if "Real install" == step.get("name"):
                 assert "--runner claude" in run or "-Runner claude" in run
+
+# Q11: the probe. A fake `codex` answers the one prompt; the login counts through a token variable (no status call).
+def _probe_machine(tmp_path, monkeypatch, body: str):
+    m = Machine(tmp_path, monkeypatch)
+    script = Path(m.path) / "probe_fake.py"
+    script.write_text("import sys, time, os\n" + body, encoding="utf-8")
+    if sys.platform == "win32":
+        (Path(m.path) / "codex.cmd").write_text(f'@"{sys.executable}" "{script}" %*\n')
+    else:
+        exe = Path(m.path) / "codex"
+        exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n')
+        exe.chmod(0o755)
+    return m
+
+
+def _probe_setup(m, **kw):
+    return m.setup(wanted="codex", skip_probe=False, env={**os.environ, "CODEX_API_KEY": "fake-not-a-key"}, **kw)
+
+
+def test_probe_that_answers_ready_writes_verified_to_the_profile_and_the_project(tmp_path, monkeypatch):
+    import datetime
+    m = _probe_machine(tmp_path, monkeypatch, "print('ready')\n")
+    assert _probe_setup(m) == 0
+    today = datetime.date.today().isoformat()
+    assert f"verified  codex: answered ready ({today})" in m.text
+    prof = json.loads((Path(os.environ["AUTOPILOT_HOME"]) / "machine.json").read_text(encoding="utf-8"))
+    assert prof["verified"] == today
+    import yaml
+    assert yaml.safe_load(m.pj.read_text(encoding="utf-8"))["agent"]["verified"] == today
+    assert "# Commands the orchestrator runs itself" in m.pj.read_text(encoding="utf-8")  # comments stay
+
+
+def test_probe_runs_in_an_empty_folder_with_the_prompt(tmp_path, monkeypatch):
+    m = _probe_machine(tmp_path, monkeypatch, "print('ready' if os.listdir('.') == [] and 'Reply with the single word ready.' in sys.argv else 'no')\n")
+    assert _probe_setup(m) == 0 and "verified  codex" in m.text
+
+
+def test_probe_with_a_no_plan_answer_prints_the_catalogue_sentence(tmp_path, monkeypatch):
+    m = _probe_machine(tmp_path, monkeypatch, "print('Error: your account does not have access to GitHub Copilot'); sys.exit(1)\n")
+    assert _probe_setup(m) == 1
+    assert "FAILED  probe codex" in m.text and "has no Copilot plan" in m.text and "Run by hand:" in m.text
+    assert "verified" not in m.pj.read_text(encoding="utf-8")
+    assert not (Path(os.environ["AUTOPILOT_HOME"]) / "machine.json").exists()
+
+
+def test_probe_with_a_wrong_model_and_a_blocked_host_and_a_logged_out_answer(tmp_path, monkeypatch):
+    for n, (said, want) in enumerate([("model_not_found: the model xyz does not exist", "model name is not available"),
+                                      ("Error: connect ECONNREFUSED 10.0.0.1:443", "blocked on this network"),
+                                      ('{"error":{"type":"authentication_error"}}', "is not logged in")]):
+        m = _probe_machine(tmp_path / str(n), monkeypatch, f"print({said!r}); sys.exit(1)\n")
+        assert _probe_setup(m) == 1 and want in m.text, m.text
+
+
+def test_probe_that_answers_something_else_says_so(tmp_path, monkeypatch):
+    m = _probe_machine(tmp_path, monkeypatch, "print('hello there')\n")
+    assert _probe_setup(m) == 1 and "not with the word ready" in m.text
+
+
+def test_probe_timeout_prints_the_slow_sentence(tmp_path, monkeypatch):
+    monkeypatch.setattr(st, "PROBE_TIMEOUT", 1)
+    m = _probe_machine(tmp_path, monkeypatch, "time.sleep(30)\nprint('ready')\n")
+    assert _probe_setup(m) == 1
+    assert "did not answer within 60 seconds" in m.text and "ap doctor --runner" in m.text
+
+
+def test_probe_is_skipped_without_a_login_and_with_the_flag(tmp_path, monkeypatch):
+    m = _probe_machine(tmp_path, monkeypatch, "if sys.argv[1:2] == ['login']:\n    print('Not logged in'); sys.exit(1)\nprint('ready')\n")
+    assert m.setup(wanted="codex", skip_probe=False) == 0 and "probe     skipped: log in first" in m.text
+    m2 = _probe_machine(tmp_path / "two", monkeypatch, "print('ready')\n")
+    assert m2.setup(wanted="codex", env={**os.environ, "CODEX_API_KEY": "x"}) == 0 and "sending one prompt" not in m2.text and "verified " not in m2.text
+
+
+def test_every_runner_row_has_a_probe_with_the_prompt_slot():
+    for r in RUNNERS:
+        assert r.probe and any("{prompt}" in a for a in r.probe), r.key
+
+
+def test_doctor_runner_flag_probes_the_runner(tmp_path, monkeypatch, capsys):
+    from autopilot.cli import main
+    m = _probe_machine(tmp_path, monkeypatch, "print('ready')\n")
+    (Path(os.environ["AUTOPILOT_HOME"])).mkdir(parents=True, exist_ok=True)
+    (Path(os.environ["AUTOPILOT_HOME"]) / "runner").write_text("codex\n", encoding="utf-8")
+    monkeypatch.setenv("CODEX_API_KEY", "fake-not-a-key")
+    monkeypatch.chdir(m.root)
+    assert main(["doctor", "--runner"]) == 0
+    assert "answered ready" in capsys.readouterr().out

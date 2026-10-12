@@ -1186,9 +1186,29 @@ def cmd_serve(args):
     return 0
 
 
+def doctor_runner(root: Path) -> int:
+    """Q11: `ap doctor --runner`: send the one probe prompt through the runner of this project (or of this PC)."""
+    from .commands.setup import PROBE_TIMEOUT, probe
+    from .doctor import runner
+    pj = root / AGENT_DIR / "project.yaml"
+    cfg = Config.load(root) if pj.exists() else None
+    key = (cfg.get("agent.preset") if cfg is not None else "") or setup_choice() or "claude_cli"
+    row = runner(key) if key else None
+    exe = row.which() if row else None
+    if row is None or not exe:
+        print("FAIL  runner         no runner is set up on this PC: run `ap setup`")
+        return 1
+    print(f"probe  {row.name}: sending one prompt, up to {PROBE_TIMEOUT} seconds")
+    ok, sentence, fix = probe(row, exe, env={**os.environ, "CI": "1"})
+    print(f"ok    {row.name} answered ready" if ok else f"FAIL  {sentence}\n      Run by hand: {fix or 'ap setup'}")
+    return 0 if ok else 1
+
+
 def cmd_doctor(args):
     from .doctor import FAIL, autofix, checks
     root = Path(args.path).resolve()
+    if getattr(args, "runner", False):
+        return doctor_runner(root)
     if not (root / AGENT_DIR / "project.yaml").exists():
         print(f"FAIL  project        no {AGENT_DIR}/project.yaml in {root}: run `autopilot init` first")
         return 1
@@ -1574,6 +1594,7 @@ def main(argv=None):
     add("validate", cmd_validate, "validate project.yaml and plan.yaml")
     p = add("doctor", cmd_doctor, "check the claude CLI, git, gh, sandbox tools, notifications and config")
     p.add_argument("--fix", action="store_true", help="also fix what needs no person: PATH, reinstall the claude CLI")
+    p.add_argument("--runner", action="store_true", help="send one test prompt through the runner and say if it answers")
     p = add("run", cmd_run, "run autonomously until the app is complete")
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("--no-page", action="store_true", help="don't start the live status page")
@@ -1621,6 +1642,7 @@ def main(argv=None):
     p.add_argument("--runner", help="answer the question in advance: claude, copilot, codex, cursor or kiro")
     p.add_argument("--yes", action="store_true", help="take the default answer")
     p.add_argument("--skip-login", action="store_true", help="do not check or start a login")
+    p.add_argument("--skip-probe", action="store_true", help="do not send the one test prompt (CI)")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")

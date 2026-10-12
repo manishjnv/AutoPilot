@@ -30,6 +30,10 @@ RAW = {
     "no-plan-claude": '{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "free"}',
     "no-plan-copilot": "Error: your account does not have access to GitHub Copilot",
     "premium-requests-copilot": "You have reached your premium requests limit for this month.",
+    "model-not-found": "Error: model_not_found: the model xyz is not available",
+    "blocked-host": "Error: connect ECONNREFUSED 10.0.0.1:443",
+    "probe-timeout": "probe_slow",
+    "probe-no-answer": "probe_no_ready",
     "logged-out": "Error: no active session, please log in",
 }
 

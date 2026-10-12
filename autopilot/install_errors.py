@@ -145,7 +145,16 @@ _BASE: tuple[Entry, ...] = (
     Entry("not-on-path", r"command not found|is not recognized as (?:an internal|the name)",
           "The program is installed, but its folder is not on PATH in this terminal yet: add it, or open a new terminal.", LOCAL_BIN),
     *_runner_entries(),
-    Entry("logged-out", LOGGED_OUT.pattern,
+    # Q11: the probe answers (`probe_slow` and `probe_no_ready` are the marks `commands.setup` adds for a silent runner)
+    Entry("model-not-found", r"model.{0,40}(?:not found|not available|does not exist|unknown)|unknown model",
+          "The model name is not available on this plan or in this region: use the alias haiku, sonnet or opus.",
+          "ap doctor --runner   # then set agent.model_map in .agent/project.yaml to a name that works"),
+    Entry("blocked-host", r"ECONNREFUSED|ECONNRESET|CERT_HAS_EXPIRED|UNABLE_TO_VERIFY_LEAF_SIGNATURE|\b407\b[^\n]{0,20}Proxy",
+          "The AI service is blocked on this network: a firewall or proxy refuses the connection.", PROXY),
+    Entry("probe-timeout", r"\bprobe_slow\b",
+          "The runner did not answer within 60 seconds: check the network, the plan and the login.", "ap doctor --runner"),
+    Entry("probe-no-answer", r"\bprobe_no_ready\b",
+          "The runner answered, but not with the word ready: run it by hand to see why.", "ap doctor --runner"),    Entry("logged-out", LOGGED_OUT.pattern,
           "The runner is not logged in: log in once, then start again.", "ap setup   # it prints the login command"),
 )
 
@@ -178,6 +187,10 @@ MATCH: dict[str, tuple[str, str, tuple]] = {
     "premium-requests-copilot": ("", r"premium_requests?_(?:limit|quota|exceeded|exhausted)",
                                  (("premium request", "limit"), ("premium request", "quota"), ("premium request", "exhausted"),
                                   ("premium request", "exceeded"), ("premium request", "used up"))),
+    "model-not-found": (r"model_not_found|invalid_model|unknown_model", "", (("model", "not found"), ("model", "not available"), ("unknown", "model"))),
+    "blocked-host": (r"ECONNREFUSED|ECONNRESET|CERT_HAS_EXPIRED|UNABLE_TO_VERIFY_LEAF_SIGNATURE|0x80072EFD", "", (("connection", "refused"), ("blocked by", "firewall"))),
+    "probe-timeout": ("", r"\bprobe_slow\b", ()),
+    "probe-no-answer": ("", r"\bprobe_no_ready\b", ()),
     "logged-out": (r"\bexit code 401\b|\bHTTP/[\d.]+ 401\b", r"authentication_error|unauthenticated|\"loggedIn\"\s*:\s*false|invalid_grant",
                    (("not logged in",), ("not signed in",), ("not authenticated",), ("no active session",), ("please log in",),
                     ("please sign in",), ("logged out",), ("no credentials",))),
