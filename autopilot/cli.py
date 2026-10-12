@@ -1492,7 +1492,7 @@ def pick_project() -> str | None:
         print("This folder is no Autopilot project, and no other project is known on this PC.\n"
               "Go to the project folder, or name it with -C <folder>. To start a new one: autopilot quickstart")
         return None
-    print(f"project: {chosen}")
+    print(f"this folder is no project, using the last one used: {chosen}")  # Q10: say why, not only which
     return str(chosen)
 
 
@@ -1512,6 +1512,8 @@ def main(argv=None):
         if hasattr(s, "reconfigure"):
             s.reconfigure(encoding="utf-8", errors="replace")
     called = Path(sys.argv[0]).stem.lower() if argv is None else ""
+    if called not in ("ap", "autopilot"):  # `python -m autopilot` arrives as `__main__`: never a name a user reads
+        called = ""
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["start"]:  # J2: one plain word to start or continue the build in the background
         argv[:1] = ["run", "--clear-stop", "--detach"]

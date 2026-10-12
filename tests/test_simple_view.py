@@ -268,7 +268,7 @@ def test_a_command_with_no_folder_uses_the_last_project(tmp_path, monkeypatch, c
     capsys.readouterr()
     assert cli_main(["status"]) == 0
     out = capsys.readouterr().out
-    assert f"project: {root}" in out and "Task 0/3" in out
+    assert f"this folder is no project, using the last one used: {root}" in out and "Task 0/3" in out  # Q10
 
 
 def test_the_current_folder_wins_when_it_is_a_project(tmp_path, monkeypatch, capsys):
@@ -281,7 +281,7 @@ def test_the_current_folder_wins_when_it_is_a_project(tmp_path, monkeypatch, cap
     capsys.readouterr()
     assert cli_main(["status"]) == 0
     out = capsys.readouterr().out
-    assert "project:" not in out and "Task 0/2" in out
+    assert "using the last one used" not in out and "Task 0/2" in out
 
 
 def test_no_project_anywhere_gives_a_clear_message(tmp_path, monkeypatch, capsys):

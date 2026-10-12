@@ -524,10 +524,15 @@ def package_line() -> str:
     return f"Autopilot {__version__} from {Path(init_file).resolve().parent}"
 
 
+INSTALL_SOURCE = {"editable": "editable checkout", "uv": "uv tool", "pip": "pip"}  # Q10: how Autopilot got here
+
+
 def check_package(root) -> tuple[str, str, str]:
-    """WARN when the project's own autopilot/ folder is imported instead of the installed package."""
-    line = package_line()
-    pkg = Path(line.split(" from ", 1)[1])
+    """WARN when the project's own autopilot/ folder is imported instead of the installed package. The line also names
+    the install source (editable checkout, uv tool, pip), so `ap upgrade` and a repair pick the right route (Q10)."""
+    from .upgrade import detect_install
+    line = package_line() + f", installed as: {INSTALL_SOURCE.get(detect_install(), 'pip')}"
+    pkg = Path(line.split(" from ", 1)[1].split(", installed as:", 1)[0])
     if Path(root).resolve() in pkg.parents:
         return (WARN, "autopilot", line + ": the project's own autopilot/ folder is imported, not the installed Autopilot")
     return (OK, "autopilot", line)
