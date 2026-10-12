@@ -25,9 +25,9 @@ Do one of these:
 3. **`answer`:** show the open questions in `docs/NEEDS-YOU.md`. Ask the user for each answer. Send each one with
    `autopilot answer D-001 "the answer"`.
 4. **Any other text is the idea to build:**
-   1. Run `autopilot --version`. If the command is not found, ask before you install it with
-      `uv tool install git+https://github.com/manishjnv/AutoPilot`. If `uv` is not found, show the tutorial
-      <https://github.com/manishjnv/AutoPilot/blob/main/GUIDE.md> and stop.
+   1. Run `autopilot --version`. If `ap` is not on PATH, say in one line "Installing Autopilot." and run
+      `uv tool install dev-autopilot`. If `uv` is not found, run the one-line install script from
+      <https://github.com/manishjnv/AutoPilot/blob/main/GUIDE.md> instead. Then continue.
    2. Run `claude auth status`. If it shows no login, tell the user to run `claude auth login` and stop.
    3. Ask for the folder. Refuse the home folder and the root of a drive. A new folder is best.
    4. Tell the user: the build runs for hours, it uses the same Claude plan as this chat, and it works without
