@@ -162,11 +162,12 @@ def test_root_install_script_dry_run_changes_nothing(tmp_path):
     env = {"HOME": str(home), "PATH": str(empty)}
     p = subprocess.run([shutil.which("bash"), str(ROOT_INSTALL), "--dry-run"], capture_output=True, text=True, env=env)
     assert p.returncode == 0, p.stderr
-    for n in range(1, 7):
-        assert f"==> Step {n} of 6:" in p.stdout
-    assert p.stdout.count("would install") == 4 and "uv tool install" in p.stdout  # N5.4: uv, Claude Code, Python, Autopilot; git is only checked
+    for n in range(1, 6):
+        assert f"==> Step {n} of 5:" in p.stdout
+    assert p.stdout.count("would install") == 3 and "uv tool install" in p.stdout  # Q5: uv, Python, Autopilot; the runner is `ap setup`
     assert "This script installs:" in p.stdout and "Rights it takes:" in p.stdout  # N8: the one consent list
-    assert "none taken (N5.4)" in p.stdout and "sudo tee" not in p.stdout  # N5.4: the script takes no rights
+    assert "Rights it takes: none" in p.stdout and "sudo tee" not in p.stdout  # N5.4: the script takes no rights
+    assert "would run: ap setup --dry-run" in p.stdout and "Claude Code" not in p.stdout  # Q5: no runner is named
     assert list(home.iterdir()) == []
 
 
@@ -190,7 +191,7 @@ def test_install_scripts_install_python_only_when_missing_and_check_ap():
         last = [x for x in text.rstrip().splitlines() if x.strip() not in ("", "}", 'main "$@"')][-1]
         assert last.endswith(FINAL_LINE + "'"), script.name
     sh = ROOT_INSTALL.read_text(encoding="utf-8")
-    assert sh.index("if pyok;") < sh.index("uv python install 3.12 ||")
+    assert sh.index("if pyok;") < sh.index('run 3 Python "$pycmd"')
     assert "have ap" in sh and "Command: $pycmd" in sh
 
 
@@ -432,7 +433,7 @@ def test_piped_install_sh_dry_run_runs_the_script(tmp_path):
     p = subprocess.run([shutil.which("bash")], input=ROOT_INSTALL.read_bytes(), capture_output=True, env=env)
     out = p.stdout.decode()
     assert p.returncode == 0, p.stderr.decode()
-    assert "==> Step 1 of 6:" in out and out.splitlines()[-1] == FINAL_LINE
+    assert "==> Step 1 of 5:" in out and out.splitlines()[-1] == FINAL_LINE
     assert list(home.iterdir()) == []
 
 
