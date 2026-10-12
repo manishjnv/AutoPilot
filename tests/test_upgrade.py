@@ -4,7 +4,6 @@ import json
 from argparse import Namespace
 from pathlib import Path
 
-from autopilot import __version__
 from autopilot.proc import Proc
 from autopilot.upgrade import (cmd_install, cmd_upgrade, check_once_per_day, detect_install, fetch_wheel,
                                latest_release)
@@ -99,7 +98,8 @@ def test_a_clean_checkout_is_pulled(tmp_path):
     assert ["git", "-C", str(tmp_path), "pull", "--ff-only"] in run.calls
 
 
-def test_uv_install_passes_the_checked_local_wheel(capsys):
+def test_uv_install_passes_the_checked_local_wheel(capsys, monkeypatch):
+    monkeypatch.setattr("autopilot.upgrade.__version__", "0.3.0")  # the fake release is v0.4.0, whatever the package says
     run = FakeRun({"gh release view": GH_JSON})
     rc = cmd_upgrade(Namespace(check=False, ref=None), run=run, urlopen=fake_open(), detect=lambda: "uv")
     install = run.calls[-1]
@@ -109,7 +109,8 @@ def test_uv_install_passes_the_checked_local_wheel(capsys):
     assert "v0.4.0" in capsys.readouterr().out
 
 
-def test_a_hash_mismatch_refuses(capsys):
+def test_a_hash_mismatch_refuses(capsys, monkeypatch):
+    monkeypatch.setattr("autopilot.upgrade.__version__", "0.3.0")
     run = FakeRun({"gh release view": GH_JSON})
     bad = fake_open(wheel=b"tampered")
     rc = cmd_upgrade(Namespace(check=False, ref=None), run=run, urlopen=bad, detect=lambda: "pip")
@@ -150,7 +151,8 @@ def test_install_rights_runs_the_rights_step(capsys, monkeypatch):
     assert "one line" in capsys.readouterr().out
 
 
-def test_daily_check_asks_once(tmp_path):
+def test_daily_check_asks_once(tmp_path, monkeypatch):
+    monkeypatch.setattr("autopilot.upgrade.__version__", "0.3.0")
     stamp, run, n = tmp_path / "stamp", FakeRun({"gh release view": GH_JSON}), [0]
 
     def counting(url):
@@ -158,4 +160,4 @@ def test_daily_check_asks_once(tmp_path):
         return fake_open()(url)
     first = check_once_per_day(run=run, urlopen=counting, stamp=stamp, now=lambda: stamp.stat().st_mtime if stamp.exists() else 0)
     again = check_once_per_day(run=run, urlopen=counting, stamp=stamp)
-    assert first == again and "0.4.0" in first and n[0] == 1 and __version__ == "0.3.0"
+    assert first == again and "0.4.0" in first and n[0] == 1
