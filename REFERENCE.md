@@ -150,7 +150,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `retries` | Attempts | `max_attempts_per_task` (3), `resume` (true) |
 | `unstick` | The diagnosis of a blocked task | `enabled` (true), `after_attempts` (2) |
 | `decide` | Design choices before risky tasks | `enabled` (true), `risks` (high, critical) |
-| `review` | A read-only review of a `critical` task before the merge | `enabled` (true), `effort` (high) |
+| `review` | A read-only review of the diff before the merge | `enabled` (true), `scope` (critical; all = every task above low risk; new projects get all), `effort` (high) |
 | `research` | Web research for a task | `enabled` (true), `dir` (docs/research) |
 | `functional` | The feature check at the end of each phase | `enabled` (true), `init` |
 | `escalate` | An early move to a stronger model | `on_timeout`, `max_diff_lines` (300), `load_bearing` |
