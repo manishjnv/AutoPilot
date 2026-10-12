@@ -54,6 +54,7 @@ function Ensure($n, $name, $exe, $url) {
 Refresh
 # N8: the one consent. Starting this script is the consent; nothing below asks again. One elevated PowerShell
 # (one UAC prompt) installs Git when missing and creates the scheduled task; later `ap` runs use the task.
+Write-Host 'Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.'
 Write-Host 'This script installs: Git (winget, when missing), uv, Claude Code, Python 3.12 (when missing), Autopilot.'
 Write-Host 'Rights it takes: one administrator prompt now, and the scheduled task Autopilot-Setup (highest run level)'
 Write-Host 'so later runs install winget packages with no prompt. Remove it later with: ap uninstall --rights'

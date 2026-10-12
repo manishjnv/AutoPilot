@@ -596,10 +596,11 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
                 state = State(root / AGENT_DIR / "state.db")
                 try:
                     from .dash_web import render
-                    from .dashboard import dashboard_data
+                    from .dashboard import dashboard_data, spinner
                     # J9: the dashboard; the full report is below it, closed until the reader opens it
                     run = run_journal(root)
                     data = dashboard_data(cfg, plan, state, run)
+                    data["spin"] = spinner(data, data["asof"]["mtime"], time.time())  # J13/18: the page keeps no frame
                     data["line"] = status_line(cfg, plan, state, run, 0)  # G8: the short line is the tab's title
                     body = render(data, refresh, report_md=build_report(cfg, plan, state))
                 finally:

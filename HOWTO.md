@@ -1,6 +1,9 @@
 # How-to guides
 
-Each guide does one job. For your first project, start with the [tutorial](GUIDE.md). To look up a command or a
+Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
+It is for one developer, or for a person with an idea and a developer friend.
+
+Words in the guides: Claude Code (the coding agent that writes the code), the gate (the check after each step), a worktree (a separate copy of the project for one task), a subscription (a paid Claude plan). Each guide does one job. For your first project, start with the [tutorial](GUIDE.md). To look up a command or a
 setting, use the [reference](REFERENCE.md). The guides use `ap`, the short name of `autopilot`.
 
 | Job | Guide |
@@ -9,7 +12,7 @@ setting, use the [reference](REFERENCE.md). The guides use `ap`, the short name 
 | Audits | [Start an audit now](#start-an-audit-now) |
 | Projects | [Change the plan in plain words](#change-the-plan-in-plain-words) · [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
 | Tasks | [Get a design choice or research before a task](#get-a-design-choice-or-research-before-a-task) |
-| Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Install by hand](#install-by-hand) · [Update or remove Autopilot](#update-or-remove-autopilot) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
+| Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [What the script does](#what-the-script-does) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) · [Merge each task through a pull request](#merge-each-task-through-a-pull-request) |
 | Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
@@ -143,7 +146,22 @@ Autopilot never installs a system tool such as Node, Go or `uv`. If one is missi
 ## Use a project that already exists
 
 1. Go to the folder of the project.
-2. Make the tasks from your plan or roadmap:
+2. Type `ap`.
+3. Read the one-screen summary: what is done, what is open, what comes next.
+4. Press Enter. The run starts.
+
+What this means for you:
+
+- Work that exists in the code or in the git log stays done. Autopilot does not redo it.
+- Autopilot writes no new plan file and no notes file. `BRAIN.md` links to your documents.
+- Your file names stay as they are.
+
+`ap` reads the git log, the README, `PLAN`, `ROADMAP`, `TODO` and `NOTES` files, `docs/`, `.kiro/`, `.cursor/` and
+`.github/`.
+
+### If you want to control each step
+
+1. Make the tasks from your plan or roadmap:
 
    ```powershell
    ap quickstart --plan-doc ROADMAP.md
@@ -151,13 +169,14 @@ Autopilot never installs a system tool such as Node, Go or `uv`. If one is missi
 
    If you have no plan document, use `ap onboard` and then `ap doctor`. The onboard session reads the
    repository and the README, and then writes a plan.
-3. Show the tasks in order, and read `.agent/plan.yaml` and `.agent/BRAIN.md`:
+2. Show the tasks in order, and read `.agent/plan.yaml` and `.agent/BRAIN.md`:
 
    ```powershell
    ap next
    ```
 
-4. Start the run with `ap run`.
+3. Start the run with `ap run`.
+4. Follow the run with `ap status`.
 
 ## Get a design choice or research before a task
 
@@ -236,6 +255,8 @@ result after `git.pr_timeout_min` minutes (default 30), Autopilot closes the pul
 Tasks then run one at a time.
 
 ## Run Autopilot on a server
+
+This path has not run on a real server yet.
 
 > [!WARNING]
 > Run Autopilot in a sandbox on a server. Claude Code sessions run without permission prompts.
@@ -316,6 +337,8 @@ until the next day. When it reaches the `total` limit, it stops. The `usage` key
 
 ## Use an API key instead of a subscription
 
+Not needed on your PC. For a server only.
+
 1. Set `ANTHROPIC_API_KEY` in the environment of the run.
 2. In `.agent/project.yaml`, set `usage.billing: api`.
 
@@ -345,7 +368,7 @@ your IDE or terminal.
 - **Where you watch:** run `ap watch` in the terminal of your IDE, or open the status page in your browser.
 - **After the run:** the code is on `main`. Also read `CHANGELOG.md`, `docs/RCA.md` and `docs/NEEDS-YOU.md`.
 - **Presets:** Codex, Gemini, and OpenCode work through presets. They have less testing than Claude Code.
-- **Start from a chat:** see [Start from inside Claude Code](#start-from-inside-claude-code). To install by hand, see [Install by hand](#install-by-hand).
+- **Start from a chat:** see [Start from inside Claude Code](#start-from-inside-claude-code). To see each command, see [What the script does](#what-the-script-does).
 
 ## Use a different agent CLI
 
@@ -502,44 +525,10 @@ Ubuntu does not have. The one-line form in the [README](README.md#install) uses 
 | Login | The script does not log in for you. It shows `claude auth login` if the login is missing |
 | Remove Autopilot | `uv tool uninstall dev-autopilot` |
 
-## Install by hand
-
-Use these steps when the script fails, or when you want to see each command. They do the same as the script.
-
-1. **Windows (PowerShell):**
-
-   ```powershell
-   winget install --id Git.Git -e
-   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-   irm https://claude.ai/install.ps1 | iex
-   # Open a new terminal. Then:
-   uv tool install git+https://github.com/manishjnv/AutoPilot
-   claude auth login
-   ```
-
-2. **macOS, Linux, WSL:** install git with your package manager if `git --version` fails. Then:
-
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   curl -fsSL https://claude.ai/install.sh | bash
-   # Open a new terminal. Then:
-   uv tool install git+https://github.com/manishjnv/AutoPilot
-   claude auth login
-   ```
-
-3. Start the first project:
-
-   ```bash
-   ap quickstart -C myapp --idea "a todo list CLI with due dates" --run
-   ```
-
 ## Update or remove Autopilot
 
-To install a newer version, run:
-
-```powershell
-uv tool install --reinstall git+https://github.com/manishjnv/AutoPilot
-```
+After a release, run `ap upgrade`. It gets the newest release and checks the file against `SHA256SUMS`.
+`ap upgrade --check` only prints the version. For a repair, or for a second machine, run `ap install`.
 
 To remove Autopilot, run:
 
@@ -573,3 +562,30 @@ pytest -q
 ```
 
 The tests use a fake agent and make no API calls. CI runs them on Ubuntu and Windows.
+
+## What the script does
+
+The install script runs these commands. Use them when the script fails, or when you want to see each command.
+
+1. **Windows (PowerShell):**
+
+   ```powershell
+   winget install --id Git.Git -e          # the one administrator prompt
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # uv installs Python if needed
+   irm https://claude.ai/install.ps1 | iex
+   # Open a new terminal. Then:
+   uv tool install git+https://github.com/manishjnv/AutoPilot@v0.3.0
+   claude auth login                        # a paid Claude plan (Pro or Max)
+   ap doctor
+   ```
+
+2. **macOS, Linux, WSL:** install git with your package manager if `git --version` fails. Then:
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh      # uv installs Python if needed
+   curl -fsSL https://claude.ai/install.sh | bash
+   # Open a new terminal. Then:
+   uv tool install git+https://github.com/manishjnv/AutoPilot@v0.3.0
+   claude auth login                                    # a paid Claude plan (Pro or Max)
+   ap doctor
+   ```

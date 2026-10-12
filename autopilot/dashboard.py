@@ -153,9 +153,8 @@ def _first(text, limit: int = 90) -> str:
     return line if len(line) <= limit else line[:limit - 4].rsplit(" ", 1)[0] + " ..."
 
 
-def data_age(root, run: dict) -> int | None:
-    """J13/11: seconds since the newest sign of life: the run journal, the state file (and its WAL), the log. None when
-    none of them has a time (the view shows a dash, never a guess)."""
+def data_mtime(root, run: dict) -> float | None:
+    """The time of the newest sign of life: the run journal, the state file (and its WAL), the log. None when none has one."""
     from . import AGENT_DIR
     stamps = []
     try:
@@ -167,7 +166,38 @@ def data_age(root, run: dict) -> int | None:
             stamps.append((root / AGENT_DIR / rel).stat().st_mtime)
         except OSError:
             pass
-    return max(0, int(time.time() - max(stamps))) if stamps else None
+    return max(stamps) if stamps else None
+
+
+def data_age(root, run: dict) -> int | None:
+    """J13/11: seconds since data_mtime. None when there is no time (the view shows a dash, never a guess)."""
+    m = data_mtime(root, run)
+    return max(0, int(time.time() - m)) if m is not None else None
+
+
+SPIN = {True: ("⠋⠙⠹⠸⠼⠴⠦⠧", "⏸", "✗"), False: ("|/-\\", "||", "x")}  # braille dots, or ASCII when the console is not UTF-8
+
+
+def is_utf(stream) -> bool:
+    """True when the console encoding is UTF-8 (braille spinner); else the ASCII spinner."""
+    return "utf" in (getattr(stream, "encoding", "") or "").lower()
+
+
+def spinner(d: dict, mtime, now: float, prev: dict | None = None, utf: bool = True) -> dict:
+    """J13/18: the one running indicator, for both views. The frame moves only when the data file changed since the
+    last call (prev = the dict this function returned last time). kind: run (turns), stale (no change for over 30 s:
+    frozen, yellow), stopped (the run ended: red, with the end time), or '' (nothing to show)."""
+    frames, pause, stop = SPIN[utf]
+    a, prev = d.get("asof") or {}, prev or {}
+    frame = int(prev.get("frame", 0)) + (1 if prev and mtime != prev.get("mtime") else 0)
+    age = max(0, int(now - mtime)) if mtime is not None else a.get("age")
+    out = {"frame": frame, "mtime": mtime, "clock": now, "age": age}
+    if not a.get("live", True):
+        stopped = a.get("stopped") or ""
+        return {**out, "kind": "stopped" if stopped else "", "text": f"{stop} stopped {stopped}" if stopped else ""}
+    if isinstance(age, (int, float)) and age > 30:
+        return {**out, "kind": "stale", "text": f"{pause} no change {age}s" if age < 60 else f"{pause} no change {age // 60}m"}
+    return {**out, "kind": "run", "text": frames[frame % len(frames)]}
 
 
 def dashboard_data(cfg, plan, state, run: dict) -> dict:
@@ -207,11 +237,15 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         else:
             model = name(r["model"]) if r else ""
         return {"n": i + 1, "id": t.id, "title": t.title, "phase": t.phase_id, "status": st,
-                "risk": t.risk, "tries": tries,
+                "risk": t.risk, "tries": tries, "secs": (secs(a, b) or 0) if r and a and b else None,
                 "time": (_span(a, b) if st == "done" else _span(a, now) if st == "running" else "") if r else "",
                 "detail": " · ".join(x for x in (model, f"{tries} tries" if tries > 1 else "") if x)}
 
     table = [one(i, t) for i, t in enumerate(tasks)]
+    gone = sorted(t["secs"] for t in table if t["status"] == "done" and t["secs"] is not None)
+    med = (gone[len(gone) // 2] if len(gone) % 2 else (gone[len(gone) // 2 - 1] + gone[len(gone) // 2]) / 2) if gone else 0
+    for t in table:  # J13/17: a time over 2x the median task time shows yellow
+        t["slow"] = bool(med and t["secs"] and t["secs"] > 2 * med)
     working = [t for t in table if t["status"] == "running"]
     here = [r for r in state.tasks("done") if (r["finished_at"] or "") >= (run.get("started_at") or "")]
     left = sum(1 for t in tasks if status.get(t.id, "pending") in ("pending", "running"))
@@ -257,7 +291,9 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
     if live and working:  # one task in work; a parallel run has no single task in the journal
         t = working[0]
         doing = {"n": t["n"], "title": t["title"], "attempt": int(run.get("attempt") or 1),
-                 "max_attempts": int(run.get("max_attempts") or 0), "time": t["time"], "model": name(run.get("model"))}
+                 "max_attempts": int(run.get("max_attempts") or 0), "time": t["time"], "model": name(run.get("model")),
+                 "since": round(dt.datetime.fromisoformat(first.get(t["id"]) or rows[t["id"]]["started_at"]).timestamp())
+                 if t["id"] in rows and (first.get(t["id"]) or rows[t["id"]]["started_at"]) else None}
     elif live and run.get("state") not in ("Wait", "Block"):
         many = sum(1 for t in tasks if status.get(t.id) == "running")
         doing = {"n": 0, "title": f"{many} tasks in work" if many > 1 else str(run.get("current") or ""),
@@ -300,14 +336,16 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
     number = {t["id"]: t for t in table}
     return {
         # the age of the data; a run that is not live shows when it stopped
-        "asof": {"age": data_age(root, run), "live": live,
+        "asof": {"age": data_age(root, run), "live": live, "mtime": data_mtime(root, run),
                  "stopped": "" if live else str(run.get("updated_at") or "")[11:16]},
         "project": {
             "name": str(cfg.get("name", root.name)), "branch": main, "commit": facts["commit"],
             "last_commit": _first(facts["subject"], 60),
             "last_commit_age": _dur(time.time() - facts["stamp"]) if 0 < facts["stamp"] <= time.time() else "",
+            # J13/17: no commit for over 10 minutes while a task works is a stall
+            "commit_stalled": bool(live and working and 0 < facts["stamp"] <= time.time() - 600),
             "model": name(run.get("model")) if live else "", "state": str(run.get("state") or "") if live else "",
-            "runner": runner, "login": str(login or "—"),  # the CLI version and the plan are not stored: a dash, no call
+            "runner": runner, "login": str(login or "not checked"),  # J13/17: the plan is stored by no check yet: no call
             "resets": f"{dt.datetime.fromtimestamp(float(five['reset'])):%H:%M}" if five else "—",
             "last_error": _first(broken["last_error"], 70) if broken else "—",
             "run_id": str(run.get("run_id") or ""), "started": str(run.get("started_at") or "").replace("T", " "),
@@ -341,6 +379,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         "phases": [{"id": p.id, "title": p.title, "total": len(p.tasks),
                     "done": sum(1 for t in p.tasks if status.get(t.id) == "done"),
                     "status": ("done" if p.tasks and all(status.get(t.id) == "done" for t in p.tasks) else
+                               "blocked" if any(status.get(t.id) == "blocked" for t in p.tasks) else
                                "running" if any(status.get(t.id) == "done" for t in p.tasks)
                                or (live and any(run.get("task") == t.id for t in p.tasks)) else "pending")}
                    for p in plan.phases],

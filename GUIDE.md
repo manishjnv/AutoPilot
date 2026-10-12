@@ -1,5 +1,8 @@
 # Tutorial: build your first project
 
+Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
+It is for one developer, or for a person with an idea and a developer friend.
+
 This tutorial takes you from an idea to a working app. Your part takes a few minutes. The run can take some hours,
 and you do not have to watch it.
 
@@ -18,7 +21,7 @@ flowchart LR
 
 ## Before you start
 
-You need a paid Claude plan (Pro or Max) or an API key. The free Claude plan cannot use Claude Code.
+You need a paid Claude plan (Pro or Max) or an API key (a key for pay-as-you-go use). The free Claude plan cannot use Claude Code (the coding agent that writes the code).
 
 The first install takes approximately 4 minutes.
 

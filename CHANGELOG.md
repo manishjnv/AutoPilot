@@ -1,6 +1,9 @@
 # Changelog
 
-Format: Keep a Changelog. One line per roadmap item, under Unreleased.
+Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
+It is for one developer, or for a person with an idea and a developer friend.
+
+Words in the entries: Claude Code (the coding agent that writes the code), the gate (the check after each step), a worktree (a separate copy of the project for one task), a subscription (a paid Claude plan), `plan.yaml` (the task list). Format: Keep a Changelog. One line per roadmap item, under Unreleased.
 Bump rule: patch = a fix, minor = a roadmap item, major = a `plan.yaml` or `project.yaml` format change (with a migration note).
 Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 

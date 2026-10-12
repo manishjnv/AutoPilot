@@ -6,12 +6,12 @@ from html import escape as e
 
 CSS = """
 :root{color-scheme:light dark;--bg:#f3f4f6;--panel:#fff;--panel-2:#e9ecf0;--line:#b9c0ca;--text:#0b0f16;--muted:#3d4654;
---good:#0f5c24;--bad:#a01b14;--warn:#7a4700;--count:#075a72;--hl:#dcedf4;--row:3px;--cell:6px;
+--good:#0f5c24;--bad:#a01b14;--warn:#7a4700;--count:#075a72;--use:#8a1f7a;--model:#1d4fa8;--hl:#dcedf4;--row:3px;--cell:6px;
 --s1:4px;--s2:8px;--s3:12px;--s4:16px;--r1:6px;--r2:10px;
 --t11:11px;--t12:12px;--t13:13px;--t14:14px;--t16:16px;--t18:18px;--t24:24px;
 --font:ui-monospace,Consolas,"Cascadia Mono",monospace}
 @media (prefers-color-scheme:dark){:root{--bg:#0b0e13;--panel:#141922;--panel-2:#1b212c;--line:#3a4454;
---text:#f4f7fa;--muted:#b6c0ce;--good:#62d67f;--bad:#ff8e86;--warn:#f2c754;--count:#72deee;--hl:#173440}}
+--text:#f4f7fa;--muted:#b6c0ce;--good:#62d67f;--bad:#ff8e86;--warn:#f2c754;--count:#72deee;--use:#e58ae0;--model:#8ab4ff;--hl:#173440}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:var(--t13)/1.4 var(--font);font-variant-numeric:tabular-nums}
 main{padding:var(--s4) var(--s4) 64px}
@@ -32,7 +32,7 @@ dt{color:var(--muted)}dd{margin:0;font-weight:600;text-align:right;overflow-wrap
 .big{font-size:var(--t24);font-weight:700;line-height:1.2}
 .row{display:flex;justify-content:space-between;gap:var(--s3);padding:var(--row) 0}
 .bar{height:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r1);overflow:hidden;margin:var(--s1) 0 var(--s2)}
-.bar i{display:block;height:100%;background:var(--count)}
+.bar i{display:block;height:100%;background:var(--use)}
 .bar.ok i{background:var(--good)}.bar.warn i{background:var(--warn)}.bar.bad i{background:var(--bad)}
 h3{font-size:var(--t11);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:var(--s3) 0 var(--s1);font-weight:600}
 .w{color:var(--warn);font-weight:600}.z{color:var(--muted)}.t-good{color:var(--good)}.t-wait{color:var(--warn)}.t-bad{color:var(--bad)}
@@ -45,15 +45,15 @@ padding:var(--cell) var(--s2);border-bottom:1px solid var(--line);position:stick
 td:first-child{white-space:nowrap}
 td{padding:var(--cell) var(--s2);border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
 tr[aria-current=true]{background:var(--hl)}
-.done{color:var(--good)}.running{color:var(--good)}.blocked{color:var(--bad)}.pending{color:var(--muted)}
+.done{color:var(--good)}.running{color:var(--count)}.blocked{color:var(--bad)}.pending{color:var(--muted)}
 .st{white-space:nowrap;font-weight:600}
 #live .box{max-height:max(240px,calc(40vh - 110px))}
 .l{display:flex;gap:var(--s3)}
 .l time{color:var(--muted);flex:none;min-width:5ch}
 .l span{min-width:0;overflow-wrap:anywhere}
-.l.heading span{font-weight:700}.l.goal span,.l.wait span{color:var(--muted)}.l .took{margin-left:auto;color:var(--muted)}.l.good span{color:var(--good)}
+.l.heading span{font-weight:700}.l.goal span{color:var(--muted)}.l.wait span{color:var(--warn);opacity:.6}.l.test span{color:var(--count)}.l .v{color:var(--muted);font-weight:400}.l .took{margin-left:auto;color:var(--muted)}.l.good span{color:var(--good)}
 .l.bad span{color:var(--bad)}.l.note span{color:var(--warn)}.l.blank{height:var(--s2)}
-.num{color:var(--count);font-weight:600}.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+.mg{color:var(--use);font-weight:600}.bl{color:var(--model)}.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
 .next{margin-top:var(--s4)}.next ul{margin:0;padding-left:var(--s4)}.next li{padding:var(--row) 0}
 code{color:var(--count);font-weight:600}
 details{margin-top:var(--s4)}summary{cursor:pointer;color:var(--muted);font-size:var(--t12)}
@@ -63,6 +63,11 @@ footer{position:fixed;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:va
 background:var(--panel);border-top:1px solid var(--line);padding:var(--s2) var(--s4);font-size:var(--t12);font-weight:600}
 footer .bar{width:96px;margin:0;display:inline-block;vertical-align:middle}
 footer .m{color:var(--muted);font-weight:400}
+.spin{display:inline-block;width:.9em;height:.9em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;
+vertical-align:-.1em;margin-right:var(--s2);animation:sp .8s steps(8) infinite}
+.spin.run{color:var(--count)}.spin.stale{color:var(--warn)}.spin.stopped{color:var(--bad)}.spin.paused{animation-play-state:paused}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
 """
 
 SCRIPT = ("<script type=module>const end=x=>x.scrollHeight-x.scrollTop-x.clientHeight<8,"
@@ -71,13 +76,16 @@ SCRIPT = ("<script type=module>const end=x=>x.scrollHeight-x.scrollTop-x.clientH
           "if(l)l.scrollTop=l.scrollHeight};see();"
           "setInterval(async()=>{const off=document.getElementById('off');try{const r=await "
           "fetch(location.href,{cache:'no-store'});if(!r.ok)throw 0;const d=new DOMParser().parseFromString("
-          "await r.text(),'text/html');const o=document.querySelector('details')?.open,"
+          "await r.text(),'text/html');const o=document.querySelector('details')?.open,m0=document.querySelector('.spin')?.dataset.m,"
           "s=[...document.querySelectorAll('[data-keep]')].map(x=>x.id=='out'&&end(x)?1e9:x.scrollTop);"
           "document.querySelector('main').replaceWith(d.querySelector('main'));"
+          "const sp=document.querySelector('.spin');if(sp&&sp.dataset.m==m0)sp.classList.add('paused');"
           "const n=document.querySelector('details');if(n&&o)n.open=true;"
           "document.querySelectorAll('[data-keep]').forEach((x,i)=>{x.scrollTop=s[i]||0});"
           "document.title=d.title;off.hidden=true}catch(x){off.hidden=false}},REFRESH_MS)</script>")
 
+RISK = {"critical": "bad", "high": "w", "medium": "", "low": "z"}  # J13/17: crit red, high yellow, med white, low grey
+PAGE_TITLE = "Autopilot builds your software project while you are away"  # J15: the plain-words opening
 WORDS = {"done": ("Complete", "✓"), "running": ("In progress", "▶"), "blocked": ("Blocked", "✗"),
          "pending": ("Pending", "○")}
 
@@ -95,7 +103,13 @@ def _bar(v, label: str, cls: str = "") -> str:
 
 
 def _dl(rows) -> str:
-    return "<dl>" + "".join(f"<div><dt>{e(k)}</dt><dd>{e(str(v))}</dd></div>" for k, v in rows if str(v or "") != "") + "</dl>"
+    """rows of (label, value) or (label, value, class); a class colours the value."""
+    out = []
+    for k, v, *c in rows:
+        if str(v or "") != "":
+            cls = f' class="{c[0]}"' if c and c[0] else ""
+            out.append(f"<div><dt>{e(k)}</dt><dd{cls}>{e(str(v))}</dd></div>")
+    return "<dl>" + "".join(out) + "</dl>"
 
 
 def _sec(i: str, title: str, body: str) -> str:
@@ -108,11 +122,16 @@ def _tasks(tasks, other: str = "") -> str:
         st = t.get("status") or "pending"
         word, sym = WORDS.get(st, WORDS["pending"])
         cur = ' aria-current="true"' if st == "running" else ""
+        risk, tries = str(t.get("risk") or "—"), t.get("tries") if t.get("tries") not in (None, "") else "—"
+        model, sep, rest = str(t.get("detail", "")).partition(" · ")
+        if not sep and model.endswith(" tries"):
+            model, rest = "", model
         rows.append(f'<tr{cur}><td>{e(str(t.get("n", "")))}</td><td>{e(str(t.get("title", "")))}</td>'
                     f'<td class="st {e(st if st in WORDS else "pending")}">{sym} {word}</td>'
-                    f'<td>{e(str(t.get("time", "")))}</td><td>{e(str(t.get("risk") or "—"))}</td>'
-                    f'<td>{e(str(t.get("tries") if t.get("tries") not in (None, "") else "—"))}</td>'
-                    f'<td>{e(str(t.get("detail", "")))}</td></tr>')
+                    f'<td class="{"w" if t.get("slow") else ""}">{e(str(t.get("time", "")))}</td>'
+                    f'<td class="{RISK.get(risk, "")}">{e(risk)}</td>'
+                    f'<td class="{"w" if _i(tries) >= 2 else ""}">{e(str(tries))}</td>'
+                    f'<td><span class="bl">{e(model)}</span>{" · " if sep else ""}{e(rest)}</td></tr>')
     if other:  # J13/15: tasks + this row = Elapsed
         rows.append(f'<tr><td></td><td>Other: decide, research, docs, audit, waits</td><td></td><td>{e(other)}</td><td></td><td></td><td></td></tr>')
     head = "".join(f"<th scope=col>{h}</th>" for h in ("#", "Task", "Status", "Time", "Risk", "Tries", "Detail"))
@@ -126,14 +145,23 @@ def _live(rows) -> str:
     for r in rows:
         k = r.get("kind") or "step"
         k = k if k in ("heading", "goal", "step", "good", "bad", "note", "blank", "wait") else "step"
-        out.append(f'<div class="l {k}"><time>{e(str(r.get("at", "")))}</time><span>{e(str(r.get("text", "")))}</span>'
+        text = str(r.get("text", ""))
+        body = e(text)
+        if k == "step":  # J13/17: a test run is cyan; otherwise the verb is grey and what it works on stays white
+            if "test" in text.lower():
+                k = "step test"
+            else:
+                verb, sep, rest = text.partition(" ")
+                body = f'<b class="v">{e(verb)}</b>{sep}{e(rest)}'
+        out.append(f'<div class="l {k}"><time>{e(str(r.get("at", "")))}</time><span>{body}</span>'
                    + (f'<span class="took">{e(str(r["took"]))}</span>' if r.get("took") else "") + "</div>"
                    if k != "blank" else '<div class="l blank"></div>')
     return f'<div class="box" id="out" data-keep tabindex="0">{"".join(out)}</div>'
 
 
 def _lvl(v) -> str:
-    return "ok" if _v(v) < 0.7 else "warn" if _v(v) < 0.9 else "bad"
+    """A usage bar: magenta, yellow over 75 percent, red over 90 percent."""
+    return "bad" if _v(v) > 0.9 else "warn" if _v(v) > 0.75 else "use"
 
 
 def _i(x) -> int:
@@ -166,11 +194,24 @@ def _asof(a) -> str:
     return f'<p class="w">data {t} old stale</p>' if age > 30 else f'<p class="z">data {t} old</p>'
 
 
-def _project(p: dict, total: int, sz, asof=None) -> str:
+def _spin(sp) -> str:
+    """J13/18: the one running indicator. A ring that turns while the data changes, frozen when stale or stopped;
+    data-m is the data time, so the fetch loop can pause the ring when two fetches show the same time."""
+    if not sp or sp.get("kind") not in ("run", "stale", "stopped"):
+        return ""
+    k, text = sp["kind"], str(sp.get("text") or "")
+    ring = (f'<span class="spin {k}{"" if k == "run" else " paused"}" data-m="{e(str(sp.get("mtime")))}" role=img '
+            f'aria-label="{e(text if k != "run" else "running")}"></span>')
+    return ring + (f'<span class="{"w" if k == "stale" else "bad"}">{e(text)} </span>' if k != "run" else "")
+
+
+def _project(p: dict, total: int, sz, asof=None, spin=None) -> str:
     tone = p.get("tone") if p.get("tone") in ("good", "wait", "bad") else ""
     st = e(str(p.get("status") or ""))
-    status = (f'<div class="row"><span class="z">Status</span><strong class="t-{tone}">{st}</strong></div>' if tone
-              else _dl([("Status", p.get("status"))]))
+    ring = _spin(spin)
+    status = (f'<div class="row"><span class="z">Status</span><span>{ring}<strong class="t-{tone}">{st}</strong></span></div>'
+              if tone else f'<div class="row"><span class="z">Status</span><span>{ring}<strong>{st}</strong></span></div>'
+              if st else "")
     out = (_asof(asof) + _dl([("Branch", p.get("branch"))]) + status  # 'Time left' lives in the bar
            + ("" if p.get("status") == "running" else f'<p>{e(str(p.get("state_words") or ""))}</p>')  # not "Writes the code."
            + _dl([("Start", p.get("started")), ("Elapsed", p.get("elapsed"))]))
@@ -184,25 +225,32 @@ def _project(p: dict, total: int, sz, asof=None) -> str:
         body += f'<p><strong>{e(str(nw["title"]))}</strong></p>'
     if nw.get("n") and _i(nw.get("attempt")) > 0:
         a, m = _i(nw["attempt"]), _i(nw.get("max_attempts"))
-        c = "z" if a < 2 else "w" if a == 2 else "bad"
+        c = "w" if m and a >= m else ""  # white, yellow on the last try
         body += f'<p class="{c}">Try {a}{f" of {m}" if m else ""}</p>'
     if nw.get("n"):
         body += _dl([("Task time", nw.get("time"))])
     body += _dl([("Model", nw.get("model"))])
     out += _group("Now", body if nw else "")
     out += _group("Next", f'<p>{e(str(p["next"]))}</p>' if p.get("next") else "")
-    out += _group("Agent", _dl([(k, p.get(f) or "—") for k, f in (("Runner", "runner"), ("Login", "login"),
-                                                                  ("Resets", "resets"), ("Error", "last_error"))]))
+    login = str(p.get("login") or "")
+    login = "not checked" if login in ("", "—") else login
+    err, resets = p.get("last_error") or "—", p.get("resets") or "—"
+    out += _group("Agent", _dl([("Runner", p.get("runner") or "—"),
+                                ("Login", login, "w" if login == "not checked" else
+                                 "good" if login.lower().startswith(("pro", "max")) else "bad"),
+                                ("Resets", resets, "z" if resets == "—" else "mg"),
+                                ("Error", err, "z" if err == "—" else "bad")]))
     if sz:
         rows = [("Code", f'{_i(sz.get("code")):,} lines'),
                 ("Tests", f'{_i(sz.get("tests")):,} lines, {_i(sz.get("test_count")):,} tests'),
                 ("Docs", f'{_i(sz.get("docs")):,} lines')]
         if sz.get("run_lines") is not None:
-            rows.append(("This run", f'+{_i(sz["run_lines"]):,} lines'))
+            rows.append(("This run", f'+{_i(sz["run_lines"]):,} lines', "good"))
             rows.append(("", f'{_i(sz.get("run_files")):,} files'))
         out += _group("Size", _dl(rows))
     if p.get("last_commit"):
-        age = f' <span class="z">{e(str(p["last_commit_age"]))} ago</span>' if p.get("last_commit_age") else ""
+        age = (f' <span class="{"w" if p.get("commit_stalled") else "z"}">{e(str(p["last_commit_age"]))} ago</span>'
+               if p.get("last_commit_age") else "")
         out += _group("Last commit", f'<p>{e(str(p["last_commit"]))}{age}</p>')
     return out
 
@@ -212,26 +260,26 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     tasks, health, files = data.get("tasks") or [], data.get("health") or {}, data.get("files")
     done, total, pct = _i(g.get("done")), _i(g.get("total")), _i(g.get("pct"))
     eta, active = p.get("eta") or "", _i(g.get("active"))
-    proj = _project(p, total, data.get("size"), data.get("asof"))
+    proj = _project(p, total, data.get("size"), data.get("asof"), data.get("spin"))
 
-    prog = (f'<div class="big">{pct}%</div>{_bar(pct / 100, "Progress")}'
+    prog = (f'<div class="big">{pct}%</div>{_bar(pct / 100, "Progress", "ok")}'
             f'<div class="row"><span>{done} done · {_i(g.get("working"))} working</span></div>'
             f'<div class="row"><span><span class="{"bad" if _i(g.get("blocked")) > 0 else ""}">{_i(g.get("blocked"))} blocked</span>'
-            f' · {_i(g.get("waiting"))} waiting</span></div>'
+            f' · <span class="z">{_i(g.get("waiting"))} waiting</span></span></div>'
             f'<div class="row"><span>{_i(g.get("phases_done"))} of {_i(g.get("phases_total"))} phases</span></div>')
 
     bars = ""
     for k, lab in (("five", "5-hour window"), ("week", "Week"), ("context", "Context")):
         if u.get(k) is not None:
-            bars += (f'<div class="row"><span>{lab}</span><span class="num">{round(_v(u[k]) * 100)}%</span></div>'
+            bars += (f'<div class="row"><span>{lab}</span><span class="mg">{round(_v(u[k]) * 100)}%</span></div>'
                      f'{_bar(u[k], lab, _lvl(u[k]))}')
             if k == "five" and u.get("reset_in"):
                 bars += f'<div class="z">Resets in {e(str(u["reset_in"]))}</div>'
-    models = "".join(f'<div class="row"><span>{e(str(m.get("name", "")))}</span>'
-                     f'<span>{e(str(m.get("tokens_text", "")))} <span class="num">{round(_v(m.get("share")) * 100)}%</span></span></div>'
+    models = "".join(f'<div class="row"><span class="bl">{e(str(m.get("name", "")))}</span>'
+                     f'<span>{e(str(m.get("tokens_text", "")))} {round(_v(m.get("share")) * 100)}%</span></div>'
                      f'{_bar(m.get("share"), str(m.get("name", "")))}' for m in u.get("models") or [])
     usage = (bars + f'<div class="row"><span>Tokens</span><strong>{e(str(u.get("tokens_text") or "0"))}</strong></div>'
-             + models + f'<div class="row"><span>Cost</span><strong>${float(u.get("cost") or 0):.2f}</strong></div>'
+             + models + f'<div class="row"><span>Cost</span><strong class="mg">${float(u.get("cost") or 0):.2f}</strong></div>'
              + f'<div class="row"><span>Rate</span><span>{e(str(u.get("rate") or "—"))}</span></div>')
 
     bw = data.get("blocked_why") or {}
@@ -281,7 +329,7 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     five = u.get("five")
     bar = (f'<footer><span>{e(str(p.get("name") or ""))}</span>'
            + (f"<span>Task {active}/{total}</span>" if active > 0 else f"<span>Done {done}/{total}</span>")
-           + f'<span>{_bar(pct / 100, "Progress")}{pct}%</span>'
+           + f'<span>{_bar(pct / 100, "Progress", "ok")}{pct}%</span>'
            + (f"<span>Left{':' if str(eta).startswith('after') else ''} {e(str(eta))}</span>" if eta else "")
            + f'<span class="{"bad" if nb else "z"}">Blocked {nb}</span><span>Tok {e(str(u.get("tokens_text") or "0"))}</span>'
            f'<span>${float(u.get("cost") or 0):.2f}</span>'
@@ -291,7 +339,7 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     ms = int(refresh) * 1000
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-            f"<title>{e(str(data.get('line') or ''))}</title><style>{CSS}</style>"
+            f"<title>{e(str(data.get('line') or ''))} · {PAGE_TITLE}</title><style>{CSS}</style>"
             f"<noscript><meta http-equiv=refresh content={int(refresh)}></noscript></head><body>"
             "<p id=off hidden>The build stopped, or the status server is off. This page shows the last status. "
             "For the status now, run: ap status</p>"

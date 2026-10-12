@@ -1,11 +1,14 @@
 # Reference
 
-Facts to look up. For a first project, read the [tutorial](GUIDE.md). For one specific job, read the
+Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
+It is for one developer, or for a person with an idea and a developer friend.
+
+Words on this page: Claude Code (the coding agent that writes the code), the gate (the check after each step), a worktree (a separate copy of the project for one task), a subscription (a paid Claude plan), `plan.yaml` (the task list). Facts to look up. For a first project, read the [tutorial](GUIDE.md). For one specific job, read the
 [how-to guides](HOWTO.md). To learn why Autopilot works this way, read the [architecture](ARCHITECTURE.md).
 
 **On this page:** [Commands](#commands) · [Environment variables](#environment-variables) · [Files](#files) ·
 [Settings](#settings) · [Gate guards](#gate-guards) · [Models](#models) · [Usage and budget](#usage-and-budget) · [Self-healing](#self-healing) ·
-[Glossary](#glossary)
+[Dashboard colours](#dashboard-colours) · [Glossary](#glossary)
 
 ## Commands
 
@@ -30,6 +33,8 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot watch --scroll` | Shows the scrolling view in plain words, also in a large window |
 | `autopilot watch --detail` | Shows each technical log line as it is |
 | `autopilot mcp` | Runs an MCP server on `stdin` and `stdout`. Its tools are `ap_status`, `ap_next`, `ap_start`, `ap_stop` and `ap_answer`. Each tool runs the `ap` command of the same name and returns its text. `init` adds the server to `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kilocode/mcp.json` and `.junie/mcp/mcp.json` when they exist |
+| `ap upgrade [--check] [--ref vX.Y.Z]` | Gets the newest release. It checks the wheel against `SHA256SUMS` before it installs. `--check` only prints. A git checkout gets `git pull --ff-only`, and only when it has no changes |
+| `ap install [--rights]` | Installs or repairs Autopilot for this user: `uv`, then the newest release. `--rights` shows the rights step, or the command that takes them |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
 | `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
@@ -283,6 +288,28 @@ A run stops only for a problem that needs a person. Each repair sends a `heal` a
 - A budget limit or a session limit that you set.
 - A question in `docs/NEEDS-YOU.md`.
 - A crash that occurs again and again. Send the report from `.agent/logs/crashes/`.
+
+## Dashboard colours
+
+`ap watch` and the status page use one colour for one meaning. A plain fact stays white. The test
+`test_every_colour_has_one_meaning_and_only_the_headline_is_bold` fails when a colour gets a second meaning.
+
+| Colour | Meaning | Where it appears |
+|---|---|---|
+| Green | Done or OK | Login `Pro` or `Max`, Status `Complete`, progress bar fill, Files added, lines added, Git and Checks `OK`, Size `This run +N`, Phase ✓, Live `The task is complete` |
+| Cyan | Running now | Status `In progress`, Phase ▶, Live test run, the state word in the title and the bar, the spinner while it turns |
+| Yellow | Warning | Login `not checked`, Time over 2x the median task time, Risk `high`, Tries 2 or more, Try on the last try, Questions, Warnings, Retries, Last commit age over 10 minutes with a running task, usage bar over 75 percent, `stale`, `⏸ no change 45s`, Live note, Live wait over 60 s (dim) |
+| Red | Blocked or failed | Login check failed, Status `Blocked`, Risk `crit`, Error text, Blocked count, Files deleted, lines deleted, Git and Checks failure text, usage bar over 90 percent, Phase ✗, Live error line, `✗ stopped 12:50` |
+| Magenta | Cost and usage | `Resets`, usage bars, Cost |
+| Blue | Model name | Now model, Detail model, usage model names |
+| Grey (dim) | Label, border, pending or zero | Labels, borders, Status `Pending`, Phase ○, Risk `low`, `waiting`, empty Error, zero counts, Live step verbs |
+| Bright white | A value the eye lands on | The running task row, key counts, the next step |
+| Bold | The one headline | The Now headline |
+
+The running indicator sits before the state word in the title, in the bottom bar and in the Now panel title. It turns
+only while the data file changes. After 30 s with no change it stops and shows `⏸ no change 45s` in yellow. When the
+run ended it shows `✗ stopped 12:50` in red. A console without UTF-8 gets `|/-\`, `||` and `x`. The browser page
+shows the same ring, paused when the data is stale. No other part of the window moves.
 
 ## Glossary
 

@@ -1,13 +1,16 @@
 # Security policy
 
-Autopilot runs a coding agent that has shell access. A fault in its guards can damage a computer or leak a secret.
+Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
+It is for one developer, or for a person with an idea and a developer friend.
+
+Autopilot runs a coding agent, Claude Code (the program that writes the code), that has shell access. A fault in its guards can damage a computer or leak a secret.
 Autopilot masks the values of known secret variables in the error text of a failed deploy.
 
 ## What to report
 
 - A way for a session to get past the [trust boundary](ARCHITECTURE.md#10-trust-boundary). Examples are a commit, a
   push, a change to git hooks, or a read of an environment variable that is not on the allowlist.
-- A way for a session to change the files that only Autopilot writes, for example `.agent/plan.yaml`.
+- A way for a session to change the files that only Autopilot writes, for example `.agent/plan.yaml` (the task list).
 - A secret that Autopilot writes to git, to a log, or to the status page.
 - A way to read the status page from a different computer without the token.
 
@@ -28,7 +31,7 @@ Autopilot masks the values of known secret variables in the error text of a fail
 
 ## Presets that approve every tool
 
-Three presets let the agent run every tool without a prompt. This is not limited to the worktree.
+Three presets let the agent run every tool without a prompt. This is not limited to the worktree (the separate copy of the project for one task).
 
 | Preset | Flag | What it allows |
 |---|---|---|

@@ -115,8 +115,8 @@ def test_now_and_size():
 
 
 def test_usage_levels_and_footer():
-    h = render(data(usage={"five": 0.05, "week": 0.74, "context": 0.95}))
-    assert 'class="bar ok" role="img" aria-label="5-hour window' in h
+    h = render(data(usage={"five": 0.05, "week": 0.80, "context": 0.95}))  # J13/17: magenta, yellow over 75, red over 90
+    assert 'class="bar use" role="img" aria-label="5-hour window' in h
     assert 'class="bar warn" role="img" aria-label="Week' in h
     assert 'class="bar bad" role="img" aria-label="Context' in h
     d = data()
@@ -124,6 +124,47 @@ def test_usage_levels_and_footer():
     assert "Task 21/21" in render(d)
     d["progress"]["active"] = 0
     assert "Done 20/21" in render(d)
+
+
+def test_spinner_element_and_paused_class():
+    from autopilot.dashboard import spinner
+    d = data(asof={"age": 3, "stopped": "", "live": True, "mtime": 1000.0})
+    fresh = render(dict(d, spin=spinner(d, 1000.0, 1003)))
+    body = fresh.split("</style>")[1].split("<script")[0]
+    assert '<span class="spin run" data-m="1000.0"' in body and "paused" not in body
+    stale = render(dict(d, spin=spinner(d, 1000.0, 1045)))
+    assert 'class="spin stale paused"' in stale and "⏸ no change 45s" in stale
+    d["asof"].update(live=False, stopped="12:50")
+    stopped = render(dict(d, spin=spinner(d, 1000.0, 5000)))
+    assert 'class="spin stopped paused"' in stopped and "✗ stopped 12:50" in stopped
+    assert 'class="spin' not in render(d)  # no spin key: no element
+    assert "animation-play-state:paused" in render(d) and "classList.add('paused')" in render(d)
+    assert render(d).count("@keyframes") == 1  # J13/18: the ring is the only animation
+
+
+def test_colour_map_classes():
+    d = data()
+    d["tasks"][0].update(risk="critical", tries=2, slow=True, detail="Haiku · 2 tries")
+    d["tasks"][1].update(risk="high")
+    d["project"] = dict(d["project"], login="Max", resets="14:30", last_error="boom", commit_stalled=True,
+                        last_commit="c", last_commit_age="12m",
+                        now={"n": 2, "title": "T", "attempt": 3, "max_attempts": 3})
+    d["size"] = {"code": 1, "tests": 1, "docs": 1, "test_count": 1, "run_lines": 5, "run_files": 1}
+    d["usage"] = dict(d["usage"], five=0.8, week=0.95, context=0.2)
+    h = render(d)
+    assert '<td class="w">1m</td>' in h  # a slow time
+    assert '<td class="bad">critical</td>' in h and '<td class="w">high</td>' in h and '<td class="w">2</td>' in h
+    assert '<span class="bl">Haiku</span> · 2 tries' in h
+    assert '<dd class="good">Max</dd>' in h and '<dd class="mg">14:30</dd>' in h and '<dd class="bad">boom</dd>' in h
+    assert '<dd class="good">+5 lines</dd>' in h and '<span class="w">12m ago</span>' in h and 'class="w">Try 3 of 3' in h
+    assert 'class="bar warn"' in h and 'class="bar bad"' in h and 'class="bar use"' in h and 'class="bar ok"' in h
+    assert '<span class="bl">Haiku</span>' in h and 'class="mg">$8.41' in h
+    login = render(dict(d, project=dict(d["project"], login="—")))
+    assert '<dd class="w">not checked</dd>' in login
+    assert '<dd class="bad">free</dd>' in render(dict(d, project=dict(d["project"], login="free")))
+    live = render(dict(d, live=[{"at": "1", "text": "Runs the tests.", "kind": "step"},
+                                {"at": "2", "text": "Changes a.py.", "kind": "step"}]))
+    assert 'class="l step test"' in live and '<b class="v">Changes</b> a.py.' in live
 
 
 def test_new_keys_missing():
