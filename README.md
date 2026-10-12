@@ -77,6 +77,10 @@ Every run ends with one word: `VERIFIED` (the plan is complete), `BLOCKED` (a ta
 
 Each phase writes `history/<phase>/PROOF.md`. It has a `## Not proven` section. The section lists each acceptance criterion that no changed test mentions, with its task id. When every criterion has a test, the section holds one sentence that says so. Read this list to see what a green build did not check.
 
+## Replay a recorded run with ap tour
+
+Type `ap tour` to watch a recorded run in the watch window. It needs no login, no key, no network and no agent CLI. It writes no file, not in `.agent/` and not in your home folder. The replay runs at 10 times real time; use `--speed N` to change it. At the end it prints the proof (the outcome word `VERIFIED` and the Not proven list) and the lines `Install: uv tool install dev-autopilot` and `Start: ap`. Use `ap tour --once` to draw only the last frame and exit 0, for CI. The recording is `examples/tour/events.jsonl`: more than 40 events, with no user path, mail address or secret. `scripts/make_tour.py` builds it again from `examples/self-build`. See [REFERENCE.md](REFERENCE.md).
+
 ## Install
 
 Three steps, no administrator prompt.
