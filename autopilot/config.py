@@ -12,6 +12,7 @@ from . import AGENT_DIR
 
 TEMPLATES = Path(__file__).parent / "templates"
 RISKS = ["low", "medium", "high", "critical"]
+REVIEW_SCOPES = ("critical", "all")  # W4: review.scope values
 NATIVE_WINDOWS = os.name == "nt"
 # CLI flags that could replace or widen the sandbox settings Autopilot passes (P5 egress allowlist)
 SANDBOX_UNSAFE_ARGS = ("--settings", "--setting-sources", "--mcp-config", "--dangerously-skip-permissions",
@@ -40,6 +41,7 @@ def defaults() -> dict:
     # (clean measure 2026-10-12: -39.5 percent tokens per task, 11 of 11 done; the owner accepted it as the 40 percent rule)
     d.setdefault("gate", {})["new_file_reasons"] = False  # N7: on in the template (new projects) only; a missing key = off
     d["gate"]["file_growth"] = False  # O2: same rule: the template turns it on, an old project.yaml keeps it off
+    d.setdefault("review", {})["scope"] = "critical"  # W4: the template turns it on for new projects; a missing key = critical
     return d
 
 
@@ -130,6 +132,10 @@ class Config:
             errs.append("no verify commands (build/lint/typecheck/test) — the gate would pass anything")
         if self.get("usage.billing", "subscription") not in ("subscription", "api"):
             errs.append("usage.billing must be subscription or api")
+        scope = self.get("review.scope", "critical")
+        if scope not in REVIEW_SCOPES:  # W4: at run time any other value acts as critical
+            errs.append(f"review.scope must be critical or all, got {scope!r}. Use critical to review only critical tasks, "
+                        "or all to review every task above low risk.")
         return errs + self._git_errors() + self._sandbox_errors()
 
     def _sandbox_errors(self) -> list[str]:

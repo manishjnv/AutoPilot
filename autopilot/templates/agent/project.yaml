@@ -116,7 +116,7 @@ models:
   onboard: opus
   unstick: sonnet         # diagnoses a stuck task (may search the web) before anyone is asked
   decide: opus            # weighs 2-3 approaches before risky work (see decide:)
-  review: opus            # reviews a critical task's diff after the gate, before the merge (see review:)
+  review: opus            # reviews a task's diff after the gate, before the merge (see review:)
   research: sonnet        # web research for a task's `research:` topics (see research:)
   verifier: sonnet        # the per-phase functional check (see functional:)
   triage: haiku           # turns a GitHub issue into a task, with no tools (see intake:)
@@ -144,8 +144,9 @@ decide:                   # before risky work, one read-only session scores 2-3 
   risks: [high, critical] # plus any task with needs_decision: true; corrective (FIX) tasks never
   effort: high
 
-review:                   # risk: critical only: one read-only session reviews the diff after the gate, before the merge
-  enabled: true           # a finding = a failed attempt; no verdict = merge (never blocks the run)
+review:                   # W4: one read-only session reviews the diff after the gate, before the merge
+  enabled: true           # a finding = a failed attempt; no verdict after a retry = a failed attempt
+  scope: all              # critical = only risk: critical tasks; all = every task above low risk (a missing key = critical)
   effort: high
 
 escalate:                 # move a failing task up its model ladder early on these signals (never down)
