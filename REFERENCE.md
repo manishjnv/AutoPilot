@@ -106,7 +106,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `HANDOFF.md` | What the last session did, and what is next | Yes |
 | `FOLLOWUPS.md` | Problems that sessions found outside their task | Yes |
 | `history/` | One file for each finished task and phase | Yes |
-| `history/<phase>/PROOF.md` | The full evidence of the feature check of the phase | Yes |
+| `history/<phase>/PROOF.md` | The full evidence of the feature check of the phase, and a `## Not proven` list (criteria that no changed test mentions, tasks with no check command, features not checked, scope added) | Yes |
 | `audits/` | The audit reports | Yes |
 | `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
 | `run.json` | The journal of the active run. At the end it has `word`, the outcome word | No |
