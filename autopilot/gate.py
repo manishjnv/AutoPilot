@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import allowlist_on, scope_always, tests_mode
+from .kill_guard import kill_commands
 from .proc import agent_env, run_proc, with_tool_dirs
 
 SECRET_PATTERNS = [
@@ -346,8 +347,9 @@ def file_growth(cfg, git) -> list[str]:
     return out
 
 
-def task_gate(cfg, git, task, report=None, attempt: int = 1) -> GateResult:
-    """Run on the task branch with the agent's changes staged. `attempt`: the try this diff comes from (O1)."""
+def task_gate(cfg, git, task, report=None, attempt: int = 1, log_path=None) -> GateResult:
+    """Run on the task branch with the agent's changes staged. `attempt`: the try this diff comes from (O1).
+    `log_path`: the session log; a kill by name in it fails the gate (W37)."""
     gate = GateResult(ok=True)
     files = git.staged_files()
     if not files and not task.allow_no_changes:
@@ -357,6 +359,9 @@ def task_gate(cfg, git, task, report=None, attempt: int = 1) -> GateResult:
         gate.problems.append(f"session modified protected files: {touched_protected}")
     (gate.warnings if task.allow_test_changes else gate.problems).extend(test_tamper(cfg, git, task.allow_test_changes))
     gate.problems += scan_secrets(git.staged_added_lines())
+    log_text = Path(log_path).read_text(encoding="utf-8", errors="replace") if log_path and Path(log_path).is_file() else ""
+    gate.problems += [f"the session ran a process-wide kill: {c}. Stop only the processes you started, by pid."
+                      for c in kill_commands(log_text)]
     if report is not None and cfg.get("gate.new_file_reasons"):  # N7: P07-T02; None = old callers, no check
         gate.problems += missing_reasons(cfg, git, report, task)  # O3: task-declared files and dependencies
     if cfg.get("gate.file_growth"):  # O2: on in the template (new projects); a missing key = off

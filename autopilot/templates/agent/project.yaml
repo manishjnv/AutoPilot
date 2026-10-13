@@ -80,6 +80,11 @@ agent:
     - "Bash(git reset:*)"
     - "Bash(git rebase:*)"
     - "Bash(rm -rf /:*)"
+    # Stop processes by pid only: a kill by name ends the orchestrator too (always added, also to your own list)
+    - "Bash(taskkill:*)"
+    - "Bash(pkill:*)"
+    - "Bash(killall:*)"
+    - "Bash(Stop-Process:*)"
   extra_args: []          # e.g. ["--bare"] with API-key billing only (it skips OAuth, hooks, plugins and CLAUDE.md)
   env_passthrough: []    # extra env var names sessions and checks may see (e.g. DATABASE_URL)
   env: {}                 # e.g. ANTHROPIC_BASE_URL: http://localhost:4000  (LiteLLM)
