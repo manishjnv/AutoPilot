@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .config import allowlist_on
 from .proc import agent_env, run_proc, with_tool_dirs
 
 SECRET_PATTERNS = [
@@ -59,7 +60,7 @@ PROTECTED = [".agent/plan.yaml", ".agent/project.yaml", ".agent/features.json", 
 def protected_files(cfg) -> list[str]:
     """Files no agent session may change: the plan, the config and the owner's answers (it would answer itself)."""
     owner = [cfg.get("needs_you.path", "docs/NEEDS-YOU.md"), cfg.get("docs.backlog", "docs/BACKLOG.md")]  # L7: ideas
-    if cfg.get("sandbox.enabled"):  # P5: project settings merge into later sessions and could widen the allowlist
+    if allowlist_on(cfg):  # P5: project settings merge into later sessions and could widen the allowlist
         owner += [".claude/settings.json", ".claude/settings.local.json", ".mcp.json"]
     return PROTECTED + [str(p).replace("\\", "/") for p in owner if p]
 # CI runs with repository secrets on push: adding, editing or deleting a pipeline is never routine task work

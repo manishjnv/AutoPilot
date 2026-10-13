@@ -10,6 +10,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 ## [Unreleased]
 
 - W11: `sandbox.mode: docker` runs each Claude Code session in `docker run --rm -i` from `sandbox.image`, with only the worktree at `/work`, its git folders (the shared one read-only) and a temp copy of `~/.claude/.credentials.json` mounted; secrets pass by name only, and the container and the temp folder are removed after the session. `sandbox.enabled` alone still means the allowlist.
+- W11: `ap doctor` prints the docker row in docker mode, the gate and doctor read `sandbox.mode: allowlist` as `sandbox.enabled: true`, and REFERENCE and SECURITY document the mode.
 - W10: HOWTO `Run with the laptop off (Claude Code Routines)` and `examples/routine/prompt.md`, a Routine prompt that installs `ap`, runs `ap run --no-prod` with `scheduling.max_sessions_per_run: 3`, pushes the `autopilot/` branches and ends with `ap status`. Not run live yet (2026-10-13); tests/test_routine.py checks the commands exist.
 - W5: the Claude Code plugin has a Stop hook (`plugin/hooks/hooks.json`, `plugin/scripts/seal.py`) that blocks "done" when the project tests fail or a test file lost lines, at most 5 times per session.
 - W1: the README opens with the position line, lists what every run proves with links to REFERENCE, and has a `## Safety` list; the feature detail moved to REFERENCE `Proof features`. README is under 1200 words (tests/test_opening.py).
@@ -142,3 +143,4 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - 2026-10-13 **P10-T01** HOWTO section and examples/routine — Added the HOWTO section 'Run with the laptop off (Claude Code Routines)' with six numbered steps and a not-run-live note dated 2026-10-13, plus examples/routine/prompt.md that installs ap, sets max_se
 - 2026-10-13 **P11-T01** sandbox.mode key: the one mode rule and its config checks — Added sandbox_mode(cfg) and allowlist_on(cfg) to config.py and rewrote _sandbox_errors on top of them. It rejects an unknown mode, docker without sandbox.image, docker with a non-claude_cli backend, a
 - 2026-10-13 **P11-T02** docker run wrapper for the Claude CLI backend — With sandbox.mode: docker, ClaudeCLIBackend.run wraps the unchanged build_cmd argv in docker run --rm -i via the new docker_box.wrapped(). Only the worktree (at /work), its git folders (the shared one
+- 2026-10-13 **P11-T03** Doctor docker line, gate reader and the docker docs — Implemented Doctor docker line, gate reader and the docker docs.
