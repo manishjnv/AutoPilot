@@ -491,6 +491,33 @@ shows the effect of a prompt change.
 
 4. Ask your IDE chat for the status of the build. The chat calls `ap_status`.
 
+## Stop a run and still get a word
+
+Press Ctrl+C during `ap start`. The run stops and stores the outcome word BUDGET_STOP, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped". See [Run outcome](REFERENCE.md#run-outcome).
+
+## Local models
+
+Run low-risk tasks on a model on your own computer (Ollama or LM Studio). Nothing leaves the machine and it costs nothing.
+
+1. Start the server and pull a coding model, for example `ollama pull qwen2.5-coder:7b`.
+2. In `.agent/project.yaml`, set `agent.backend: openai_compat`. Optionally set `agent.base_url` (default
+   `http://localhost:11434/v1`) and `agent.model_map` (for example `haiku: qwen2.5-coder:7b`).
+3. Run `ap doctor`. The `endpoint` row says whether the server answers. It warns and never fails when the server is down.
+
+The model cannot run tools. It writes each file as a fenced block and Autopilot writes the files into the worktree.
+A path outside the worktree is refused. The gate then runs the tests and the checks, so a weak model fails the gate.
+See [Use a local model](HOWTO.md#use-a-local-model).
+
+## VS Code extension
+
+A thin side panel for VS Code. It lives in `vscode/`. It has no chat participant.
+
+1. Run `Autopilot: Start`, `Autopilot: Answer` or `Autopilot: Stop` from the command palette. Each one sends `ap start`, `ap answer` or `ap stop` to a terminal named Autopilot. The terminal is reused when it is open.
+2. Open the Autopilot view in the Explorer side bar. It shows the status page of the run.
+3. The view reads the port from `.agent/status.port`. `ap start` writes that file with the port the status page uses, and new projects ignore it in git. When nothing answers, the view says to run `ap` first.
+
+Build it with `cd vscode`, `npm install` and `npx tsc --noEmit`. See [vscode/README.md](vscode/README.md). This repository does not publish the extension.
+
 ## Stop hook in the plugin
 
 The Claude Code plugin adds a Stop hook. Claude cannot say "done" while the tests fail.
