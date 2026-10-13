@@ -7,7 +7,7 @@ Words on this page: Claude Code (the coding agent that writes the code), the gat
 [how-to guides](HOWTO.md). To learn why Autopilot works this way, read the [architecture](ARCHITECTURE.md).
 
 **On this page:** [Commands](#commands) · [Environment variables](#environment-variables) · [Files](#files) ·
-[Settings](#settings) · [Gate guards](#gate-guards) · [Models](#models) · [Usage and budget](#usage-and-budget) · [Self-healing](#self-healing) ·
+[Settings](#settings) · [Proof features](#proof-features) · [Gate guards](#gate-guards) · [Models](#models) · [Usage and budget](#usage-and-budget) · [Self-healing](#self-healing) ·
 [Dashboard colours](#dashboard-colours) · [Glossary](#glossary)
 
 ## Commands
@@ -320,7 +320,7 @@ A stop with Ctrl+C sets no word.
 
 `examples/tour/events.jsonl` is a recorded run (`ap tour` plays the copy in `autopilot/templates/tour/`; keep the two equal): one JSON object per line, with `t` rising. `scripts/make_tour.py`
 builds it from `examples/self-build` (history files and `features.json`); run it again to get the same file.
-The script scrubs paths, addresses and `@`, so the file holds no local data.
+The script scrubs paths, addresses and `@`, so the file holds no local data. It has more than 40 events, with no user path, mail address or secret.
 
 | Key | Meaning |
 |---|---|
@@ -332,6 +332,49 @@ The script scrubs paths, addresses and `@`, so the file holds no local data.
 | `usage` | Object with `cost_usd` on `task_done`, `phase_done` and `run_end`; empty otherwise |
 
 `examples/tour/PROOF.md` is the proof that goes with it: the outcome word and the Not proven list.
+
+## Proof features
+
+### Not proven list
+
+Each phase writes `history/<phase>/PROOF.md` with a `## Not proven` section. It lists each acceptance criterion that
+no changed test mentions, with its task id. A criterion is covered when a three-word window of its text
+appears in the task's changed test files. Those files come from the `## Files changed` list of the
+task's history file. Tasks with no verify are listed only when the project has no test command. When every criterion
+has a test, the section holds one sentence that says so. Read this list to see what a green build did not check.
+
+### Fresh-context review
+
+A fresh session reviews each finished task before it merges. Set `review.scope` in `project.yaml` (see
+[Settings](#settings)). With `scope: all`, every task above low risk gets a review, and a finding blocks the merge.
+With `scope: critical`, or no key, only critical tasks get one. That is the code default, so old projects keep today's
+behavior. `ap init` writes `scope: all`. Any other value is an error with a plain message. The reviewer sees only the
+task spec (with the acceptance criteria), the diff and the gate's test output. It sees nothing from the build session.
+
+### Signed receipt
+
+When a phase closes, Autopilot writes `history/<phase>/receipt.json` next to `PROOF.md`. The receipt holds a hash of
+each phase file and a signature. The key is `~/.autopilot/receipt.key`. Autopilot makes it on first use, with mode
+0600. It lives in your home folder (`AUTOPILOT_HOME` moves it), so it is never in the repository and never committed.
+`ap verify` checks every closed phase offline (see [Commands](#commands)). An untouched phase prints `<phase> ok` and
+exits 0. An edited file prints `<phase> CHANGED: ...` and exits 1. A different key gives `bad signature`. With no
+receipt, it prints `no receipt found` and exits 1.
+
+### Draft pull request
+
+Set `git.mode: pr` in `project.yaml` and each task opens a pull request. If the gate gave a warning, or an acceptance
+criterion has no test, the PR opens as a draft. Its body lists each item under `## Not proven`. A clean task opens a
+ready PR, and the list says "Nothing". When CI is green, Autopilot marks a draft ready and merges it; the list stays
+in the body. `git.mode: direct` works as before. See [Settings](#settings).
+
+### Proof card and badge
+
+When a phase closes, Autopilot writes two files next to `PHASE.md` in `.agent/history/<phase>/`. `proof.svg` is a
+600x200 card. It shows the project name, the phase, tasks merged of total, verified features, the cost and
+the date. It holds no absolute path, and it stays valid XML when a phase title has `<` or `&`. `BADGE.md` holds one
+markdown image line, `![Built by Autopilot](proof.svg)`, and the repo-relative path
+`.agent/history/<phase>/proof.svg`. Paste that path into your README to show the badge. The signed receipt covers both
+files.
 
 ## Self-healing
 
