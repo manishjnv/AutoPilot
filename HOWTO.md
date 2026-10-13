@@ -722,3 +722,9 @@ The install script runs these commands. Use them when the script fails, or when 
    ap setup                                 # names the AI you pay for, installs its CLI, prints its login command
    ap doctor
    ```
+
+## Retries, reviews and scoped files
+
+- **Escalation on hard work.** Test files and `scope_always` docs do not count toward `escalate.max_diff_files` or `escalate.max_diff_lines`. A failure with only mechanical problems retries on the same model. The task prompt names the lines left for a scoped file near its growth budget.
+- **Review findings drive the retry.** After a failed review, the retry prompt lists that review's findings. The next review checks the listed findings first. A new defect that breaks no acceptance criterion goes to `FOLLOWUPS.md`, and the task merges.
+- **Scoped files in the prompt.** A task with scoped files gets each file's content in its prompt. A file over the cap gives its first lines and its function list. The whole block respects `context.scope_chars`.
