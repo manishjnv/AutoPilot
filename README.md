@@ -87,7 +87,8 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 - The gate runs your build, lint and test commands before each merge.
 - The plan cannot change during a run.
 - Budget caps apply per task, phase, day and run ([settings](REFERENCE.md#settings)).
-- A network allowlist applies when `sandbox.enabled` is true.
+- A network allowlist applies when `sandbox.enabled` is true or `sandbox.mode` is `allowlist`.
+- `sandbox.mode: docker` runs each Claude Code session in a plain container. Only the worktree is mounted, never your home folder ([settings](REFERENCE.md#settings)).
 - Every task runs in its own git worktree.
 - Secrets are scrubbed from logs.
 - `ap run --no-prod` keeps production untouched.
