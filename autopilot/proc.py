@@ -64,7 +64,7 @@ class Proc:
     stdout: str
     stderr: str
     timed_out: bool = False
-    stopped: str = ""      # stream_proc: why on_line killed it
+    stopped: str = ""      # why the tree was killed early: on_line's reason (stream_proc) or OWNER_STOP
 
 
 def safe_env(passthrough=(), extra: dict | None = None) -> dict:
@@ -181,6 +181,51 @@ def _kill_tree(p: subprocess.Popen):
             os.killpg(p.pid, signal.SIGKILL)
 
 
+# W39: `ap stop --now`. An armed check (stop_when) is polled during run_proc / stream_proc; when it returns true the
+# tree is interrupted (POSIX SIGINT, then OWNER_GRACE s for the report) and killed by pid / job object, never by name.
+OWNER_STOP = "stopped by the owner"
+OWNER_GRACE = 20
+STOP_POLL = 1.0
+_STOP_CHECK = None
+
+
+@contextlib.contextmanager
+def stop_when(check):
+    """Arm `check()` (true = the owner asked to stop now) for the processes started inside the block."""
+    global _STOP_CHECK
+    old, _STOP_CHECK = _STOP_CHECK, check
+    try:
+        yield
+    finally:
+        _STOP_CHECK = old
+
+
+def _owner_watch(p: subprocess.Popen, stopped: list, done: threading.Event):
+    check = _STOP_CHECK
+    while check and not done.wait(STOP_POLL) and p.poll() is None:
+        try:
+            hit = check()
+        except Exception:  # noqa: BLE001 - a broken check never kills a session
+            hit = False
+        if not hit:
+            continue
+        stopped.append(OWNER_STOP)
+        if not WINDOWS:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(p.pid, signal.SIGINT)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                p.wait(timeout=OWNER_GRACE)
+        _kill_tree(p)
+        return
+
+
+def _start_watch(p: subprocess.Popen, stopped: list) -> threading.Event:
+    done = threading.Event()
+    if _STOP_CHECK is not None:
+        threading.Thread(target=_owner_watch, args=(p, stopped, done), daemon=True).start()
+    return done
+
+
 def run_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: float | None = None,
              shell: bool = False) -> Proc:
     """subprocess.run(capture_output=True, text=True) with UTF-8 decoding, stdin closed unless `input` is given, and
@@ -190,9 +235,11 @@ def run_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: floa
                          stdin=subprocess.DEVNULL if input is None else subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, **group)
     _attach_job(p)
+    stopped: list[str] = []
+    done = _start_watch(p, stopped)
     try:
         out, err = p.communicate(input, timeout=timeout)
-        return Proc(p.returncode, out or "", err or "")
+        return Proc(p.returncode, out or "", err or "", stopped=stopped[0] if stopped else "")
     except subprocess.TimeoutExpired:
         _kill_tree(p)
         try:
@@ -204,6 +251,7 @@ def run_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: floa
         _kill_tree(p)
         raise
     finally:
+        done.set()
         _close_job(p)
 
 
@@ -238,6 +286,7 @@ def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: f
             threads.append(threading.Thread(target=feed, daemon=True))
         for t in threads:
             t.start()
+        done = _start_watch(p, stopped)
         timed_out = False
         try:
             p.wait(timeout=timeout)
@@ -250,6 +299,7 @@ def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: f
             _kill_tree(p)
             raise
         finally:
+            done.set()
             _close_job(p)
         threads[0].join(15)  # ponytail: a detached grandchild may still hold stdout; keep what was read
         errf.seek(0)

@@ -55,7 +55,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot unblock T1 T2` | Puts blocked tasks back in the queue |
 | `autopilot skip T3` | Removes tasks from the queue |
 | `autopilot approve P05` | Sends a phase to production |
-| `autopilot stop` | Stops the run before its next session |
+| `autopilot stop [--now]` | Stops the run before its next session and prints how long the current session has run. W39: `--now`, or a second `ap stop` within 60 seconds of the first, ends the task session at once: its process tree is ended by pid or job object (on Linux and macOS SIGINT first, then 20 seconds for the session to finish), its files are committed on `autopilot/<task>`, the attempt is not counted, the task note reads `cut by the owner, resume` and the run ends STOPPED. A stop during the gate waits for the gate. The next `ap start` (after `ap resume`) puts the files back and tells the session `You were stopped by the owner; continue from the files on disk.` |
 | `autopilot resume` | Removes the stop flag. It does not start a run |
 | `ap budget <usd> [-C folder]` | W43: sets the cost cap `budget_usd.total` in `.agent/project.yaml` with a one-line edit; the comments stay. A running build reads the new cap before its next task. A value of 0 or less exits 1 |
 | `autopilot review --kind periodic\|completion\|replan` | Starts an audit or a replan now |
@@ -121,7 +121,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `run.json` | The journal of the active run. At the end it has `word`, the outcome word. `pid` is the process of the run; `beat_at` is written every 30 seconds while the run lives, also during a long session. `status: running` with a `pid` that is gone shows as `DEAD since HH:MM` (time of `beat_at`, else `updated_at`) in `ap status`, `ap watch`, the end screen and the status page; the next command is `ap start`. A run.json without `pid` still shows ON | No |
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports | No |
-| `STOP` | The stop flag from `autopilot stop` | No |
+| `STOP` | The stop flag from `autopilot stop`; the first line `now` means `ap stop --now` | No |
 
 **Task key `status` in `plan.yaml`:** `status: done` says the work exists already (in the code or the git log). When the task is new, or still pending, Autopilot records it as done with the note `done before Autopilot`. It never changes a task that is running, blocked, skipped or done. If you remove the key later, the task stays done. `status: dropped` says the item left the plan document; Autopilot skips the task and keeps it in the file. Any other value is an error that names the task.
 

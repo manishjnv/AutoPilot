@@ -36,7 +36,7 @@ from .growth import consolidate
 from .handoff import MIN_WAIT, fallback_backend, write_handoff
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
-from .proc import agent_env, exclusive_lock, run_proc
+from .proc import agent_env, exclusive_lock, run_proc, stop_when
 from .report import digest, open_window, token_footer, window_line
 from .schemas import REPORTS
 from .state import State, now
@@ -181,6 +181,9 @@ def fail_line(r) -> str:
     return pick[:200]
 
 
+OWNER_RESUME = "You were stopped by the owner; continue from the files on disk."
+
+
 class Stop(Exception):
     """Ends the run cleanly (budget, stop file, fatal condition)."""
 
@@ -232,6 +235,7 @@ class Orchestrator:
         limit = max_sessions if max_sessions is not None else int(self.cfg.get("scheduling.max_sessions_per_run", 0))
         self.max_sessions = limit or None
         self.sessions_this_run = 0
+        self.owner_cut = False  # W39: `ap stop --now` ended the task session in flight
         self.rate_limit_streak = 0
         self.tracker = outage.Tracker()  # Q22: outage and repeated-error counters of this run (monotonic clock)
         self.outage_waits = 0  # Q22.1: 15-minute waits taken for a vendor outage in this run (outage.OUTAGE_WAITS at most)
@@ -719,6 +723,16 @@ class Orchestrator:
             f.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------ guards
+    def _owner_now(self) -> bool:
+        """W39: the STOP file says `now` (`ap stop --now`, or a second `ap stop` within 60 s)."""
+        try:
+            lines = (self.ad / "STOP").read_text(encoding="utf-8").splitlines()
+        except (OSError, ValueError):
+            return False
+        if lines and lines[0].strip().lower() == "now":
+            self.owner_cut = True
+        return self.owner_cut
+
     def check_stop(self):
         if (self.ad / "STOP").exists():
             raise Stop("stopped by .agent/STOP file", word="STOPPED")
@@ -909,7 +923,8 @@ class Orchestrator:
         self._journal(current=label or " ".join(
             x for x in (kind, task_id, f"attempt {attempt}" if kind == "task" else "") if x),
             state=STATE.get(kind, "Code"), task=task_id or "", attempt=attempt, model=model, live_tokens=0,
-            context_tokens=0, max_attempts=max(attempt, int(self.cfg.get("retries.max_attempts_per_task", 3))))
+            context_tokens=0, max_attempts=max(attempt, int(self.cfg.get("retries.max_attempts_per_task", 3))),
+            session_at=now())
         sid = self.state.start_session(kind, task_id, phase, attempt, model)
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
@@ -928,7 +943,12 @@ class Orchestrator:
                              on_context=lambda n: seen.__setitem__(0, n),
                              on_tokens=lambda n: self._journal(live_tokens=n, context_tokens=seen[0]))
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
-        res = self._run_backend(req)
+        if kind == "task":  # W39: only a task session is cut at once; the gate and reviews run to their end
+            self.owner_cut = False
+            with stop_when(self._owner_now):
+                res = self._run_backend(req)
+        else:
+            res = self._run_backend(req)
         if kind == "task" and res.rate_limited:
             res = self._handoff(req, res, task_id) or res  # N11
         self._journal(live_tokens=0, context_tokens=0)  # from here its tokens are in the ledger
@@ -1142,6 +1162,12 @@ class Orchestrator:
         own_model, own_used, fail_model, fail_why = "", "", "", ""  # J14.6 own fix; J14.8 facts of the last failure
         if floor >= 0 and self.state.get_meta(f"stepup:{task.id}", False):  # J14.5: the last attempt was cut or looped
             floor += 1
+        resume_line, cut_sha = "", self.state.get_meta(f"owner_cut:{task.id}")
+        if cut_sha is not None:  # W39: the owner stopped the last session; its files come back as a kept diff
+            self.state.set_meta(f"owner_cut:{task.id}", None)
+            resume_line = f"\n\n{OWNER_RESUME}\n"
+            if cut_sha:
+                kept, last_error = self._owner_resume(branch, cut_sha, last_error)
 
         while attempts < max_attempts:
             per_task = float(self.cfg.get("budget_usd.per_task", 0) or 0)
@@ -1161,13 +1187,17 @@ class Orchestrator:
             if chain and chain.session_id and model == chain_model:  # same model: continue that session, cache warm
                 res = self.session("task", self.ctx.resume_prompt(task, attempts + 1, last_error, kept), model,
                                    task_id=task.id, phase=phase.id, attempt=attempts + 1, resume=chain, effort=effort)
-                if not res.ok and not res.num_turns and not res.rate_limited:  # the old session is gone: start fresh
+                if (not res.ok and not res.num_turns and not res.rate_limited  # the old session is gone: start fresh
+                        and not self.owner_cut):  # an owner stop is not a lost session: its files are kept below
                     log.info("resume of %s failed (%s); starting fresh", chain.session_id, res.error[:200])
                     res = None
             if res is None:
                 prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline(), kept)
-                res = self.session("task", prompt, model, task_id=task.id, phase=phase.id, attempt=attempts + 1,
-                                   effort=effort)
+                res = self.session("task", prompt + resume_line, model, task_id=task.id, phase=phase.id,
+                                   attempt=attempts + 1, effort=effort)
+            resume_line = ""  # the first session only
+            if self.owner_cut:
+                self._owner_cut(task, branch, base)
             if res.rate_limited:
                 self.git.discard()
                 kept = False
@@ -1400,6 +1430,30 @@ class Orchestrator:
                       followups, split)
 
     GENERIC_QUESTION = "The agent could not complete this task. How must it continue?"
+
+    def _owner_cut(self, task, branch, base):
+        """W39: `ap stop --now` ended the task session. Its files are committed on the task branch (work in progress),
+        the sha is kept in meta `owner_cut:<id>`, the attempt is not counted and the run ends STOPPED."""
+        self.git.normalize_after_session(branch, base)
+        sha = ""
+        if self.git.staged_files():
+            self.git.run("commit", "-q", "--no-verify", "-m", f"[autopilot] {task.id}: cut by the owner (work in progress)")
+            sha = self.git.head()
+        self.git.checkout_main(self.main)  # the branch keeps the commit; a restart's _prepare_repo leaves it alone
+        self.state.set_meta(f"owner_cut:{task.id}", sha)
+        self.state.set_task(task.id, status="pending", note="cut by the owner, resume")
+        self.state.event("owner_cut", f"{task.id}: session stopped by the owner; files kept at {sha[:12] or '(none)'}")
+        raise Stop(f"{task.id}: session stopped by the owner", word="STOPPED")
+
+    def _owner_resume(self, branch, sha, last_error):
+        """W39: put the owner-cut commit back as uncommitted work on a fresh task branch. -> (kept, last_error)."""
+        self.git.start_branch(branch, self.main)
+        if self.git.ok("cherry-pick", "--no-commit", sha):
+            return True, last_error
+        self.git.run("cherry-pick", "--abort", check=False)  # main moved under it: the diff goes into the prompt
+        self.git.discard()
+        return False, ((last_error or "") + "\n\nYou were stopped by the owner; main has moved since. The files you "
+                       f"had written (redo them on the current code):\n{self.git.run('show', sha, check=False)[:8000]}")
 
     def _park(self, task, branch, attempts, error):
         self.git.discard()  # W25: a kept diff of the last attempt must not ride along to main
