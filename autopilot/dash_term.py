@@ -239,7 +239,8 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
         if size.get("docs") is not None:
             g += row("Docs", f"{count(size['docs']):,} lines")
         if size.get("run_lines") is not None:
-            g += row("This run", f"+{count(size['run_lines']):,} lines", "green") + [" " * 11 + f"{count(size.get('run_files'))} files"]
+            g += [[f"This run ({count(size.get('run_tasks'))} tasks)"], [" " * 2, (f"+{count(size['run_lines']):,} lines", "green")],
+                  [" " * 2 + f"{count(size.get('run_files'))} files"]]
         groups.append(g)
     if p["last_commit"]:
         groups.append([rule("Last commit"), *text(p["last_commit"]),

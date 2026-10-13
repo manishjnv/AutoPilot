@@ -28,7 +28,7 @@ def finish(orch, tid, start, end, tries=1):
 
 def test_task_time_counts_every_try_and_tasks_plus_other_is_elapsed(tmp_path):
     orch = many(tmp_path, 3)
-    # T01: a cut try at 0-5, a retry at 8-12, merged at 14 -> 14m; a research session (20-30) belongs to no task
+    # T01: a cut try at 0-5, a retry at 8-12, merged at 14 -> 9m of work; a research session (20-30) belongs to no task
     session(orch, "task", "T01", 0, 5)
     session(orch, "task", "T01", 8, 12)
     finish(orch, "T01", 8, 14, tries=2)
@@ -38,7 +38,7 @@ def test_task_time_counts_every_try_and_tasks_plus_other_is_elapsed(tmp_path):
     run = {"status": "finished", "started_at": at(0), "updated_at": at(50)}
     data = dashboard_data(orch.cfg, orch.plan, orch.state, run)
     t = data["tasks"]
-    assert t[0]["time"] == "14m" and t[0]["detail"].endswith("2 tries") and t[1]["time"] == "13m"
+    assert t[0]["time"] == "9m" and t[0]["detail"].endswith("2 tries") and t[1]["time"] == "9m"  # W42: work, not wall
     s = data["project"]["time_secs"]
     assert s == {"tasks": 27 * 60, "other": 23 * 60, "elapsed": 50 * 60} and s["tasks"] + s["other"] == s["elapsed"]
     assert data["project"]["other"] == "23m"
@@ -56,3 +56,28 @@ def test_eta_shows_its_basis_and_waits_for_three_tasks(tmp_path):
     finish(orch, "T03", 24, 53)  # 10m, 14m, 29m -> median 14m, 5 left, parallel 1
     data = dashboard_data(orch.cfg, orch.plan, orch.state, live)
     assert data["project"]["eta"] == "~70m (5 × 14m)"
+
+
+def test_task_time_is_the_work_not_the_gap(tmp_path):
+    orch = many(tmp_path, 2)
+    session(orch, "task", "T01", 0, 10)
+    session(orch, "task", "T01", 130, 140)  # two hours later
+    finish(orch, "T01", 130, 141, tries=2)
+    run = {"status": "finished", "started_at": at(0), "updated_at": at(150)}
+    data = dashboard_data(orch.cfg, orch.plan, orch.state, run)
+    t = data["tasks"][0]
+    assert t["time"] == "20m" and t["took"] == "took 20m (2 tries, first 10:00)"
+    assert data["tasks"][1]["took"] == ""
+
+
+def test_this_run_label_counts_the_merged_tasks(tmp_path):
+    orch = many(tmp_path, 3)
+    for i, tid in enumerate(("T01", "T02")):
+        session(orch, "task", tid, i * 10, i * 10 + 5)
+        finish(orch, tid, i * 10, i * 10 + 6)
+    run = {"status": "finished", "started_at": at(0), "updated_at": at(50)}
+    data = dashboard_data(orch.cfg, orch.plan, orch.state, run)
+    data["size"] = {"code": 1, "tests": 1, "docs": 1, "test_count": 1, "run_lines": 5, "run_files": 1, "run_tasks": 2}
+    from autopilot.dash_term import frame as term
+    from autopilot.dash_web import render as web
+    assert "This run (2 tasks)" in web(data) and any("This run (2 tasks)" in x for x in term(data, 100, 60))

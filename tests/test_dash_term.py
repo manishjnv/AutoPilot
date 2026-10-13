@@ -24,7 +24,7 @@ def data(n=21, running=18, files=True, **over):
                       "questions": 1, "warnings": 2, "working": 1, "waiting": 0, "active": 21},
          "needs_you": [{"id": "D-001", "title": "A question for the owner"}],
          "blocked_why": {"id": "FIX001-T06", "why": "PROBLEM"},
-         "size": {"code": 598, "tests": 1898, "docs": 1059, "test_count": 172, "run_lines": 246, "run_files": 13},
+         "size": {"code": 598, "tests": 1898, "docs": 1059, "test_count": 172, "run_lines": 246, "run_files": 13, "run_tasks": 3},
          "tasks": tasks,
          "live": [{"at": "06:17", "text": "Task 1 of 21: Skeleton", "kind": "heading"},
                   {"at": "", "text": "Goal: make it", "kind": "goal"},
@@ -277,8 +277,8 @@ def test_this_run_is_two_rows_and_nothing_wraps():
     for cols, rows in SIZES:
         out = strip(frame(d, cols, rows + 20))
         assert all(len(x) == cols for x in out)
-        at = next(i for i, x in enumerate(out) if "This run : +1,234,567 lines" in x)
-        assert "12345 files" in out[at + 1][:36] and "..." not in out[at][:36]
+        at = next(i for i, x in enumerate(out) if "This run (3 tasks)" in x)
+        assert "+1,234,567 lines" in out[at + 1][:36] and "12345 files" in out[at + 2][:36] and "..." not in out[at][:36]
         assert out[at][:2] == "│ " and out[at][34:36] == " │"
 
 

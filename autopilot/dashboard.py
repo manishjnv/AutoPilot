@@ -222,6 +222,21 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         except (TypeError, ValueError):
             return None
 
+    # W42: a task's time is the sum of its sessions (a running one counts to now), never the wall clock between them
+    work: dict = {}
+    for r in state.db.execute("SELECT task_id, started_at, ended_at FROM sessions WHERE kind IN ('task','review','unstick') "
+                              "AND task_id IS NOT NULL"):
+        work[r[0]] = work.get(r[0], 0.0) + (secs(r[1], r[2] or (now if rows.get(r[0]) and rows[r[0]]["status"] == "running" else None)) or 0.0)
+
+    def took(r, st, tries):  # (seconds, 'took 24m' [+ ' (3 tries, first 15:12)' when the wall span is over 2x the work])
+        w, a, b = work.get(r["id"]), *span(r)
+        if not w:
+            return None, ""
+        text, wall = f"took {_dur(w)}", secs(a, b if st == "done" else now)
+        if wall and wall > 2 * w and a:
+            text += f" ({tries} {'try' if tries == 1 else 'tries'}, first {str(a)[11:16]})"
+        return w, text
+
     def span(r):  # (start, end) of a task: first session to the merge, or to now while it works
         start = first.get(r["id"]) or r["started_at"]
         return (start, r["finished_at"] if r["status"] == "done" else now if r["status"] == "running" else None)
@@ -236,9 +251,11 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             tries, model = int(run.get("attempt") or 1), name(run.get("model"))
         else:
             model = name(r["model"]) if r else ""
+        w, note = took(r, st, tries) if r and st in ("done", "running") else (None, "")
         return {"n": i + 1, "id": t.id, "title": t.title, "phase": t.phase_id, "status": st,
-                "risk": t.risk, "tries": tries, "secs": (secs(a, b) or 0) if r and a and b else None,
-                "time": (_span(a, b) if st == "done" else _span(a, now) if st == "running" else "") if r else "",
+                "risk": t.risk, "tries": tries, "secs": w if w is not None else (secs(a, b) or 0) if r and a and b else None,
+                "time": _dur(w) if w else (_span(a, b) if st == "done" else _span(a, now) if st == "running" else "") if r else "",
+                "took": note,
                 "detail": " · ".join(x for x in (model, f"{tries} tries" if tries > 1 else "") if x)}
 
     table = [one(i, t) for i, t in enumerate(tasks)]
@@ -400,7 +417,8 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
                        for m, v in sorted(models, key=lambda x: -x[1]["total"]) if total and v["total"]],
         },
         "size": ({**facts["size"], "run_lines": facts["run"]["lines"] if facts["run"] else None,
-                  "run_files": facts["run"]["files"] if facts["run"] else None} if facts["size"] else None),
+                  "run_files": facts["run"]["files"] if facts["run"] else None,
+                  "run_tasks": len(here)} if facts["size"] else None),
         "files": facts["files"],
         "health": {"git": git, "checks": checks,
                    "words": " ".join(x for x in ("The checks fail on main." if checks == "Red" else "",
