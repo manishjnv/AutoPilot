@@ -64,6 +64,11 @@ def test_kill_commands_reads_tool_calls_only():
                      tool_use("Grep", "killall python"), tool_use("Bash", "echo killall")])
     assert kill_commands(log) == ["taskkill /IM python.exe /F", "Stop-Process -Name python",
                                   "cd x && pkill -f pytest"]
+    wrapped = "\n".join(tool_use("Bash", c) for c in (
+        "sudo pkill -f pytest", "cmd /c taskkill /IM python.exe /F", 'powershell -c "Stop-Process -Name python"',
+        "env A=1 killall python", "taskkill /PID 123 /T /F", "Stop-Process -Id 123", "grep taskkill notes.md"))
+    assert kill_commands(wrapped) == ["sudo pkill -f pytest", "cmd /c taskkill /IM python.exe /F",
+                                      'powershell -c "Stop-Process -Name python"', "env A=1 killall python"]
     many = "\n".join(tool_use("Bash", f"killall p{i}") for i in range(8))
     assert len(kill_commands(many)) == 5
 

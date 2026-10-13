@@ -9,12 +9,30 @@ SHELL_TOOLS = {"Bash", "PowerShell"}
 _PARTS = re.compile(r"&&|\|\||[;|\n]")
 
 
+WRAPPERS = {"sudo", "env", "nohup", "exec", "command", "cmd", "/c", "/k", "powershell", "pwsh", "-c", "-command",
+            "-noprofile", "start", "&"}
+
+
+def _program(word: str) -> str:
+    return re.split(r"[\\/]", word.strip("\"'"))[-1].lower().removesuffix(".exe")
+
+
 def _kills(command: str) -> bool:
-    """True when a part of the command starts with a kill-by-name program (a path to taskkill.exe counts)."""
+    """True when a part of the command runs a kill-by-name program, also behind sudo / cmd /c / powershell -c
+    (a path to taskkill.exe counts). `taskkill /PID n` and `Stop-Process -Id n` stop by pid and pass."""
     for part in _PARTS.split(command):
         words = part.strip().split()
-        if words and re.split(r"[\/]", words[0])[-1].lower().removesuffix(".exe") in KILL_WORDS:
-            return True
+        while words and (words[0].lower() in WRAPPERS or _program(words[0]) in WRAPPERS or "=" in words[0]):
+            words = words[1:]
+        if not words or _program(words[0]) not in KILL_WORDS:
+            continue
+        flags = {w.strip("\"'").lower() for w in words[1:]}
+        name = _program(words[0])
+        if name == "taskkill" and "/im" not in flags and "/pid" in flags:
+            continue
+        if name == "stop-process" and "-name" not in flags and ("-id" in flags or words[1:2] and words[1].isdigit()):
+            continue
+        return True
     return False
 
 

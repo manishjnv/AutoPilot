@@ -124,3 +124,18 @@ def test_failing_before_naming_a_test_red_on_main_puts_the_task_back(tmp_path):
     row = orch.state.task("P01-T02")
     assert row["status"] == "pending" and int(row["attempts"] or 0) == 0
     assert orch.main_due is True and orch.git.branch() == orch.main
+
+
+def test_a_git_error_keeps_main_due(tmp_path):
+    """Codex review 2026-10-13: an unknown result (git error) is not green; the commit is tested at the next loop."""
+    from autopilot.gitops import GitError
+    orch = orch_for(one_task_done(tmp_path))
+    orch.main_results.clear()
+    orch.main_due = True
+
+    def broken():
+        raise GitError("index.lock exists")
+
+    orch.git.head = broken
+    orch.guard_main()
+    assert orch.main_due is True
