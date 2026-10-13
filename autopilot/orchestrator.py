@@ -1090,6 +1090,14 @@ class Orchestrator:
                         self.git.start_branch(branch, self.main)  # repair failed: a normal failed attempt
                 problem = self._fix_problem(task, phase, res.report) if gate.ok else ""
                 if gate.ok and not problem:
+                    problem, go = self.failing_before(phase, res.report, base)
+                    if not go:  # a listed test fails on main: main is checked first, this attempt is not counted
+                        self.git.discard()
+                        self.git.checkout_main(self.main)
+                        self.git.delete_branch(branch)
+                        self.state.set_task(task.id, status="pending", attempts=attempts - 1, last_error=None)
+                        return False
+                if gate.ok and not problem:
                     problem = self.review(task, phase, branch, base, gate)
                 if problem:
                     last_error = problem
@@ -1166,6 +1174,29 @@ class Orchestrator:
                 and not any(_match(f, globs) for f in self.git.staged_files()):
             return "a bug fix must add or update a regression test"
         return ""
+
+    def failing_before(self, phase, report: dict, base: str) -> tuple[str, bool]:
+        """W21 (ADR 0004): check the report's `failing_before` names against main's test result at `base`.
+        ('', True) = proceed; (problem, True) = the attempt fails; (reason, False) = sent back, main_due is set."""
+        names = [str(n).strip() for n in (report.get("failing_before") or []) if str(n).strip()]
+        if not names or not self.cfg.commands("test"):
+            return "", True
+        red = self.main_test(base)
+        if base not in self.main_results:  # git error: no verdict
+            log.warning("failing_before not checked: no test result for %s", base)
+            return "", True
+        out = red.output if red else ""
+        found = [n for n in names if n.rsplit("::", 1)[-1] in out]
+        missing = [n for n in names if n not in found]
+        if found and not phase.priority and not self.main_red and self.state.tasks("done"):
+            self.main_due = True
+            log.info("failing_before names fail on %s: %s", self.main, found)
+            return (f"tests listed under failing_before fail on {self.main}: {', '.join(found)}; "
+                    "main is checked and repaired first", False)
+        if missing:
+            return ("failing_before lists tests that pass on main: " + ", ".join(missing)
+                    + ". They must pass with your change; do not skip or deselect them.", True)
+        return "", True
 
     def review_due(self, task) -> bool:
         """W4: review.scope critical (default) = only critical tasks; all = every task above low risk (U6 risk)."""
@@ -1660,6 +1691,9 @@ class Orchestrator:
         gate = task_gate(Config(path, self.cfg.data), wt, task, report=res.report, log_path=log_path)
         if not gate.ok:
             return gate.report()
+        problem, _ = self.failing_before(phase, res.report, base)  # a bounce comes back as its reason too
+        if problem:
+            return problem
         files, summary = wt.staged_files(), str(res.report.get("summary", "")).strip()
         wt.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}{new_file_lines(res.report)}\n\n"
                       f"model: {model}, attempt 1 (parallel)")

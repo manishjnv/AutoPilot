@@ -21,7 +21,8 @@ REPORTS = {  # session kind -> schema of its final report
                 decisions=A, followups=A, rca=RCA, blocker=S, learning=S, new_files=NEW_FILES,
                 # O1 and O3: the gate reads these two; a field the schema does not name never reaches the report
                 scope_additions={"type": "object", "additionalProperties": S},
-                new_deps={"type": "array", "items": obj(["name", "reason"], name=S, reason=S)}),
+                new_deps={"type": "array", "items": obj(["name", "reason"], name=S, reason=S)},
+                failing_before=A),  # W21: tests that failed before the change; each is checked against main
     "fixer": obj(["status", "summary"], status=STATUS, summary=S, root_cause=S, rca=RCA, decisions=A, blocker=S),
     "unstick": obj(["class"], **{"class": {"type": "string", "enum": ["technical", "spec", "owner"]}}, diagnosis=S,
                    decision=S, options_considered=A, question=S, checked=S, why=S, suggestion=S),

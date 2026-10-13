@@ -85,3 +85,42 @@ def test_same_sha_is_tested_once_and_merges_do_not_set_main_due(tmp_path):
     orch.git.run("commit", "-q", "-m", "x")
     orch.git.merge("autopilot/x", "main", "[autopilot] merge x")
     assert orch.main_due is False
+
+
+class Lists(FakeBackend):
+    """The P01-T02 task reports `failing_before` with the given names."""
+
+    def __init__(self, names):
+        super().__init__()
+        self.names = names
+
+    def run(self, req):
+        res = super().run(req)
+        if "implement task P01-T02" in req.prompt and res.report:
+            res.report["failing_before"] = self.names
+            (Path(req.cwd) / "BROKEN").unlink(missing_ok=True)  # the change makes the checks pass; main stays red
+        return res
+
+
+def test_failing_before_naming_a_passing_test_fails_the_attempt(tmp_path):
+    root = one_task_done(tmp_path)
+    orch = orch_for(root, Lists(["tests/test_demo.py::test_broken"]))
+    orch.run()
+    err = orch.state.task("P01-T02")["last_error"]
+    assert ("failing_before lists tests that pass on main: tests/test_demo.py::test_broken. "
+            "They must pass with your change; do not skip or deselect them.") in err
+    assert orch.state.task("P01-T02")["status"] != "done"
+
+
+def test_failing_before_naming_a_test_red_on_main_puts_the_task_back(tmp_path):
+    root = one_task_done(tmp_path)
+    orch = orch_for(root, Lists(["tests/test_demo.py::test_broken"]))
+    orch.reload_plan()
+    (root / "BROKEN").write_text("x")
+    orch.git.run("add", "-A")
+    orch.git.run("commit", "-q", "-m", "break main")
+    orch.main_due = orch.main_red = False
+    assert orch.execute_task(orch.plan.task_by_id["P01-T02"]) is False
+    row = orch.state.task("P01-T02")
+    assert row["status"] == "pending" and int(row["attempts"] or 0) == 0
+    assert orch.main_due is True and orch.git.branch() == orch.main
