@@ -8,6 +8,7 @@ In `.agent/plan.yaml`:
 - List the docs a change needs. REFERENCE, CHANGELOG, HOWTO and README are in scope for every task.
 - Rewrite pending tasks whose description / acceptance criteria / files_in_scope no longer match the codebase.
 - Contract task: when two or more pending tasks in one phase touch the same module, type or API, add one small task first (interfaces, types, stubs, the shared helper's signature). Make the others depends_on it. Keep its files out of the other tasks' files_in_scope.
+- Phase order: write `depends_on: []` on a phase that shares no file (in any task's files_in_scope) with the phases before it, so it can run side by side. When it does share a file, name the real phase: `depends_on: [P01]`. A phase without the key depends on the previous phase.
 - Split pending tasks that are too big for one session; merge trivial ones; remove ones already implemented.
 - For each BLOCKED task: if it can now succeed with a better spec, rewrite it and add `reopen: true`;
   otherwise leave it blocked.

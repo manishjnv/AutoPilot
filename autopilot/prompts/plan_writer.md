@@ -29,6 +29,7 @@ over many features.
   what to build, 2-5 testable acceptance criteria, and the files in scope (required: the real files or folders the
   task edits; the gate fails any other file; an empty list means the whole repository and the task runs alone).
 - Contract task: when two or more tasks in one phase touch the same module, type or API, write one small task first (interfaces, types, stubs, the shared helper's signature). Make the others depend on it. Keep its files out of the other tasks' files in scope. Two tasks that share a file get a depends_on edge, so they never run in parallel.
+- Phase order: write `depends_on: []` on a phase that shares no file (in any task's files_in_scope) with the phases before it, so it can run side by side. When it does share a file, name the real phase: `depends_on: [P01]`. A phase without the key depends on the previous phase.
 - A short **Definition of done**.
 
 ## The owner's idea
