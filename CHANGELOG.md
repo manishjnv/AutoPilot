@@ -10,6 +10,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 ## [Unreleased]
 
 - W21: a red main is detected, not skipped: each new commit on main is tested once before the next task, the failing test is named in the `main_red` event, and a main that stays red after the repair ends the run with `main is red` (FAILED).
+- W21: a task report can list `failing_before` (tests that failed before the change); each name is checked against main, a name that passes on main fails the attempt, and a name that fails on main sends the task back, not counted, until main is repaired.
 - W37: on Windows a command that times out now ends with all its child processes, even one whose parent already exited (each command runs in a job object; if that cannot be set up, the old `taskkill /T` is used).
 - W37: a session may stop only the processes it started, by pid. Claude Code sessions can no longer run `taskkill`, `pkill`, `killall` or `Stop-Process`, and a task whose session ran one fails the gate with the command named.
 - W37: a run whose process is gone shows `DEAD since HH:MM` (not ON) in `ap status`, `ap watch` and the status page, and the next command is `ap start`. The run writes `beat_at` into `run.json` every 30 seconds.
@@ -209,3 +210,4 @@ to run. A short outage at the AI service no longer ends your build. Login works 
 - 2026-10-13 **P01-T01c** W37b Sessions may not kill processes by name — Every Claude Code session now gets the four kill-by-name deny rules (KILL_DENY in claude_cli.py, added on top of any project list), system.md has the stop-by-pid rule, and task_gate(log_path=...) fail
 - 2026-10-13 **P01-T01d** W37c A session's child processes end with it on Windows too — On Windows run_proc and stream_proc now put each process in a kill-on-close job object via ctypes; _kill_tree calls TerminateJobObject before taskkill /T, and the handle is closed when the call return
 - 2026-10-13 **P01-T02** W21 Red main is detected, not deselected — Each new commit on main (run start, `_commit_main`, a pull) is now tested once before the next task. The result is cached by sha, and a red main sends a `main_red` event naming the failing test. If ma
+- 2026-10-13 **P01-T02b** W21 failing_before is checked against main — Added optional `failing_before` to the task report schema and task.md. Added `Orchestrator.failing_before(phase, report, base)`, called in `execute_task` after `_fix_problem` and in `_finish_parallel`

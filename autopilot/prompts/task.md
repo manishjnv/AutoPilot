@@ -52,7 +52,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
 1. Read the relevant existing code first. Follow the existing conventions in BRAIN.md.
 2. Implement the task completely — no stubs, TODOs or placeholder logic for anything in the acceptance criteria.
 3. {{test_rule}}
-4. Run the build, lint and typecheck commands below and fix failures before finishing. Run the tests of the files you changed. The gate runs the full suite at the phase close. Do not run the full test command yourself.
+4. Run the build, lint and typecheck commands below and fix failures before finishing. Run the tests of the files you changed. The gate runs the full suite at the phase close. Do not run the full test command yourself. Tests that already fail before your change: list them in the report under `failing_before` (node ids such as `tests/test_x.py::test_y`). Never skip, deselect, xfail or delete a test to get green; each name is checked against main, and a name that passes on main fails your attempt.
 {{verify_cmds}}
 5. Update documentation touched by this change (README, API docs, docstrings, the docs listed above).
 6. If the task is genuinely impossible (missing external dependency, contradictory spec), stop and report "blocked" with a precise reason — do not fake it.
@@ -72,6 +72,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
   "new_files": [{"path": "src/new_module.py", "reason": "why no existing file can own this content"}],
   "scope_additions": {"src/other.py": "why this file outside the task scope had to change (omit when none)"},
   "new_deps": [{"name": "package", "reason": "why no installed dependency does this (omit when none)"}],
+  "failing_before": ["path::test_name (omit when none)"],
   "rca": {"symptom": "...", "root_cause": "...", "fix": "file:line — what changed", "prevention": "the test or check that stops a repeat"},
   "blocker": "only when status is blocked"
 }
