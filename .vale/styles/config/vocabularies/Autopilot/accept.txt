@@ -37,3 +37,6 @@ Replit
 Kiro
 Cursor
 aider
+Ollama
+Anthropic's
+[Ll]oopback

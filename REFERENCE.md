@@ -294,10 +294,10 @@ The gate runs these guards on each task before the checks. A guard that finds a 
 | Protected file | A change to the plan, the settings, the questions file, the backlog, or a path in `gate.protected` |
 | Secret scan | An added line that looks like a key, a token, or a password |
 | Empty change | No changed files, unless the task has `allow_no_changes: true` |
-| Kill by name | A Bash or PowerShell tool call in the Claude Code session log that runs `taskkill`, `pkill`, `killall` or `Stop-Process`, also behind `sudo`, `env`, `cmd /c` or `powershell -c` (up to 5 named). Text in the agent's messages, `kill <pid>`, `taskkill /PID <n>` and `Stop-Process -Id <n>` do not count: they stop by pid. Every Claude Code session also gets the deny rules `Bash(taskkill:*)`, `Bash(pkill:*)`, `Bash(killall:*)` and `Bash(Stop-Process:*)`, even when `agent.disallowed_tools` sets its own list. Logs of `command` backends are not checked |
+| Kill by name | A Bash or PowerShell tool call in the Claude Code session log that runs `taskkill`, `pkill`, `killall` or `Stop-Process`, also behind `sudo`, `env`, `cmd /c` or `powershell -c` (up to 5 named). Text in the agent's messages, `kill <pid>`, `taskkill /PID <n>` and `Stop-Process -Id <n>` do not count: they stop one process by its number. Every Claude Code session also gets the deny rules `Bash(taskkill:*)`, `Bash(pkill:*)`, `Bash(killall:*)` and `Bash(Stop-Process:*)`, even when `agent.disallowed_tools` sets its own list. Logs of `command` backends are not checked |
 | Child processes on timeout | Windows: every command and session runs in a job object (kill on close); a timeout calls TerminateJobObject, then `taskkill /F /T`. If the job cannot be created, one warning is logged and only `taskkill /T` runs. POSIX: the process group is killed |
 | Red main | Every new commit on main (run start, a docs/receipt/needs-you commit, a pull) is tested once with `commands.test`, before the next task starts; task merges are not tested again. The result is cached by commit. A red main sends a `main_red` event naming the failing test, runs the fixer and a corrective phase once, and if main is still red when no task can run, the run ends with `main is red: <test>` and the word FAILED |
-| failing_before | The task report may list `failing_before`: tests the agent saw fail before its change. Each name is looked up in main's test result (the same once-per-commit result as above). A name that passes on main fails the attempt with `failing_before lists tests that pass on main: <names>`. A name that fails on main, on a normal task, puts the task back to pending without counting the attempt, and main is checked and repaired first. A corrective task, or a project with no finished task yet, keeps going |
+| `failing_before` | The task report may list `failing_before`: tests the agent saw fail before its change. Each name is looked up in main's test result (the same once-per-commit result as above). A name that passes on main fails the attempt with `failing_before lists tests that pass on main: <names>`. A name that fails on main, on a normal task, puts the task back to pending without counting the attempt, and main is checked and repaired first. A fix task, or a project with no finished task yet, keeps going |
 | New file | An added file with no reason in the report field `new_files`. Test files (`gate.test_globs`) and files in `.agent/` need no reason. A move or a rename needs no reason. The problem quotes the rule, and the retry prompt gets it. This guard runs when `gate.new_file_reasons` is `true`. It is `true` in new projects and off when the key is missing |
 
 **Kept diff after a scope or test failure.** When an attempt fails the gate only on `outside files_in_scope` or `scope_additions` lines, or only on a failed test command, Autopilot keeps the branch and its changes. The retry prompt says "The diff is kept" and asks the session to add the scope reasons or fix the failing tests, not to start over. A protected-file change, a secret, a kill by name, a test-tamper finding, a review finding, a timed-out or stuck session, an escalation to a stronger model, an unstick session and a park still reset the code to the state before the attempt.
@@ -331,7 +331,7 @@ A retry on the same model continues the failed session. A retry on a different m
 | Research | sonnet | Writes web research notes for a task |
 | Verifier | sonnet | Tries each feature at the end of a phase, then tries one variation to break it |
 | Auditor, onboard | opus | Audits the app, writes the first plan |
-| Replanner | sonnet; opus when a pending task touches a load-bearing path | Updates the plan |
+| Plan update (replanner) | sonnet; opus when a pending task touches a load-bearing path | Updates the plan |
 | Triage | haiku | Makes a task from a GitHub issue, with no tools |
 
 ## Usage and budget
@@ -412,7 +412,7 @@ receipt, it prints `no receipt found` and exits 1.
 
 Set `git.mode: pr` in `project.yaml` and each task opens a pull request. If the gate gave a warning, or an acceptance
 criterion has no test, the PR opens as a draft. Its body lists each item under `## Not proven`. A clean task opens a
-ready PR, and the list says "Nothing". When CI is green, Autopilot marks a draft ready and merges it; the list stays
+ready PR, and the list says "Nothing." When CI is green, Autopilot marks a draft ready and merges it; the list stays
 in the body. `git.mode: direct` works as before. See [Settings](#settings).
 
 ### Proof card and badge

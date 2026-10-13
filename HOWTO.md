@@ -502,7 +502,7 @@ shows the effect of a prompt change.
 
 ## Stop a run and still get a word
 
-Press Ctrl+C during `ap start`, or run `ap stop`. The run stops and stores the outcome word STOPPED, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped". See [Run outcome](REFERENCE.md#run-outcome).
+Press Ctrl+C during `ap start`, or run `ap stop`. The run stops and stores the outcome word STOPPED, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped." See [Run outcome](REFERENCE.md#run-outcome).
 
 ## Local models
 
