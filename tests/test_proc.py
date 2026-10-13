@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+from autopilot import proc
 from autopilot.proc import exclusive_lock, run_proc, safe_env
 
 PY = sys.executable
@@ -58,3 +59,45 @@ def test_python_tool_folders_are_on_path_for_checks_and_sessions(monkeypatch, tm
     key = next(k for k in env if k.upper() == "PATH")
     assert env[key].split(os.pathsep) == [str(tmp_path / "bin"), str(tools)]
     assert proc.with_tool_dirs(env)[key] == env[key]  # added once, never twice
+
+
+def _grandchild_run(tmp_path):
+    pidfile = tmp_path / "gc.pid"
+    child = ("import os, subprocess, sys, time; "
+             f"g = subprocess.Popen([{PY!r}, '-c', 'import time; time.sleep(60)']); "
+             f"open({str(pidfile)!r}, 'w').write(str(g.pid)); time.sleep(60)")
+    p = run_proc([PY, "-c", child], timeout=3)
+    return p, int(pidfile.read_text())
+
+
+def _gone(pid):
+    for _ in range(50):
+        if not proc.pid_alive(pid):
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def test_timeout_ends_the_grandchild(tmp_path):
+    p, gc = _grandchild_run(tmp_path)
+    assert p.timed_out
+    assert _gone(gc)
+    if proc.WINDOWS:
+        started = proc.subprocess.Popen([PY, "-c", "import time; time.sleep(5)"])
+        try:
+            proc._attach_job(started)
+            assert started._ap_job
+            proc._kill_tree(started)
+            assert started.wait(timeout=10) is not None
+        finally:
+            proc._close_job(started)
+            assert started._ap_job is None
+
+
+def test_job_failure_keeps_the_timeout_path(monkeypatch, tmp_path):
+    def boom(p):
+        raise OSError("no job")
+    monkeypatch.setattr(proc, "_make_job", boom)
+    monkeypatch.setattr(proc, "_job_warned", False)
+    p = run_proc([PY, "-c", "import time; time.sleep(60)"], timeout=1)
+    assert p.timed_out and p.rc == 124
