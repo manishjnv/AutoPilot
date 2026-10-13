@@ -7,6 +7,9 @@ import re
 import shutil
 import sys
 import sysconfig
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -187,9 +190,29 @@ def runner_chosen(root) -> bool:
     return not isinstance(agent, dict) or any(agent.get(k) for k in ("backend", "command", "preset"))
 
 
+def check_endpoint(cfg, timeout=2) -> tuple[str, str, str]:
+    """P12-T02 (W13): does the openai_compat endpoint answer? A GET to <base_url>/models; any HTTP answer counts.
+    WARN only, because a local model is optional. Never raises."""
+    from .backends.openai_compat import DEFAULT_BASE_URL
+    base = str(cfg.get("agent.base_url") or DEFAULT_BASE_URL).rstrip("/")
+    try:
+        host = urllib.parse.urlsplit(base).hostname or ""
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if host in ("127.0.0.1", "localhost", "::1")             else urllib.request.build_opener()  # a local runner never goes through an env proxy
+        try:
+            with opener.open(urllib.request.Request(base + "/models"), timeout=timeout):
+                pass
+        except urllib.error.HTTPError:
+            pass  # the server answered (for example 404 on /models): it is up
+        return OK, "endpoint", f"{base} answers"
+    except Exception:  # noqa: BLE001 - a doctor row never raises
+        return WARN, "endpoint", f"{base} does not answer (start Ollama or LM Studio)"
+
+
 def check_runner_login(cfg, env=None) -> tuple[str, str, str]:
     """N10: the configured runner (a `command` preset) is logged in with its own subscription; stdin closed, CI=1,
     LOGIN_TIMEOUT. FAIL names the one login command. No credential file is read, written or copied."""
+    if cfg.get("agent.backend") == "openai_compat":  # P12-T02: a local model is never a login, WARN at most
+        return check_endpoint(cfg)
     preset = str(cfg.get("agent.preset") or "")
     if cfg.get("agent.command") or not preset:
         return OK, "runner login", "custom command: not checked"
@@ -562,6 +585,8 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
     elif cfg.get("agent.backend", "claude_cli") == "claude_cli":
         out += check_claude(cfg)
         out += [g for g in [check_user_guards(cfg)] if g]
+    elif cfg.get("agent.backend") == "openai_compat":  # P12-T02: the local endpoint, WARN when it does not answer
+        out.append(check_endpoint(cfg))
     elif cfg.get("agent.backend") == "command":
         from .backends.command import command_template
         exe = command_template(cfg).split()
