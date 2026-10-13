@@ -179,7 +179,7 @@ class Stop(Exception):
 
 def outcome_word(outcome: str, parked: bool, stop: Stop | None = None) -> str:
     """W3: the one word of a run end. A Stop names it at the raise site (fatal: FAILED; any other Stop is a limit the
-    owner set: BUDGET_STOP); a parked task or open decision is BLOCKED; a complete plan is VERIFIED; else STALLED."""
+    owner set: BUDGET_STOP; a stop by hand names STOPPED); a parked task or open decision is BLOCKED; a complete plan is VERIFIED; else STALLED."""
     if stop is not None:
         return stop.word or ("FAILED" if stop.fatal else "BUDGET_STOP")
     if str(outcome).startswith(("fatal", "crashed")):
@@ -497,7 +497,7 @@ class Orchestrator:
             return outcome
         finally:
             if outcome == "interrupted" and not self.run_info.get("word"):  # P14: Ctrl+C is the owner ending the run
-                self._end_word(outcome, Stop(outcome, word="BUDGET_STOP"))
+                self._end_word(outcome, Stop(outcome, word="STOPPED"))
             self._beat_stop.set()
             self._journal(status="finished", outcome=outcome, current="", state="Done", task="", live_tokens=0)
             self.write_report()
@@ -687,7 +687,7 @@ class Orchestrator:
     # ------------------------------------------------------------------ guards
     def check_stop(self):
         if (self.ad / "STOP").exists():
-            raise Stop("stopped by .agent/STOP file")
+            raise Stop("stopped by .agent/STOP file", word="STOPPED")
         if self.max_sessions and self.sessions_this_run >= self.max_sessions:
             raise Stop(f"session limit reached ({self.max_sessions})")
         total_cap = float(self.cfg.get("budget_usd.total", 0) or 0)
