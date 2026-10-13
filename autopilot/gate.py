@@ -328,13 +328,18 @@ def write_baseline(root) -> int:
     return len(counts)
 
 
+def growth_limit(cfg, path: str, lines: int) -> int:
+    """O2: the line limit of one code file that has `lines` lines now: max(400, +25 percent of those lines or of its baseline)."""
+    try:
+        base = int(json.loads((cfg.root / ".agent" / "quality_baseline.json").read_text(encoding="utf-8")).get(path, 0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        base = 0
+    return max([GROWTH_LINES] + [n * (100 + GROWTH_PCT) // 100 for n in (lines, base) if n > GROWTH_LINES])
+
+
 def file_growth(cfg, git) -> list[str]:
     """O2: a changed code file may not grow past max(400 lines, +25 percent, 125 percent of its baseline) in one task."""
     tests = cfg.get("gate.test_globs") or TEST_GLOBS
-    try:
-        base = json.loads((cfg.root / ".agent" / "quality_baseline.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        base = {}
     out = []
     for line in git.run("-c", "core.quotepath=false", "diff", "--cached", "--numstat").splitlines():
         parts = line.split("\t")
@@ -345,8 +350,7 @@ def file_growth(cfg, git) -> list[str]:
             continue
         new = _count_lines(cfg.root / path)
         old = new - plus + minus
-        # under 400 lines: the cap is 400; over it (on day one or now): 25 percent more in one task
-        limit = max([GROWTH_LINES] + [n * (100 + GROWTH_PCT) // 100 for n in (old, int(base.get(path, 0))) if n > GROWTH_LINES])
+        limit = growth_limit(cfg, path, old)
         if new > limit:
             out.append(f"file grew past the budget: {path} {old} -> {new} lines (limit {limit}). Split, do not grow.")
     return out

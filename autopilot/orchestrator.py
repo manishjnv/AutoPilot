@@ -22,7 +22,7 @@ from pathlib import Path
 
 from . import AGENT_DIR, decisions, outage, signals
 from .backends import SessionRequest, SessionResult, get_backend
-from .config import RISKS, Config, load_yaml
+from .config import RISKS, Config, load_yaml, scope_always
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
 from .docs import Documenter, redact_secrets, research_path, task_not_proven
@@ -175,6 +175,20 @@ class Stop(Exception):
     def __init__(self, reason: str, fatal: bool = False, word: str = ""):
         super().__init__(reason)
         self.reason, self.fatal, self.word = reason, fatal, word  # W3: word names the outcome when not the default
+
+
+MECHANICAL = ("file grew past the budget", "outside files_in_scope", "scope_additions")  # W41
+MECHANICAL_LEAD = "Mechanical gate failure (same model; the approach is fine). Fix exactly this and change nothing else:\n\n"
+
+
+def mechanical(cfg, gate: GateResult | None) -> bool:
+    """W41: the gate failed only on growth, scope or lint: no sign the work is too hard for the model."""
+    if gate is None or gate.ok:
+        return False
+    lint = cfg.commands("lint")
+    failed = [r for r in gate.results if r.rc != 0]
+    return (bool(gate.problems or failed) and all(p.startswith(MECHANICAL) for p in gate.problems)
+            and all(r.cmd in lint for r in failed))
 
 
 def outcome_word(outcome: str, parked: bool, stop: Stop | None = None) -> str:
@@ -1001,17 +1015,33 @@ class Orchestrator:
             return "high"
         return task.risk
 
-    def escalation(self, res: SessionResult) -> str:
-        """U6: why a failed attempt should move up the ladder now ('' = no signal). Reads the work before discard."""
+    def counted_change(self) -> tuple[list[str], int]:
+        """W41: (files, lines) of the staged work without test files and the gate.scope_always files."""
+        tests, always = self.cfg.get("gate.test_globs") or TEST_GLOBS, scope_always(self.cfg)
+        self.git.change_size()  # stages the work
+        files, lines = [], 0
+        for row in self.git.run("-c", "core.quotepath=false", "diff", "--cached", "--numstat", "--no-renames").splitlines():
+            added, deleted, path = (row.split("	") + ["", "", ""])[:3]
+            if not path or path.startswith(AGENT_DIR + "/") or _match(path, tests) or any(fnmatch.fnmatch(path, g) for g in always):
+                continue
+            files.append(path)
+            lines += int(added) + int(deleted) if added.isdigit() and deleted.isdigit() else 0
+        return files, lines
+
+    def escalation(self, res: SessionResult, gate: GateResult | None = None) -> str:
+        """U6: why a failed attempt should move up the ladder now ('' = no signal). Reads the work before discard.
+        W41: a failure of only mechanical problems stays on the model; tests and scope_always files do not count as size."""
         e = self.cfg.get
         if e("escalate.on_timeout", True) and (res.timed_out or res.stuck):
             return "timed out" if res.timed_out else "stuck in a loop"
-        files, lines = self.git.change_size()
+        if mechanical(self.cfg, gate):
+            return ""
+        files, lines = self.counted_change()
         max_lines, max_files = int(e("escalate.max_diff_lines", 300) or 0), int(e("escalate.max_diff_files", 5) or 0)
         if (max_lines and lines > max_lines) or (max_files and len(files) > max_files):
             return f"large change ({len(files)} files, {lines} lines)"
         lb = e("escalate.load_bearing") or []
-        if lb and any(_match(f, lb) for f in files):
+        if lb and any(_match(f, lb) for f in self.git.staged_files()):
             return "touched a load-bearing path"
         return ""
 
@@ -1069,7 +1099,7 @@ class Orchestrator:
             attempts += 1
             self.state.set_task(task.id, attempts=attempts, model=model)
             self.git.normalize_after_session(branch, base)
-            agent_blocked, keep, kept = False, False, False
+            agent_blocked, keep, kept, gate = False, False, False, None
             cut = bool((res.timed_out or res.stuck) and self.git.staged_files())  # J14.3: a cut session keeps its diff
             if cut:
                 log.info("task %s: session cut (%s); its diff is gated first", task.id, res.error[:120])
@@ -1134,7 +1164,7 @@ class Orchestrator:
                         self.git.discard()
                         self.git.checkout_main(self.main)
                 else:
-                    last_error = gate.report()
+                    last_error = (MECHANICAL_LEAD if mechanical(self.cfg, gate) else "") + gate.report()
                     keep = gate.keepable() and not cut and not wiped
                     if cut:  # the diff and the gate text become the retry input; nothing is thrown away
                         last_error = (f"session cut ({res.error[:200]}); its diff failed the gate:\n{gate.report()}\n\n"
@@ -1142,7 +1172,7 @@ class Orchestrator:
                                       f"{self.git.run('diff', '--cached', check=False)[:8000]}")
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
             chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
-            why = self.escalation(res)
+            why = self.escalation(res, gate)
             fail_model, fail_why = model, why
             floor = max(floor, model_rank(model) + (1 if why else 0))
             self.state.set_meta(f"stepup:{task.id}", bool(why))  # survives a restart; a plain test failure clears it

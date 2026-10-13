@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 
 from . import proc
-from .gate import verify_commands
+from .gate import CODE_EXT, TEST_GLOBS, _count_lines, _match, growth_limit, verify_commands
 from .repomap import helper_index
 
 PROMPTS = Path(__file__).parent / "prompts"
@@ -218,7 +218,7 @@ class ContextBuilder:
             "task.md", task_id=task.id, task_title=task.title, phase_id=phase.id, phase_title=phase.title,
             phase_goal=phase.goal, risk=task.risk,
             description=task.description or task.title, acceptance=bullets(task.acceptance_criteria),
-            scope=bullets(task.files_in_scope, "(not restricted)"), docs=bullets(task.docs, "(whatever this change affects)"),
+            scope=bullets(task.files_in_scope, "(not restricted)") + line_budget(self.cfg, task.files_in_scope), docs=bullets(task.docs, "(whatever this change affects)"),
             decisions=self.decisions(), handoff=self.handoff(),
             progress=progress_line(self.plan, self.state.status_map()), retry_block=retry,
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
@@ -376,6 +376,25 @@ def _commit_time(root: Path, rel: Path) -> int:
         return int(p.stdout.strip() or 0)
     except (OSError, ValueError):
         return 0
+
+
+NEAR_BUDGET = 40  # W41: list a scoped file this close to its growth limit
+
+
+def line_budget(cfg, scope) -> str:
+    """W41: the lines left for each literal in-scope code file within NEAR_BUDGET of gate.growth_limit ('' = none or off)."""
+    if not cfg.get("gate.file_growth"):
+        return ""
+    tests, rows = cfg.get("gate.test_globs") or TEST_GLOBS, []
+    for path in scope or []:
+        f = cfg.root / path
+        if not path.endswith(CODE_EXT) or _match(path, tests) or not f.is_file():
+            continue
+        n = _count_lines(f)
+        limit = growth_limit(cfg, path, n)
+        if limit - n <= NEAR_BUDGET:
+            rows.append(f"- {path}: {limit - n} lines left of {limit}")
+    return "\n\nLines left before the growth budget (split, do not grow past it):\n" + "\n".join(rows) if rows else ""
 
 
 def document_conflicts(root, git: str) -> list[str]:
