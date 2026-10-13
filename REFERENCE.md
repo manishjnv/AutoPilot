@@ -297,6 +297,10 @@ The gate runs these guards on each task before the checks. A guard that finds a 
 A task with `allow_test_changes: true` gets the test guards as warnings, not as failures. The paths of test files
 come from `gate.test_globs`.
 
+### Phase docs session
+
+When a phase closes, one docs session may edit `README.md`, the RCA log, `docs/DEVELOPING.md`, `HOWTO.md` and files under `docs/`. Python then checks the result: the scope, the secret scan, and the project test command (`commands.test`, the full suite). A change to any other file, a secret, or a red test drops the whole result. The run records the event `<phase>: result dropped (tests: <first failing line>)` and main stays as it was. A project with no test command commits the result after the scope and secret checks.
+
 ## Models
 
 **The model for each attempt of a task:**

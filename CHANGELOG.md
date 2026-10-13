@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W20: the phase docs session passes the tests too. If the project tests fail on what the docs session wrote, Autopilot drops that result and says which test failed, so main stays green.
+
 ## [0.7.1] - 2026-10-13
 
 - A session that fails with "Can't reach the API server" (a DNS or connection outage) is an infrastructure fault again: the run waits and retries, no try is spent, no task is parked.
@@ -192,3 +194,4 @@ to run. A short outage at the AI service no longer ends your build. Login works 
 - 2026-10-13 **P14-T01** Outcome word for an interrupted run and in the watch bar — A KeyboardInterrupt end now stores BUDGET_STOP via _end_word in the finally of _run (only when no word is set). The dashboard data exposes project.word and the dash_term bottom bar shows the word afte
 - 2026-10-13 **P14-T02** Receipt end-to-end test and test hygiene — Added an end-to-end receipt test that drives a one-task phase close with the fake backend and checks receipt.json plus ap verify exit 0. Gave the test_steps upgrade test a tmp_path, a chdir and a stub
 - 2026-10-13 **P14-T03** REFERENCE entries for the plugin Stop hook and the Routine page — REFERENCE.md `## Proof features` now has a `### Stop hook in the plugin` subsection (seal.py's two checks, the 300 s test limit, the 330 s hook timeout in hooks.json, the 5-block counter file, `/plugi
+- 2026-10-13 **P01-T01** W20 The phase docs session passes the gate too — docs_phase now runs commands.test through gate.run_commands on the staged docs result. A red result is discarded with the event '<phase>: result dropped (tests: <first failing line>)' and main stays u
