@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W24: `ap validate` prints how many phases can run side by side and the shared file of each dependent pair; the plan writer, replanner and onboard prompts ask for `depends_on: []` on a phase that shares no file with the phases before it. A phase without the key still depends on the previous phase.
+
 - W29: `ap audit --signals` prints one table of the top unknown session errors, parked tasks by cause, gate failures by kind and retries by cause of every project on this computer (last 30 days, `--days N`). It reads only, offline.
 - W29: a failed session whose error no catalogue line knows is written to `~/.autopilot/unknown.jsonl` (scrubbed, the folder name only, never a path); the same wording on one day raises its `count`.
 - W30: the completion audit, the functional check and the phase docs session get the last gate output and do not run the test suite again. They stop after `audit.timeout_sec` (1200 seconds). A stopped completion audit keeps its notes so far, sends them to "Questions for you", and the run goes on.
@@ -222,3 +224,4 @@ to run. A short outage at the AI service no longer ends your build. Login works 
 - 2026-10-13 **P01-T02b** W21 failing_before is checked against main — Added optional `failing_before` to the task report schema and task.md. Added `Orchestrator.failing_before(phase, report, base)`, called in `execute_task` after `_fix_problem` and in `_finish_parallel`
 - 2026-10-13 **P01-T01** W29a Unknown session errors are written to unknown.jsonl — Added autopilot/signals.py: record_unknown(text, runner, project, action, home=None) classifies a failed session's text by cause (limit, infra, environment from detect_limit, detect_infra and install_
 - 2026-10-13 **P01-T02** W29b ap audit --signals prints the signals table — Added `ap audit --signals` (commands/audit.py cmd_signals, wired in cli.py next to --history, reusing --days). It reads unknown.jsonl and the quality/task_blocked events of every recent project's stat
+- 2026-10-13 **P01-T03** W24 Dependencies come from the files, not from the order — Added plan.independent_groups(plan) and shared_files in plan.py; ap validate prints 'N phases can run side by side' and each pair of phases that shares a file with the shared path. The plan writer, re

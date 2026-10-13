@@ -1,6 +1,7 @@
 """plan.yaml model: phases, tasks, dependency validation and ordering."""
 from __future__ import annotations
 
+import fnmatch
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -318,3 +319,43 @@ def clear_reopen_flags(path: Path | str, task_ids: list[str]) -> None:
                 t.pop("reopen", None)
     with open(path, "w", encoding="utf-8") as fh:
         yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True, width=100)
+
+
+def _globs_meet(a: str, b: str) -> bool:
+    return a == b or fnmatch.fnmatch(a, b) or fnmatch.fnmatch(b, a)
+
+
+def shared_files(a: Phase, b: Phase) -> list[str]:
+    """Paths (or globs) two phases both name in their tasks' files_in_scope."""
+    fa = {f for t in a.tasks for f in t.files_in_scope}
+    fb = {f for t in b.tasks for f in t.files_in_scope}
+    return sorted({x if len(x) <= len(y) else y for x in fa for y in fb if _globs_meet(x, y)})
+
+
+def _ancestors(plan: Plan, pid: str) -> set[str]:
+    seen: set[str] = set()
+    todo = list(plan.phase_by_id[pid].depends_on)
+    while todo:
+        d = todo.pop()
+        if d not in seen:
+            seen.add(d)
+            todo += plan.phase_by_id[d].depends_on
+    return seen
+
+
+def independent_groups(plan: Plan) -> tuple[list[list[str]], list[tuple[str, str, list[str]]]]:
+    """(groups of phase ids that can run side by side, [(phase, phase, shared files)] for each pair that shares files)."""
+    shared = [(a.id, b.id, s) for i, a in enumerate(plan.phases) for b in plan.phases[i + 1:]
+              if (s := shared_files(a, b))]
+    linked = {frozenset((a, b)) for a, b, _ in shared}
+    for p in plan.phases:
+        linked |= {frozenset((p.id, d)) for d in _ancestors(plan, p.id)}
+    groups: list[list[str]] = []
+    for p in plan.phases:
+        for g in groups:
+            if all(frozenset((p.id, q)) not in linked for q in g):
+                g.append(p.id)
+                break
+        else:
+            groups.append([p.id])
+    return groups, shared

@@ -19,7 +19,7 @@ DESCRIPTION = ("Autopilot builds your software project while you are away. You w
                "and start it once. You get working software, tested, with a record of every step. "
                "`ap` is the short name of `autopilot`.")
 from .config import TEMPLATES, Config, load_yaml
-from .plan import Plan, PlanError
+from .plan import Plan, PlanError, independent_groups
 from .proc import exclusive_lock
 
 AGENT_FILES = ["project.yaml", "plan.yaml", "BRAIN.md", "DECISIONS.md", "HANDOFF.md"]
@@ -653,6 +653,10 @@ def cmd_validate(args):
         if wide:  # O1: an empty scope means the whole repo, so the task runs alone and nothing is gated
             print(f"plan    WARN  {len(wide)} tasks without files_in_scope (whole repo, run alone): "
                   f"{', '.join(wide[:10])}{' …' if len(wide) > 10 else ''}")
+        groups, shared = independent_groups(plan)
+        print(f"plan    OK    {max((len(g) for g in groups), default=0)} phases can run side by side")
+        for x, y, files in shared:
+            print(f"plan    INFO  {x} and {y} share {', '.join(files[:5])}")
     except PlanError as e:
         ok = False
         for err in e.errors:
