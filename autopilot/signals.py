@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 from datetime import date
 from pathlib import Path
 
@@ -85,3 +86,84 @@ def record_unknown(text: str, runner: str, project, action: str, home: Path | st
         return True
     except OSError:
         return False
+
+
+# ---------- W29b: the signals table read by `ap audit --signals` (read-only, offline)
+GATE_KINDS = tuple((k, re.compile(rx)) for k, rx in (  # the gate.py problem wordings, first match wins
+    ("no_change", r"no file changes"), ("protected", r"protected files"), ("secret", r"possible .{1,40} added: "),
+    ("kill", r"process-wide kill"), ("scope", r"outside files_in_scope"), ("reasons", r"new file without a reason"),
+    ("growth", r"file grew past the budget"), ("review", r"REVIEW")))
+_QUALITY = re.compile(r"^(\S+) · .* · attempts (\d+) · ")
+
+
+def gate_kind(text: str) -> str:
+    """The gate check a parked task's error names: the first GATE_KINDS marker found, then 'tests', else 'other'."""
+    text = text or ""
+    kind = next((k for k, rx in GATE_KINDS if rx.search(text)), "")
+    return kind or ("tests" if cause_of(text) == "tests" else "other")
+
+
+def read_unknown(home: Path | str | None = None, since: str = "") -> list[dict] | None:
+    """The rows of unknown.jsonl dated `since` (YYYY-MM-DD) or later; None when the file is missing."""
+    try:
+        lines = path(home).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    out = []
+    for raw in lines:
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and str(row.get("date", "")) >= since:
+            out.append(row)
+    return out
+
+
+def read_events(db: Path, since: str = "") -> list[tuple[str, str]] | None:
+    """(kind, message) of the `quality` and `task_blocked` events at `since` or later, opened read-only; None when
+    the database cannot be read."""
+    import sqlite3
+    if not db.is_file():
+        return None
+    try:
+        con = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            return [(str(k), str(m or "")) for k, m in con.execute(
+                "SELECT kind, message FROM events WHERE kind IN ('quality', 'task_blocked') AND ts >= ? ORDER BY id",
+                (since,))]
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+
+
+def tally_project(events: list[tuple[str, str]]) -> dict[str, Counter]:
+    """Parked by cause, gate failures by kind and retries by cause of ONE project (task ids repeat across projects).
+    The extra attempts of a parked task count under its cause only; those of a finished task count as 'recovered'."""
+    out = {"parked": Counter(), "gates": Counter(), "retries": Counter()}
+    parked_cause: dict[str, str] = {}
+    for kind, msg in events:
+        if kind == "task_blocked":
+            cause = cause_of(msg)
+            out["parked"][cause] += 1
+            out["gates"][gate_kind(msg)] += 1
+            parked_cause[(msg.split() or [""])[0]] = cause
+    for kind, msg in events:
+        m = _QUALITY.match(msg) if kind == "quality" else None
+        if m and int(m.group(2)) > 1:
+            out["retries"][parked_cause.get(m.group(1), "recovered")] += int(m.group(2)) - 1
+    return out
+
+
+def tally(unknown: list[dict], projects: list[list[tuple[str, str]]]) -> dict:
+    """The table: unknown wordings as (count, cause, first 80 characters), most frequent first, plus the sums of
+    tally_project over the projects (each project tallied on its own)."""
+    words: Counter = Counter()
+    for row in unknown:
+        words[(str(row.get("cause", "unknown")), " ".join(str(row.get("text", "")).split())[:80])] += int(row.get("count", 1) or 1)
+    out: dict = {"unknown": sorted(((n, c, t) for (c, t), n in words.items()), key=lambda x: (-x[0], x[2]))}
+    per = [tally_project(ev) for ev in projects]
+    for key in ("parked", "gates", "retries"):
+        out[key] = sum((p[key] for p in per), Counter())
+    return out

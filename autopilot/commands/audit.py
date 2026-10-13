@@ -112,3 +112,36 @@ def cmd_history(args) -> int:
     print(fmt("Total", t))
     print(f"Retries cost about ${t['retry']:.2f} of ${t['cost']:.2f}.")
     return 0
+
+
+def cmd_signals(args) -> int:
+    """W29b: unknown wordings from unknown.jsonl and the parked tasks and retries of every known project, as one
+    plain table. Read-only, offline; a missing file or project is skipped with one line."""
+    from datetime import date, timedelta
+
+    from .. import signals
+    from ..cli import recent_projects
+    days = max(int(getattr(args, "days", 30)), 0)
+    since = (date.today() - timedelta(days=days)).isoformat()
+    unknown = signals.read_unknown(since=since)
+    skipped = [] if unknown is not None else [f"skipped: no {signals.path().name} in {signals.path().parent}"]
+    projects: list[list[tuple[str, str]]] = []  # one event list per project: task ids repeat across projects
+    for root in recent_projects():
+        got = signals.read_events(root / ".agent" / "state.db", since)
+        if got is None:
+            skipped.append(f"skipped: {root.name} (no readable .agent/state.db)")
+        else:
+            projects.append(got)
+    t = signals.tally(unknown or [], projects)
+    if not any(t.values()):  # one line, whatever was missing
+        print(f"No signals in the last {days} days: no unknown errors, parked tasks or retries.")
+        return 0
+    print("\n".join(skipped + [f"Signals of the last {days} days"]))
+    print(f"\nTop unknown wordings\n{'Count':>5}  {'Cause':<8} Text")
+    for n, cause, text in t["unknown"][:10] or [(0, "-", "(none)")]:
+        print(f"{n:>5}  {cause:<8} {text}")
+    for title, key in (("Parked by cause", "parked"), ("Gate failures by kind", "gates"), ("Retries by cause", "retries")):
+        print(f"\n{title}\n{'Count':>5}  Cause")
+        for name, n in sorted(t[key].items(), key=lambda x: (-x[1], x[0])) or [("(none)", 0)]:
+            print(f"{n:>5}  {name}")
+    return 0

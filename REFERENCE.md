@@ -60,6 +60,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot review --kind periodic\|completion\|replan` | Starts an audit or a replan now |
 | `autopilot audit` | Starts the completion audit now |
 | `ap audit --history [--days N] [--home PATH]` | Reads `<home>/projects/*/*.jsonl` of Claude Code (default `~/.claude`, last 30 days) and prints one row per project: sessions, tokens, tool calls, repeats (the same Bash command failing 3 or more times in one session) and the cost of those retries at public API rates (unknown model = Sonnet), then `Retries cost about $X of $Y.` Prints `No Claude Code history found.` when the folder is missing. Needs no project and no network, writes no file, and never prints a prompt or a command |
+| `ap audit --signals [--days N]` | W29b: reads `unknown.jsonl` (see Unknown session errors) and the `quality` and `task_blocked` events of each project in the recent list (`~/.autopilot/recent`; each `.agent/state.db` opened read-only), last 30 days by default, and prints one plain table: the top 10 unknown wordings (count, cause, first 80 characters), parked tasks by cause, gate failures of parked tasks by kind (`no_change`, `protected`, `secret`, `kill`, `scope`, `reasons`, `growth`, `review`, `tests`, `other`) and retries by cause (the extra attempts of a parked task count under its cause; those of a finished task count as `recovered`; each project is counted on its own, then summed). A missing file or project database gives one `skipped:` line. With no data at all it prints one line and exits 0. Needs no network and writes no file |
 | `autopilot report --tokens` | Shows the tokens and the cost of each step type |
 
 **Options of `autopilot run`:**
@@ -473,7 +474,7 @@ network) and no line of the install error catalogue adds one JSON line to `unkno
 `unknown`), `text` (secret values and token shapes replaced by `***REDACTED[...]***`, at most 2000 characters),
 `count`, `runner`, `version` (the `ap` version), `project` (the folder name only, never a path) and `action`
 (`retried`, `parked` or `healed`). The same wording (the first 200 characters) on the same day raises `count` on
-that day's line. A known wording writes nothing. The file stays on your computer.
+that day's line. A known wording writes nothing. The file stays on your computer. `ap audit --signals` reads it.
 
 **These problems still need you:**
 

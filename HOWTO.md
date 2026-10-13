@@ -120,6 +120,20 @@ One replan session adds the new ideas to the plan. It ignores ideas that the pla
    update.
 2. Read the result in the terminal. An audit that finds gaps adds fix tasks to the plan.
 
+## Find what to fix next
+
+1. Print the signals table of your runs:
+
+   ```powershell
+   ap audit --signals
+   ```
+
+   It shows the unknown session errors (the most frequent first), the parked tasks by cause, the gate failures by
+   kind and the retries by cause, for the last 30 days. Add `--days 7` for a shorter window. It reads only your
+   computer and writes nothing.
+2. Start each release from this table. Each unknown wording in it becomes one line in the error catalogue plus a
+   test that proves the line matches it.
+
 ## Change the plan in plain words
 
 1. Send the change:
