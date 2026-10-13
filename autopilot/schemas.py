@@ -36,7 +36,9 @@ REPORTS = {  # session kind -> schema of its final report
     "triage": obj(["kind", "actionable", "reason"], kind={"type": "string", "enum": ["bug", "feature", "other"]},
                   actionable={"type": "boolean"}, title=S, description=S, acceptance_criteria=A, risk=S, reason=S),
     "docs": obj(["summary"], summary=S, files=A),  # O11: the phase documentation session
-    "review": obj(["verdict"], verdict={"type": "string", "enum": ["pass", "fail"]}, summary=S, findings=A),
+    "review": obj(["verdict"], verdict={"type": "string", "enum": ["pass", "fail"]}, summary=S, findings=A, followups=A,
+                listed={"type": "array", "items": obj(["n", "status"], n={"type": "integer"},
+                                                      status={"type": "string", "enum": ["fixed", "open"]})}),
     "decide": obj(["title", "options", "decision"], title=S, context=S, criteria=A, decision=S, rationale=S,
                   consequences=A, options={"type": "array", "items": obj(["name"], name=S, summary=S, pros=A, cons=A,
                                                                           score={"type": "number"})}),

@@ -407,6 +407,8 @@ With `scope: critical`, or no key, only critical tasks get one. That is the code
 behavior. `ap init` writes `scope: all`. Any other value is an error with a plain message. The reviewer sees only the
 task spec (with the acceptance criteria), the diff and the gate's test output. It sees nothing from the build session.
 
+**Review list (W40).** The findings of a failed review are kept for the task as a numbered list, and the retry prompt shows them under `Fix exactly these review findings, nothing else:`. The next review gets the same list and reports `fixed` or `open` for each number (`listed`). The task fails only when a listed finding is still open or a new defect breaks an acceptance criterion; any other new defect goes in `followups`, is appended to `.agent/FOLLOWUPS.md` as `review: ...`, and the task merges. When a medium task's change passes 8 files or 250 lines (tests and `gate.scope_always` files excluded), the failed review adds a `split signal` line and the retry stays on the same model.
+
 ### Signed receipt
 
 When a phase closes, Autopilot writes `history/<phase>/receipt.json` next to `PROOF.md`. The receipt holds a hash of
