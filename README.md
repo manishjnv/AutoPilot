@@ -106,6 +106,15 @@ The Claude Code plugin adds a Stop hook. Claude cannot say "done" while the test
 Install the plugin from `.claude-plugin/marketplace.json`. The hook is `plugin/hooks/hooks.json`; the script is
 `plugin/scripts/seal.py`.
 
+## Run with the laptop off (Claude Code Routines)
+
+A Claude Code Routine is a scheduled cloud run. You can run Autopilot inside one, so the build goes on with your laptop off.
+
+- [HOWTO.md](HOWTO.md#run-with-the-laptop-off-claude-code-routines) has the numbered steps.
+- `examples/routine/prompt.md` is the prompt. Paste it into the Routine.
+- The prompt installs `ap`, runs `ap run --no-prod` for at most three sessions, pushes the `autopilot/` branches and ends with `ap status`.
+- This was not run live yet (2026-10-13). A test checks that every `ap` command in the prompt exists.
+
 ## Install
 
 Three steps, no administrator prompt.
