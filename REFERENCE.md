@@ -17,6 +17,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | Command | Result |
 |---|---|
 | `autopilot` | In a terminal, in a folder with no project: the guided start. It asks what to build and which folder, checks the login, makes the plan, and asks `1 start now, 2 not now`. Otherwise it follows the active run, or shows what you can do next |
+| `python scripts/premerge.py [--ci]` | In a clone of Autopilot: the full suite on WSL (or Linux), then the test files changed on the branch on the host Python; `--ci` also runs `ci.yml` on the branch and prints each job. Exit 1 on any red step |
 | `autopilot quickstart` | Sets up `.agent/`, makes the tasks from `PLAN.md`, then checks your computer. It stops before the first session when the Claude login is missing |
 | `autopilot quickstart --idea "text"` | Claude writes `PLAN.md` from your idea first. The text can also be a file |
 | `autopilot quickstart --plan-doc FILE` | Makes the tasks from a different plan file |
@@ -114,7 +115,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `history/<phase>/BADGE.md` | W9: the markdown image line `![Built by Autopilot](proof.svg)` for the phase folder and the repo-relative path `.agent/history/<phase>/proof.svg` to paste into the README | Yes |
 | `audits/` | The audit reports | Yes |
 | `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
-| `run.json` | The journal of the active run. At the end it has `word`, the outcome word | No |
+| `run.json` | The journal of the active run. At the end it has `word`, the outcome word. `pid` is the process of the run; `beat_at` is written every 30 seconds while the run lives, also during a long session. `status: running` with a `pid` that is gone shows as `DEAD since HH:MM` (time of `beat_at`, else `updated_at`) in `ap status`, `ap watch`, the end screen and the status page; the next command is `ap start`. A run.json without `pid` still shows ON | No |
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports | No |
 | `STOP` | The stop flag from `autopilot stop` | No |
@@ -143,17 +144,18 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | Section | Controls | Important keys (default) |
 |---|---|---|
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
-| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing) |
+| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing), `scope_always` (docs a task may change outside its scope, with no scope addition and no warning; default `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md`, `README.md`), `tests` (`changed` default, or `full`: which tests the gate runs per task; the phase close always runs the full command; a value other than these two is an error) |
 | `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
 | `onboard` | The discovery pack of the `onboard` session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | Where the agent runs: `mode` `off`, `allowlist` (Claude Code's own sandbox with the network allowlist) or `docker` (each session in `docker run --rm` with only the worktree at `/work`, its git folders (the shared one read-only) and a temp login folder mounted; never the home folder; secret variables pass by name only). A missing `mode` follows `enabled` | `mode`, `enabled` (false), `allowed_domains`, `image` (needed for `docker`; the image must have `claude` on PATH), `network` (`bridge`) |
-| `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
+| `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `replanner` (sonnet; opus when a pending task's `files_in_scope` matches `escalate.load_bearing`), `unstick` (sonnet), `review` (opus) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
 | `budget_usd` | Cost limits | `per_session` (8), `per_task` (20), `per_phase` (150), `daily` (200), `total` (5000) |
 | `profile` | How much checking each task gets | `lean` (new projects) or `full` (a missing key) |
 | `retries` | Attempts | `max_attempts_per_task` (3), `resume` (true) |
 | `unstick` | The diagnosis of a blocked task | `enabled` (true), `after_attempts` (2) |
-| `decide` | Design choices before risky tasks | `enabled` (true), `risks` (high, critical) |
+| `audit` | The completion audit and the end-phase sessions | `timeout_sec` (1200: the audit, functional check and phase docs sessions stop after this; a stopped completion audit keeps its notes as a partial report, sends them to NEEDS-YOU with the event `audit: partial after <n> s`, and the run goes on), `max_new_tasks` (15) |
+| `decide` | Design choices before risky tasks | `enabled` (true), `risks` (critical; a task with `needs_decision: true` always gets one; add `high` to decide for every high-risk task) |
 | `review` | A read-only review of the diff before the merge | `enabled` (true), `scope` (critical; all = every task above low risk; new projects get all), `effort` (high) |
 | `research` | Web research for a task | `enabled` (true), `dir` (docs/research) |
 | `functional` | The feature check at the end of each phase | `enabled` (true), `init` |
@@ -269,7 +271,7 @@ sandbox:
 ### Lean profile
 
 Set `profile` to `lean` or `full` in `.agent/project.yaml`; new projects start with `lean`.
-Under `lean`, a task writes one smoke test for each criterion, and the task gate runs only the tests of the changed modules.
+Under `lean`, a task writes one smoke test for each criterion. In every profile the task gate runs only the tests of the changed modules (`gate.tests: changed`, the default); `gate.tests: full` runs the full command per task.
 `lean` allows one retry, then parks the task in "Questions for you"; it also turns off the periodic and the completion audit, and the phase check runs no variations.
 `lean` cuts `BRAIN.md` to 6000 characters and the decisions to 2000, and `autopilot audit` runs the audit on demand.
 `autopilot report --tokens` shows the tokens and the cost of each step type; the total equals the state total.
@@ -292,10 +294,20 @@ The gate runs these guards on each task before the checks. A guard that finds a 
 | Protected file | A change to the plan, the settings, the questions file, the backlog, or a path in `gate.protected` |
 | Secret scan | An added line that looks like a key, a token, or a password |
 | Empty change | No changed files, unless the task has `allow_no_changes: true` |
+| Kill by name | A Bash or PowerShell tool call in the Claude Code session log that runs `taskkill`, `pkill`, `killall` or `Stop-Process`, also behind `sudo`, `env`, `cmd /c` or `powershell -c` (up to 5 named). Text in the agent's messages, `kill <pid>`, `taskkill /PID <n>` and `Stop-Process -Id <n>` do not count: they stop by pid. Every Claude Code session also gets the deny rules `Bash(taskkill:*)`, `Bash(pkill:*)`, `Bash(killall:*)` and `Bash(Stop-Process:*)`, even when `agent.disallowed_tools` sets its own list. Logs of `command` backends are not checked |
+| Child processes on timeout | Windows: every command and session runs in a job object (kill on close); a timeout calls TerminateJobObject, then `taskkill /F /T`. If the job cannot be created, one warning is logged and only `taskkill /T` runs. POSIX: the process group is killed |
+| Red main | Every new commit on main (run start, a docs/receipt/needs-you commit, a pull) is tested once with `commands.test`, before the next task starts; task merges are not tested again. The result is cached by commit. A red main sends a `main_red` event naming the failing test, runs the fixer and a corrective phase once, and if main is still red when no task can run, the run ends with `main is red: <test>` and the word FAILED |
+| failing_before | The task report may list `failing_before`: tests the agent saw fail before its change. Each name is looked up in main's test result (the same once-per-commit result as above). A name that passes on main fails the attempt with `failing_before lists tests that pass on main: <names>`. A name that fails on main, on a normal task, puts the task back to pending without counting the attempt, and main is checked and repaired first. A corrective task, or a project with no finished task yet, keeps going |
 | New file | An added file with no reason in the report field `new_files`. Test files (`gate.test_globs`) and files in `.agent/` need no reason. A move or a rename needs no reason. The problem quotes the rule, and the retry prompt gets it. This guard runs when `gate.new_file_reasons` is `true`. It is `true` in new projects and off when the key is missing |
+
+**Kept diff after a scope or test failure.** When an attempt fails the gate only on `outside files_in_scope` or `scope_additions` lines, or only on a failed test command, Autopilot keeps the branch and its changes. The retry prompt says "The diff is kept" and asks the session to add the scope reasons or fix the failing tests, not to start over. A protected-file change, a secret, a kill by name, a test-tamper finding, a review finding, a timed-out or stuck session, an escalation to a stronger model, an unstick session and a park still reset the code to the state before the attempt.
 
 A task with `allow_test_changes: true` gets the test guards as warnings, not as failures. The paths of test files
 come from `gate.test_globs`.
+
+### Phase docs session
+
+When a phase closes, one docs session may edit `README.md`, the RCA log, `docs/DEVELOPING.md`, `HOWTO.md` and files under `docs/`. Python then checks the result: the scope, the secret scan, and the project test command (`commands.test`, the full suite). A change to any other file, a secret, or a red test drops the whole result. The run records the event `<phase>: result dropped (tests: <first failing line>)` and main stays as it was. A project with no test command commits the result after the scope and secret checks.
 
 ## Models
 
@@ -315,10 +327,11 @@ A retry on the same model continues the failed session. A retry on a different m
 |---|---|---|
 | Fixer | sonnet, then opus | Repairs `main` when its checks fail |
 | Unstick | sonnet | Finds the cause of a blocked task. It can search the web |
-| Decide | opus | Compares 2 or 3 designs before a risky task |
+| Decide | opus | Compares 2 or 3 designs before a critical task or a task with `needs_decision: true` (`decide.risks`) |
 | Research | sonnet | Writes web research notes for a task |
 | Verifier | sonnet | Tries each feature at the end of a phase, then tries one variation to break it |
-| Auditor, replanner, onboard | opus | Audits the app, updates the plan, writes the first plan |
+| Auditor, onboard | opus | Audits the app, writes the first plan |
+| Replanner | sonnet; opus when a pending task touches a load-bearing path | Updates the plan |
 | Triage | haiku | Makes a task from a GitHub issue, with no tools |
 
 ## Usage and budget
@@ -345,11 +358,11 @@ show it after `Done`, for example `Done VERIFIED`. `ap status` shows `outcome: <
 |---|---|
 | `VERIFIED` | The plan is complete and no task is parked |
 | `BLOCKED` | One or more tasks are parked, or a decision waits for your answer |
-| `BUDGET_STOP` | A limit that you set stopped the run: a budget cap, the session limit, the `.agent/STOP` file, or Ctrl+C. `ap watch` shows the word after `Stopped` |
+| `STOPPED` | You stopped the run by hand: Ctrl+C, `ap stop` or the `.agent/STOP` file. `ap watch` shows the word after `Stopped` |
+| `BUDGET_STOP` | A limit that you set stopped the run: a budget cap, the session limit or a usage-window wait |
 | `STALLED` | Work remains that cannot start, the service was down, or the same error came from three tasks |
 | `FAILED` | A fatal condition: a config error, a plan that does not load, an expired login, or a repeated crash |
 
-A stop with Ctrl+C sets no word.
 
 ## Tour recording
 
@@ -499,5 +512,5 @@ shows the same ring, paused when the data is stale. No other part of the window 
 | Blocked task | A task that failed all its attempts. The run continues with the other tasks |
 | Fix task | A task that Autopilot adds to repair a failure, a gap, or a bug |
 | Question | An entry in `docs/NEEDS-YOU.md` that only a person can answer |
-| Completion audit | One session at the end of the plan that asks: is the app complete? |
+| Completion audit | One session at the end of the plan that asks: is the app complete? It gets the last gate output on main (at most 6000 characters and the test counts) and does not run the suite again. The functional check and the phase docs session get the same block |
 | Usage window | The 5-hour usage limit of a Claude subscription |

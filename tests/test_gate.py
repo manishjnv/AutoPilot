@@ -5,8 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
-from autopilot.config import Config
+from autopilot.config import Config, scope_always
+from autopilot.config import tests_mode as gate_tests_mode
 from autopilot.gate import run_commands, scan_secrets, task_gate, test_tamper
 from autopilot.gitops import Git
 from autopilot.proc import agent_env
@@ -347,3 +349,123 @@ def test_task_report_schema_names_every_field_the_gate_reads():
     props = REPORTS["task"]["properties"]
     assert props["scope_additions"]["type"] == "object" and props["new_deps"]["type"] == "array"
     assert {"name", "reason"} <= set(props["new_deps"]["items"]["properties"])
+
+
+class Fake:
+    def __init__(self, **kv):
+        self.kv = kv
+
+    def get(self, key, default=None):
+        return self.kv.get(key, default)
+
+
+def test_scope_always_and_tests_mode_defaults():  # P02-T00 contract
+    assert scope_always(Fake()) == ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]
+    assert gate_tests_mode(Fake()) == "changed"
+    assert scope_always(Fake(**{"gate.scope_always": ["NOTES.md"]})) == ["NOTES.md"]
+    assert gate_tests_mode(Fake(**{"gate.tests": "full"})) == "full"
+
+
+def test_old_project_yaml_without_the_keys(tmp_path):  # a project.yaml from before W19/W22
+    cfg = Config.load(tmp_path)
+    cfg.data.get("gate", {}).pop("scope_always", None)
+    cfg.data.get("gate", {}).pop("tests", None)
+    assert scope_always(cfg) == ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]
+    assert gate_tests_mode(cfg) == "changed"
+    assert not [e for e in cfg.validate() if "gate." in e]
+
+
+def _pytest_project(tmp_path, tests="changed"):  # W22
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_foo.py").write_text("def test_a():\n    pass\n")
+    cfg = Config.load(tmp_path)
+    cfg.data["profile"] = "full"
+    cfg.data["commands"] = {"test": ["python -m pytest -q"], "phase_verify": ["echo phase"]}
+    cfg.data.setdefault("gate", {})["tests"] = tests
+    return cfg
+
+
+def test_full_profile_task_gate_narrows_tests(tmp_path):
+    from autopilot.gate import verify_commands
+    cfg = _pytest_project(tmp_path)
+    cmds = verify_commands(cfg, files=["autopilot/foo.py"])
+    assert cmds == ["python -m pytest -q tests/test_foo.py"]
+
+
+def test_phase_close_runs_the_full_command(tmp_path):
+    from autopilot.gate import verify_commands
+    cfg = _pytest_project(tmp_path)
+    cmds = verify_commands(cfg, phase=True, files=["autopilot/foo.py"])
+    assert cmds == ["python -m pytest -q", "echo phase"]
+
+
+def test_gate_tests_full_runs_the_full_command_per_task(tmp_path):
+    from autopilot.gate import verify_commands
+    cfg = _pytest_project(tmp_path, tests="full")
+    assert verify_commands(cfg, files=["autopilot/foo.py"]) == ["python -m pytest -q"]
+
+
+def test_task_prompt_says_not_to_run_the_full_suite():
+    text = (Path(__file__).parent.parent / "autopilot" / "prompts" / "task.md").read_text(encoding="utf-8")
+    assert "Run the tests of the files you changed. The gate runs the full suite at the phase close." in text
+
+
+def test_gate_keys_validation(tmp_path):
+    cfg = Config.load(tmp_path)
+    cfg.data.setdefault("gate", {})["scope_always"] = "REFERENCE.md"
+    assert any("gate.scope_always must be a list" in e for e in cfg.validate())
+    cfg.data["gate"]["scope_always"] = ["REFERENCE.md", 3]
+    assert any("gate.scope_always must be a list" in e for e in cfg.validate())
+    cfg.data["gate"]["scope_always"] = ["NOTES.md"]
+    assert not [e for e in cfg.validate() if "gate." in e]
+    cfg.data["gate"]["tests"] = "some"
+    assert any("gate.tests must be changed or full, got 'some'" in e for e in cfg.validate())
+    cfg.data["gate"]["tests"] = "full"
+    assert not [e for e in cfg.validate() if "gate." in e]
+
+
+def test_template_gate_block_has_both_keys_with_comments():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "autopilot" / "templates" / "agent" / "project.yaml").read_text(encoding="utf-8")
+    block = text[text.index("\ngate:\n") + 1:].splitlines()[1:]
+    scope = next(line for line in block if line.startswith("  scope_always:"))
+    tests = next(line for line in block if line.startswith("  tests:"))
+    assert "# " in scope and "# " in tests
+    assert yaml.safe_load(scope.strip())["scope_always"] == ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]
+    assert yaml.safe_load(tests.strip())["tests"] == "changed"
+
+
+def scope_task():
+    return SimpleNamespace(allow_no_changes=False, allow_test_changes=True, files_in_scope=["lib/**"], verify=[])
+
+
+def scope_cfg(repo):
+    cfg = Config.load(repo)
+    cfg.data["commands"]["test"] = [f'"{sys.executable}" -c "pass"']
+    return cfg
+
+
+def test_docs_files_are_always_in_scope(repo):  # W19
+    put(repo, "lib/mine.py", "y = 1\n")
+    put(repo, "REFERENCE.md", "ref\n")
+    put(repo, "HOWTO.md", "how\n")
+    g = task_gate(scope_scfg := scope_cfg(repo), Git(repo), scope_task(), report={})
+    assert g.ok and not g.warnings and not any("outside" in m for m in g.problems)
+    put(repo, "src/other.py", "x = 1\n")
+    g = task_gate(scope_scfg, Git(repo), scope_task(), report={})
+    assert not g.ok and any("outside files_in_scope: ['src/other.py']" in m for m in g.problems)
+
+
+def test_entry_added_to_scope_always_passes(repo):  # W19
+    put(repo, "lib/mine.py", "y = 1\n")
+    put(repo, "NOTES.md", "n\n")
+    cfg = scope_cfg(repo)
+    assert not task_gate(cfg, Git(repo), scope_task(), report={}).ok
+    cfg.data.setdefault("gate", {})["scope_always"] = ["NOTES.md"]
+    g = task_gate(cfg, Git(repo), scope_task(), report={})
+    assert g.ok and not g.warnings
+
+
+def test_howto_has_the_work_branch_recipe():  # W19
+    text = (Path(__file__).resolve().parent.parent / "HOWTO.md").read_text(encoding="utf-8")
+    assert "main_branch: autopilot/work" in text and "git.mode: direct" in text and "git.mode: pr" in text

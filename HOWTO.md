@@ -254,6 +254,15 @@ Each task then opens a pull request. Autopilot merges it when the CI checks pass
 result after `git.pr_timeout_min` minutes (default 30), Autopilot closes the pull request. That is a failed attempt.
 Tasks then run one at a time.
 
+## Keep a backup on GitHub after every task without touching main
+
+1. Create a work branch and switch to it: `git switch -c autopilot/work`.
+2. In `.agent/project.yaml`, set `main_branch: autopilot/work`, `git.push: true` and `git.mode: direct`.
+3. When the run is done, open one pull request from `autopilot/work` to `main` and merge it yourself.
+
+Each task is pushed to GitHub as soon as it passes, and `main` stays as it was until you merge. For a pull request per
+task instead, set `git.mode: pr` (see the section above).
+
 ## Run Autopilot on a server
 
 This path has not run on a real server yet.
@@ -493,7 +502,7 @@ shows the effect of a prompt change.
 
 ## Stop a run and still get a word
 
-Press Ctrl+C during `ap start`. The run stops and stores the outcome word BUDGET_STOP, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped". See [Run outcome](REFERENCE.md#run-outcome).
+Press Ctrl+C during `ap start`, or run `ap stop`. The run stops and stores the outcome word STOPPED, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped". See [Run outcome](REFERENCE.md#run-outcome).
 
 ## Local models
 
@@ -662,6 +671,16 @@ pytest -q -n auto
 
 `-n auto` runs one worker per CPU core; the suite takes about a minute on Linux. The tests use a fake agent and
 make no API calls. CI runs them on Ubuntu and Windows.
+
+## Before a merge
+
+Run `python scripts/premerge.py` before you merge a branch of Autopilot.
+
+- On Windows, it runs the full suite on WSL. Then it runs the test files that changed on the branch on the Windows Python.
+- On Linux, it runs the suite once.
+- With `--ci`, it also starts the CI workflow on the branch and prints the result of each job.
+
+The command exits 1 when a step is red. `tests/test_hygiene.py` also finds three traps that pass on WSL and fail in CI.
 
 ## What the script does
 

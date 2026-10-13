@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import signal
 import subprocess
@@ -24,6 +25,37 @@ SAFE_ENV = {
     "PYENV_ROOT", "CONDA_PREFIX", "DOTNET_ROOT", "ANDROID_HOME", "GRADLE_USER_HOME", "MAVEN_HOME", "DOCKER_HOST",
 }
 SAFE_PREFIXES = ("LC_", "XDG_", "ANTHROPIC_", "CLAUDE_")
+
+
+def pid_alive(pid) -> bool:
+    """W37: is the process `pid` running? A missing or non-integer pid counts as alive (an old run.json has none)."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return True
+    if pid <= 0:
+        return True
+    if WINDOWS:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.OpenProcess.restype = ctypes.c_void_p
+        handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5 or k32.GetLastError() == 5  # access denied = it exists
+        try:
+            code = ctypes.c_ulong()
+            if not k32.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code)):
+                return True
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(ctypes.c_void_p(handle))
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 @dataclass
@@ -72,8 +104,77 @@ def agent_env(cfg) -> dict:
     return safe_env(cfg.get("agent.env_passthrough", []) or [], cfg.get("agent.env", {}) or {})
 
 
+_job_warned = False
+
+
+def _make_job(p: subprocess.Popen):
+    """W37c: Windows job object (kill on close) holding `p`; taskkill /T misses a grandchild whose parent is gone."""
+    import ctypes
+    from ctypes import wintypes
+    u64, sz = ctypes.c_uint64, ctypes.c_size_t
+
+    class Basic(ctypes.Structure):
+        _fields_ = [("a", ctypes.c_int64), ("b", ctypes.c_int64), ("LimitFlags", wintypes.DWORD),
+                    ("c", sz), ("d", sz), ("e", wintypes.DWORD), ("f", sz), ("g", wintypes.DWORD),
+                    ("h", wintypes.DWORD)]
+
+    class Extended(ctypes.Structure):
+        _fields_ = [("Basic", Basic), ("io", u64 * 6), ("m1", sz), ("m2", sz), ("m3", sz), ("m4", sz)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = ctypes.c_void_p
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    k32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    k32.CloseHandle.argtypes = [ctypes.c_void_p]
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
+    info = Extended()
+    info.Basic.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not (k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+            and k32.AssignProcessToJobObject(job, ctypes.c_void_p(int(p._handle)))):
+        err = ctypes.get_last_error()
+        k32.CloseHandle(job)
+        raise OSError(err, "job object setup failed")
+    return job
+
+
+def _attach_job(p: subprocess.Popen):
+    """Put `p` in a job object on Windows. Any failure logs once and keeps the taskkill path."""
+    global _job_warned
+    p._ap_job = None
+    if not WINDOWS:
+        return
+    try:
+        p._ap_job = _make_job(p)
+    except Exception as e:  # noqa: BLE001 - never stop a session over this
+        if not _job_warned:
+            _job_warned = True
+            logging.getLogger(__name__).warning("job object unavailable, using taskkill /T only: %s", e)
+
+
+def _job_call(name: str, job, *args):
+    import ctypes
+    fn = getattr(ctypes.WinDLL("kernel32", use_last_error=True), name)
+    fn.argtypes = [ctypes.c_void_p] + [ctypes.c_uint] * len(args)
+    return fn(job, *args)
+
+
+def _close_job(p: subprocess.Popen):
+    job = getattr(p, "_ap_job", None)
+    p._ap_job = None
+    if job:
+        with contextlib.suppress(Exception):
+            _job_call("CloseHandle", job)
+
+
 def _kill_tree(p: subprocess.Popen):
     if WINDOWS:
+        job = getattr(p, "_ap_job", None)
+        if job:
+            with contextlib.suppress(Exception):
+                _job_call("TerminateJobObject", job, 1)
         subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
     else:
         with contextlib.suppress(ProcessLookupError, PermissionError):
@@ -88,6 +189,7 @@ def run_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: floa
     p = subprocess.Popen(cmd, shell=shell, cwd=cwd, env=env, text=True, encoding="utf-8", errors="replace",
                          stdin=subprocess.DEVNULL if input is None else subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, **group)
+    _attach_job(p)
     try:
         out, err = p.communicate(input, timeout=timeout)
         return Proc(p.returncode, out or "", err or "")
@@ -101,6 +203,8 @@ def run_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: floa
     except BaseException:  # Ctrl+C / SystemExit: never leave an orphaned agent behind
         _kill_tree(p)
         raise
+    finally:
+        _close_job(p)
 
 
 def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: float | None = None,
@@ -112,6 +216,7 @@ def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: f
         p = subprocess.Popen(cmd, cwd=cwd, env=env, text=True, encoding="utf-8", errors="replace",
                              stdin=subprocess.DEVNULL if input is None else subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=errf, **group)
+        _attach_job(p)
         lines: list[str] = []
         stopped: list[str] = []
 
@@ -144,6 +249,8 @@ def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: f
         except BaseException:  # Ctrl+C / SystemExit: never leave an orphaned agent behind
             _kill_tree(p)
             raise
+        finally:
+            _close_job(p)
         threads[0].join(15)  # ponytail: a detached grandchild may still hold stdout; keep what was read
         errf.seek(0)
         err = errf.read().decode("utf-8", "replace")

@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -25,14 +26,14 @@ from .config import RISKS, Config, load_yaml
 from .context import ContextBuilder, progress_line
 from .deploy import deploy
 from .docs import Documenter, redact_secrets, research_path, task_not_proven
-from .gate import (TEST_GLOBS, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
+from .gate import (TEST_GLOBS, CmdResult, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
                    test_tamper)
 from .gitops import Git, GitError
 from .growth import consolidate
 from .handoff import MIN_WAIT, fallback_backend, write_handoff
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
-from .proc import exclusive_lock, run_proc
+from .proc import agent_env, exclusive_lock, run_proc
 from .report import digest, open_window, token_footer, window_line
 from .schemas import REPORTS
 from .state import State, now
@@ -40,6 +41,7 @@ from .state import State, now
 log = logging.getLogger("autopilot")
 
 
+HEARTBEAT = 30  # W37: seconds between two `beat_at` writes in run.json
 MODEL_ORDER = ("haiku", "sonnet", "opus")
 
 
@@ -157,6 +159,16 @@ def _scopes_collide(a: list, b: list, tracked: list) -> bool:
                 or any(fnmatch.fnmatch(x, g) for x in a for g in b) or any(fnmatch.fnmatch(x, g) for x in b for g in a))
 
 
+def fail_line(r) -> str:
+    """W20: the line of a failed command's output that names the failure (first FAILED/ERROR/TIMEOUT, else first
+    fail/error line, else the last line)."""
+    lines = [ln.strip() for ln in (r.output or "").splitlines() if ln.strip()]
+    pick = (next((ln for ln in lines if ln.startswith(("FAILED", "ERROR", "TIMEOUT"))), None)
+            or next((ln for ln in lines if re.search("fail|error", ln, re.I)), None)
+            or (lines[-1] if lines else f"{r.cmd} exit {r.rc}"))
+    return pick[:200]
+
+
 class Stop(Exception):
     """Ends the run cleanly (budget, stop file, fatal condition)."""
 
@@ -167,7 +179,7 @@ class Stop(Exception):
 
 def outcome_word(outcome: str, parked: bool, stop: Stop | None = None) -> str:
     """W3: the one word of a run end. A Stop names it at the raise site (fatal: FAILED; any other Stop is a limit the
-    owner set: BUDGET_STOP); a parked task or open decision is BLOCKED; a complete plan is VERIFIED; else STALLED."""
+    owner set: BUDGET_STOP; a stop by hand names STOPPED); a parked task or open decision is BLOCKED; a complete plan is VERIFIED; else STALLED."""
     if stop is not None:
         return stop.word or ("FAILED" if stop.fatal else "BUDGET_STOP")
     if str(outcome).startswith(("fatal", "crashed")):
@@ -198,14 +210,21 @@ class Orchestrator:
         self.tracker = outage.Tracker()  # Q22: outage and repeated-error counters of this run (monotonic clock)
         self.outage_waits = 0  # Q22.1: 15-minute waits taken for a vendor outage in this run (outage.OUTAGE_WAITS at most)
         self.last_gate = ""  # N11
+        self.last_main_gate = None  # W30a: the last gate run on main; end-phase sessions read it instead of testing again
+        self.last_log = ""  # W37: the log of the last session, read by the task gate
         self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
         self.env_repair_tried = False  # self-healing: one environment repair session per run
         self.git_offline = ""   # self-healing: why this run neither pulls nor pushes ('' = it does)
         self.run_info: dict = {}
+        self._journal_lock = threading.Lock()
+        self._beat_stop = threading.Event()
+        self.beat_interval: float | None = None  # W37: a test sets a short one; None = HEARTBEAT
         self.first_session = 0
         self.plan: Plan | None = None
         self.ctx: ContextBuilder | None = None
         self.main_red, self.main_checked, self.main_error = False, None, ""
+        self.main_results: dict[str, CmdResult | None] = {}  # W21: main's sha -> first red test result (None = green)
+        self.main_due = True  # W21: main has a commit nobody tested yet
 
     # ------------------------------------------------------------------ plan
     def reload_plan(self):
@@ -286,6 +305,7 @@ class Orchestrator:
         self.git.commit_all(message)
         if self.main_red and self.main_checked == before:  # our own docs/plan commits don't change the gate result
             self.main_checked = self.git.head()
+        self.main_due = True
         self._push()
 
     def _push(self):
@@ -339,6 +359,7 @@ class Orchestrator:
         if how != "pulled":
             return False
         log.info("pulled new commits on %s from %s", self.main, remote)
+        self.main_due = True
         self.reload_plan()  # the owner may have changed the plan or the config upstream
         return True
 
@@ -352,18 +373,35 @@ class Orchestrator:
                 return self._run()
         except BlockingIOError:
             raise SystemExit("another autopilot run is active for this project")
+        finally:
+            self._beat_stop.set()  # also on the early returns of _run
 
     def _journal(self, **kw):
-        """.agent/run.json: what this run is doing right now. A write failure never breaks the run."""
+        """.agent/run.json: what this run is doing right now. A write failure never breaks the run. A beat
+        (`beat_at` only) leaves `updated_at` alone: that stays the time of the last real change."""
         try:
-            self.run_info.update(kw, sessions=self.sessions_this_run, updated_at=now(),
-                                 git="Off" if self.git_offline else "Push!" if self.push_failing else "OK",
-                                 build="Red" if self.main_red else "OK")
-            tmp = self.ad / "run.json.tmp"
-            tmp.write_text(json.dumps(self.run_info, indent=1), encoding="utf-8")
-            os.replace(tmp, self.ad / "run.json")
+            with self._journal_lock:
+                self.run_info.update(kw, sessions=self.sessions_this_run,
+                                     git="Off" if self.git_offline else "Push!" if self.push_failing else "OK",
+                                     build="Red" if self.main_red else "OK")
+                if set(kw) - {"beat_at"}:
+                    self.run_info["updated_at"] = now()
+                tmp = self.ad / "run.json.tmp"
+                tmp.write_text(json.dumps(self.run_info, indent=1), encoding="utf-8")
+                os.replace(tmp, self.ad / "run.json")
         except Exception as exc:  # noqa: BLE001
             log.warning("run journal failed: %s", exc)
+
+    def heartbeat(self, stop: threading.Event | None = None, interval: float | None = None):
+        """W37: write `beat_at` every `interval` seconds (HEARTBEAT) until `stop` is set, so a long session still beats."""
+        stop = stop or self._beat_stop
+        while not stop.wait(HEARTBEAT if interval is None else interval):
+            self._journal(beat_at=now())
+
+    def _start_heartbeat(self):
+        self._beat_stop = threading.Event()
+        threading.Thread(target=self.heartbeat, args=(self._beat_stop, self.beat_interval), daemon=True,
+                         name="autopilot-heartbeat").start()
 
     def _end_word(self, outcome: str, stop: Stop | None = None) -> str:
         """W3: the one writer of the outcome word: state meta `outcome`, a `run_end` event, the log and run.json."""
@@ -409,7 +447,9 @@ class Orchestrator:
                 log.warning("config: %s", e)
         self.first_session = self.state.next_session_id()
         self._journal(run_id=f"{dt.datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}", pid=os.getpid(), started_at=now(),
-                      status="running", outcome="", word="", current="starting", first_session=self.first_session)
+                      status="running", outcome="", word="", current="starting", first_session=self.first_session,
+                      beat_at=now())
+        self._start_heartbeat()
         self._prepare_repo()
         try:
             self.reload_plan()
@@ -458,7 +498,8 @@ class Orchestrator:
             return outcome
         finally:
             if outcome == "interrupted" and not self.run_info.get("word"):  # P14: Ctrl+C is the owner ending the run
-                self._end_word(outcome, Stop(outcome, word="BUDGET_STOP"))
+                self._end_word(outcome, Stop(outcome, word="STOPPED"))
+            self._beat_stop.set()
             self._journal(status="finished", outcome=outcome, current="", state="Done", task="", live_tokens=0)
             self.write_report()
         self.notify.send("run_done", f"{word} {outcome} — {progress_line(self.plan, self.state.status_map())}, "
@@ -496,6 +537,7 @@ class Orchestrator:
             self.apply_answers()
             self.import_backlog()
             self.recheck_main()
+            self.guard_main()
             status = self.state.status_map()
             if self.main_red:  # only corrective (priority) work may run until main is green again
                 view = {k: ("hold" if v == "pending" and k in self.plan.task_by_id
@@ -520,17 +562,14 @@ class Orchestrator:
                 continue
 
             pending = [t for t in self.plan.all_tasks() if status.get(t.id) == "pending"]
+            if self.main_red:  # W21: nothing corrective can run any more
+                red = self.main_test() or CmdResult("checks", 1, self.main_error, 0)
+                raise Stop(f"main is red: {fail_line(red)}", fatal=True, word="FAILED")
             if pending and self.cfg.get("replan.enabled") and self.cfg.get("replan.on_stall") and not stall_replanned:
                 stall_replanned = True
                 self.notify.send("stalled", f"{len(pending)} tasks waiting on blocked work — replanning")
                 self.replan("stall")
                 continue
-            if self.main_red:
-                self.needs_you("main", "Checks on main are failing",
-                               "The project's checks fail on the main branch and my repair attempts did not fix them. "
-                               "How should I proceed?", why=self.main_error[-300:],
-                               checked="The failing checks, a repair session and a corrective task",
-                               suggestion="Tell me what changed, or what to fix first.")
             for r in self.state.tasks("blocked"):  # runs from before decisions existed
                 if not self.state.open_decision(task_id=r["id"], kind="task"):
                     t = self.plan.task_by_id.get(r["id"])
@@ -548,7 +587,7 @@ class Orchestrator:
                 self._journal(current="waiting for answers", state="Block", task="")
                 self._wait(float(self.cfg.get("needs_you.poll_minutes", 15)) * 60)
                 continue
-            if pending or self.main_red:
+            if pending:
                 return f"stalled: {len(pending)} tasks wait on skipped or blocked work"
 
             # plan exhausted -> is the app actually complete?
@@ -649,7 +688,7 @@ class Orchestrator:
     # ------------------------------------------------------------------ guards
     def check_stop(self):
         if (self.ad / "STOP").exists():
-            raise Stop("stopped by .agent/STOP file")
+            raise Stop("stopped by .agent/STOP file", word="STOPPED")
         if self.max_sessions and self.sessions_this_run >= self.max_sessions:
             raise Stop(f"session limit reached ({self.max_sessions})")
         total_cap = float(self.cfg.get("budget_usd.total", 0) or 0)
@@ -763,10 +802,26 @@ class Orchestrator:
         self.notify.send("rate_limit", f"rate limited — waiting {wait}s (streak {self.rate_limit_streak})")
         self.sleep(wait)
 
+    def _main_gate(self, phase: bool = False):
+        self.last_main_gate = main_gate(self.cfg, phase=phase)
+        return self.last_main_gate
+
+    def audit_timeout(self) -> int:
+        return int(self.cfg.get("audit.timeout_sec", 1200))
+
+    def gate_output(self) -> str:
+        """W30a: the last main gate for the audit, verify and docs prompts (at most 6000 characters)."""
+        g = self.last_main_gate
+        if g is None:
+            return "(no gate run yet)"
+        lines = [ln for r in g.results for ln in r.output.splitlines() if "passed" in ln or "failed" in ln]
+        return (review_tests(g) + (f"Counts: {lines[-1].strip()}\n" if lines else ""))[:6000]
+
     # ------------------------------------------------------------------ sessions
     def session(self, kind: str, prompt: str, model: str, *, task_id=None, phase=None, attempt=1,
                 read_only=False, label: str = "", resume: SessionResult | None = None, effort: str = "",
-                web_only: bool = False, mcp_config: str = "", no_tools: bool = False) -> SessionResult:
+                web_only: bool = False, mcp_config: str = "", no_tools: bool = False,
+                timeout_sec: int | None = None) -> SessionResult:
         self.check_stop()
         self.window_gate(kind, model)
         effort = effort or self.cfg.get(f"models.effort.{kind}", "")  # U5: role effort; agent.effort is the fallback
@@ -778,13 +833,14 @@ class Orchestrator:
         sid = self.state.start_session(kind, task_id, phase, attempt, model)
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
+        self.last_log = str(log_path)
         log.info("session #%s %s %s model=%s attempt=%s", sid, kind, task_id or "", model, attempt)
         task = self.plan.task_by_id.get(task_id) if task_id and self.plan else None
         who = " ".join(x for x in (task_id or kind, task.title[:50] if task else label) if x)
         seen = [0]  # J5: the context size, written to the journal with the token count
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
                              label=f"{who} [{model}{f', try {attempt}' if attempt > 1 else ''}]",
-                             timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
+                             timeout_sec=timeout_sec or int(self.cfg.get("agent.session_timeout_sec", 3600)),
                              budget_usd=budget, system_append=self.ctx.system_append(),
                              read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort,
                              web_only=web_only, mcp_config=mcp_config, no_tools=no_tools,
@@ -974,6 +1030,7 @@ class Orchestrator:
             self.decide(task, phase)
         extra, guidance, suggestion, fail_err = False, "", "", ""
         chain, chain_model = None, ""  # the last failed attempt's session, resumable by the next attempt
+        kept = False  # W25: the last failed attempt's diff is still in the tree (scope or test failure only)
         risk = self.effective_risk(task)
         floor = model_rank(row["model"]) if attempts and row["model"] else -1  # U6: never route down
         own_model, own_used, fail_model, fail_why = "", "", "", ""  # J14.6 own fix; J14.8 facts of the last failure
@@ -993,25 +1050,26 @@ class Orchestrator:
             model = own_model or self.model_for(risk, attempts, floor)
             own_model, self.last_gate = "", last_error or ""  # N11: the last gate output goes into a handoff
             effort = self.cfg.get(f"models.effort.{risk}", "")
-            base = self.git.start_branch(branch, self.main)
+            base = self.git.head() if kept else self.git.start_branch(branch, self.main)
             res = None
             if chain and chain.session_id and model == chain_model:  # same model: continue that session, cache warm
-                res = self.session("task", self.ctx.resume_prompt(task, attempts + 1, last_error), model,
+                res = self.session("task", self.ctx.resume_prompt(task, attempts + 1, last_error, kept), model,
                                    task_id=task.id, phase=phase.id, attempt=attempts + 1, resume=chain, effort=effort)
                 if not res.ok and not res.num_turns and not res.rate_limited:  # the old session is gone: start fresh
                     log.info("resume of %s failed (%s); starting fresh", chain.session_id, res.error[:200])
                     res = None
             if res is None:
-                prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline())
+                prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline(), kept)
                 res = self.session("task", prompt, model, task_id=task.id, phase=phase.id, attempt=attempts + 1,
                                    effort=effort)
             if res.rate_limited:
                 self.git.discard()
+                kept = False
                 continue  # not counted as an attempt
             attempts += 1
             self.state.set_task(task.id, attempts=attempts, model=model)
             self.git.normalize_after_session(branch, base)
-            agent_blocked = False
+            agent_blocked, keep, kept = False, False, False
             cut = bool((res.timed_out or res.stuck) and self.git.staged_files())  # J14.3: a cut session keeps its diff
             if cut:
                 log.info("task %s: session cut (%s); its diff is gated first", task.id, res.error[:120])
@@ -1034,20 +1092,32 @@ class Orchestrator:
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 self._journal(state="Test")
-                gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts)
+                wiped = False
+                gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts,
+                                 log_path=self.last_log)
                 if not gate.ok and self.env_problem(gate.report()):  # a missing tool, not the agent's code
                     self.run_setup()
-                    gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts)  # same work, tools reinstalled
+                    gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts,
+                                     log_path=self.last_log)  # same work, tools reinstalled
                     if not gate.ok and self.env_problem(gate.report()) and not self.env_repair_tried:
                         report = gate.report()
                         self.git.discard()
                         self.git.checkout_main(self.main)
+                        wiped = True  # the diff is gone: nothing to keep
                         if self.repair_env(report):  # redo the task on the repaired main; not counted
                             attempts -= 1
                             self.state.set_task(task.id, attempts=attempts)
                             continue
                         self.git.start_branch(branch, self.main)  # repair failed: a normal failed attempt
                 problem = self._fix_problem(task, phase, res.report) if gate.ok else ""
+                if gate.ok and not problem:
+                    problem, go = self.failing_before(phase, res.report, base)
+                    if not go:  # a listed test fails on main: main is checked first, this attempt is not counted
+                        self.git.discard()
+                        self.git.checkout_main(self.main)
+                        self.git.delete_branch(branch)
+                        self.state.set_task(task.id, status="pending", attempts=attempts - 1, last_error=None)
+                        return False
                 if gate.ok and not problem:
                     problem = self.review(task, phase, branch, base, gate)
                 if problem:
@@ -1063,6 +1133,7 @@ class Orchestrator:
                         self.git.checkout_main(self.main)
                 else:
                     last_error = gate.report()
+                    keep = gate.keepable() and not cut and not wiped
                     if cut:  # the diff and the gate text become the retry input; nothing is thrown away
                         last_error = (f"session cut ({res.error[:200]}); its diff failed the gate:\n{gate.report()}\n\n"
                                       f"Diff of the cut session (start from it, do not rewrite):\n"
@@ -1075,12 +1146,17 @@ class Orchestrator:
             self.state.set_meta(f"stepup:{task.id}", bool(why))  # survives a restart; a plain test failure clears it
             if why:
                 log.info("task %s escalates to a stronger model: %s", task.id, why)
-            self.git.discard()
+            kept = keep and not why and not (res.timed_out or res.stuck)
+            if not kept:
+                self.git.discard()
             fail_err = last_error or ""
             if (self.cfg.get("unstick.enabled", True) and not self.cfg.lean  # O10: lean = one retry, then park
                     and not self.state.get_meta(f"unstick:{task.id}", False)
                     and (agent_blocked or res.stuck or attempts >= int(self.cfg.get("unstick.after_attempts", 2)))):
+                if kept:  # unstick branches from main: a kept diff must not ride along
+                    self.git.discard()
                 kind, text, rep = self.unstick(task, phase, fail_err)
+                kept = False
                 fix_model, fix_line, fix_label = own_fix(rep.get("suggestion")) if kind != "skip" else ("", "", "")
                 if kind == "owner" and not fix_label:
                     self._park(task, branch, attempts, fail_err)
@@ -1125,6 +1201,29 @@ class Orchestrator:
                 and not any(_match(f, globs) for f in self.git.staged_files()):
             return "a bug fix must add or update a regression test"
         return ""
+
+    def failing_before(self, phase, report: dict, base: str) -> tuple[str, bool]:
+        """W21 (ADR 0004): check the report's `failing_before` names against main's test result at `base`.
+        ('', True) = proceed; (problem, True) = the attempt fails; (reason, False) = sent back, main_due is set."""
+        names = [str(n).strip() for n in (report.get("failing_before") or []) if str(n).strip()]
+        if not names or not self.cfg.commands("test"):
+            return "", True
+        red = self.main_test(base)
+        if base not in self.main_results:  # git error: no verdict
+            log.warning("failing_before not checked: no test result for %s", base)
+            return "", True
+        out = red.output if red else ""
+        found = [n for n in names if n.rsplit("::", 1)[-1] in out]
+        missing = [n for n in names if n not in found]
+        if found and not phase.priority and not self.main_red and self.state.tasks("done"):
+            self.main_due = True
+            log.info("failing_before names fail on %s: %s", self.main, found)
+            return (f"tests listed under failing_before fail on {self.main}: {', '.join(found)}; "
+                    "main is checked and repaired first", False)
+        if missing:
+            return ("failing_before lists tests that pass on main: " + ", ".join(missing)
+                    + ". They must pass with your change; do not skip or deselect them.", True)
+        return "", True
 
     def review_due(self, task) -> bool:
         """W4: review.scope critical (default) = only critical tasks; all = every task above low risk (U6 risk)."""
@@ -1173,6 +1272,7 @@ class Orchestrator:
     GENERIC_QUESTION = "The agent could not complete this task. How must it continue?"
 
     def _park(self, task, branch, attempts, error):
+        self.git.discard()  # W25: a kept diff of the last attempt must not ride along to main
         self.git.checkout_main(self.main)
         self.git.delete_branch(branch)
         self.state.set_task(task.id, status="blocked", last_error=error[-6000:], finished_at=now())
@@ -1355,7 +1455,9 @@ class Orchestrator:
     def start_main_red(self):
         head = self.git.head()
         self.main_red, self.main_checked = True, head
-        self.notify.send("main_red", f"checks on {self.main} fail and the fixer could not repair them; "
+        red = self.main_results.get(head)
+        named = f" ({fail_line(red)})" if red else ""
+        self.notify.send("main_red", f"checks on {self.main} fail{named} and the fixer could not repair them; "
                                      "building a corrective phase first")
         self.add_corrective_phase([{
             "title": "Repair the failing checks on main", "risk": "high",
@@ -1364,6 +1466,50 @@ class Orchestrator:
             "acceptance_criteria": ["All verify commands pass on the main branch"]}],
             "main branch red", once_key=f"mainred-{head[:12]}")
 
+    def _red_test(self, cwd) -> CmdResult | None:
+        """W20/W21: the first red result of `commands.test` run in `cwd`; None when green or no test command."""
+        tests = self.cfg.commands("test")
+        if not tests:
+            return None
+        return next((r for r in run_commands(tests, cwd, int(self.cfg.get("verify_timeout_sec", 1200)),
+                                             base_env=agent_env(self.cfg)) if r.rc != 0), None)
+
+    def main_test(self, sha: str | None = None) -> CmdResult | None:
+        """W21: the red test result of main at `sha` (default: its head), run once per sha. It runs in the checkout
+        when that is main at `sha` and clean, else in a throwaway `main-probe` worktree. Unknown (git error) = None."""
+        try:
+            sha = sha or self.git.head()
+            if sha in self.main_results:
+                return self.main_results[sha]
+            if self.git.branch() == self.main and self.git.head() == sha and self.git.is_clean():
+                red = self._red_test(self.root)
+            else:
+                path, branch = self._worktree_root() / "main-probe", "autopilot/main-probe"
+                self.git.add_worktree(path, branch, sha)
+                try:
+                    self._worktree_setup(path, "main-probe")
+                    red = self._red_test(path)
+                finally:
+                    self.git.drop_worktree(path, branch)
+        except GitError as exc:
+            log.warning("could not test main at %s: %s", sha, exc)
+            self.main_due = True  # unknown is not green: test it again at the next loop
+            return None
+        self.main_results[sha] = red
+        return red
+
+    def guard_main(self):
+        """W21: every new commit on main is tested once, before the next task. Red: name the test, then repair."""
+        if not self.main_due or self.main_red or not self.state.tasks("done"):
+            return
+        self.main_due = False
+        red = self.main_test()
+        if not red:
+            return
+        self.notify.send("main_red", f"{self.main} is red: {fail_line(red)}")
+        if not self.ensure_main_green():
+            self.start_main_red()
+
     def recheck_main(self):
         if not self.main_red:
             return
@@ -1371,8 +1517,9 @@ class Orchestrator:
         if head == self.main_checked:
             return
         self.main_checked = head
-        if main_gate(self.cfg).ok:
+        if self._main_gate().ok:
             self.main_red = False
+            self.main_results[head] = None
             self.notify.send("main_fixed", "checks on main pass again")
 
     @staticmethod
@@ -1475,6 +1622,18 @@ class Orchestrator:
         return Path(self.cfg.get("scheduling.worktree_dir") or Path(tempfile.gettempdir()) / "autopilot-worktrees") \
             / f"{self.root.name}-{tag}"
 
+    def _worktree_setup(self, path, label: str):
+        if self.cfg.get("scheduling.worktree_setup", True) and self.cfg.commands("setup"):
+            t0 = time.monotonic()
+            for r in run_commands(self.cfg.commands("setup"), path, int(self.cfg.get("verify_timeout_sec", 1200))):
+                if r.rc != 0:
+                    log.warning("setup in worktree %s failed: %s", label, r.cmd)
+            took = time.monotonic() - t0
+            log.info("parallel: setup in worktree %s took %.0f s", label, took)
+            if took > 60:
+                log.info("parallel: setup is slow; share a package cache between worktrees "
+                         "(for example `npm ci --prefer-offline` or `uv sync --frozen`)")
+
     def run_parallel(self, tasks: list):
         """One session per task at the same time, each in its own worktree; then gate and merge one by one."""
         from concurrent.futures import ThreadPoolExecutor
@@ -1487,16 +1646,7 @@ class Orchestrator:
         for t in tasks:
             path, branch = self._worktree_root() / t.id, f"autopilot/{t.id}"
             self.git.add_worktree(path, branch, self.main)
-            if self.cfg.get("scheduling.worktree_setup", True) and self.cfg.commands("setup"):
-                t0 = time.monotonic()
-                for r in run_commands(self.cfg.commands("setup"), path, int(self.cfg.get("verify_timeout_sec", 1200))):
-                    if r.rc != 0:
-                        log.warning("setup in worktree %s failed: %s", t.id, r.cmd)
-                took = time.monotonic() - t0
-                log.info("parallel: setup in worktree %s took %.0f s", t.id, took)
-                if took > 60:
-                    log.info("parallel: setup is slow; share a package cache between worktrees "
-                             "(for example `npm ci --prefer-offline` or `uv sync --frozen`)")
+            self._worktree_setup(path, t.id)
             risk = self.effective_risk(t)
             model, phase = self.model_for(risk, 0), self.plan.phase_of(t)
             self.state.set_task(t.id, status="running", started_at=now())
@@ -1542,7 +1692,7 @@ class Orchestrator:
                     self.state.set_task(t.id, status="pending")  # not an attempt
                     continue
                 self.state.set_task(t.id, attempts=1, model=model)
-                err = self._finish_parallel(t, phase, path, branch, model, res, base)
+                err = self._finish_parallel(t, phase, path, branch, model, res, base, log_path)
                 if err:  # back in the queue: the serial path retries it with this error
                     log.info("parallel task %s failed: %s", t.id, err[:300])
                     log.info("parallel: %s not merged, back in the queue", t.id)
@@ -1559,7 +1709,7 @@ class Orchestrator:
         if limited:
             self.backoff(limited)
 
-    def _finish_parallel(self, task, phase, path, branch, model, res, base) -> str:
+    def _finish_parallel(self, task, phase, path, branch, model, res, base, log_path=None) -> str:
         """Gate the worktree, merge into main, then write the docs on main. Returns the error, or '' when done."""
         wt = Git(path)
         wt.normalize_after_session(branch, base)
@@ -1567,9 +1717,12 @@ class Orchestrator:
             return f"agent session failed ({model}): {res.error}"
         if str(res.report.get("status", "done")).lower() == "blocked":
             return f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
-        gate = task_gate(Config(path, self.cfg.data), wt, task, report=res.report)
+        gate = task_gate(Config(path, self.cfg.data), wt, task, report=res.report, log_path=log_path)
         if not gate.ok:
             return gate.report()
+        problem, _ = self.failing_before(phase, res.report, base)  # a bounce comes back as its reason too
+        if problem:
+            return problem
         files, summary = wt.staged_files(), str(res.report.get("summary", "")).strip()
         wt.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}{new_file_lines(res.report)}\n\n"
                       f"model: {model}, attempt 1 (parallel)")
@@ -1608,7 +1761,7 @@ class Orchestrator:
         """O8: while the checks on main fail, take the last task of the batch off main (main goes back to before its
         merge), put it back in the queue with the failing output, and check again. True = main is green."""
         while True:
-            gate = main_gate(self.cfg)
+            gate = self._main_gate()
             if gate.ok:
                 return True
             if not self.landed:
@@ -1816,7 +1969,7 @@ class Orchestrator:
             if problems:
                 err = "\n".join(problems)
             else:
-                gate = main_gate(self.cfg, phase=phase_checks)
+                gate = self._main_gate(phase=phase_checks)
                 if gate.ok:
                     summary = str(res.report.get("summary", ""))
                     if kind == "fixer":
@@ -1896,7 +2049,7 @@ class Orchestrator:
             problems += scan_secrets(self.git.staged_added_lines()) + test_tamper(self.cfg, self.git)
             ok, why = (False, "\n".join(problems)) if problems else self.run_setup()
             if ok:  # the check output that started this is agent-written: the full checks must pass too
-                gate = main_gate(self.cfg)
+                gate = self._main_gate()
                 ok, why = gate.ok, gate.report()
         if ok and self.git.staged_files():
             rca = res.report.get("rca") if isinstance(res.report.get("rca"), dict) else {}
@@ -1914,14 +2067,15 @@ class Orchestrator:
         return False
 
     def ensure_main_green(self, phase_checks: bool = False) -> bool:
-        gate = main_gate(self.cfg, phase=phase_checks)
+        gate = self._main_gate(phase=phase_checks)
         if gate.ok:
+            self.main_results[self.git.head()] = None
             return True
         if self.env_problem(gate.report()):  # G6: a missing tool is not broken code; fixer sessions can't install it
             self.run_setup()
-            gate = main_gate(self.cfg, phase=phase_checks)
+            gate = self._main_gate(phase=phase_checks)
             if not gate.ok and self.env_problem(gate.report()) and self.repair_env(gate.report()):
-                gate = main_gate(self.cfg, phase=phase_checks)
+                gate = self._main_gate(phase=phase_checks)
             if gate.ok:
                 return True
         errors = gate.report()
@@ -1957,7 +2111,7 @@ class Orchestrator:
 
     def close_phase(self, phase, status: str):
         log.info("closing phase %s (%s)", phase.id, status)
-        gate = main_gate(self.cfg, phase=True)
+        gate = self._main_gate(phase=True)
         if not gate.ok:
             err = gate.report()
             if not phase.priority and self.add_corrective_phase([{  # corrective phases never spawn more of them
@@ -2021,9 +2175,10 @@ class Orchestrator:
                 self.state.task(t.id)["status"] == "done" for t in phase.tasks):
             return
         allowed = ["README.md", self.cfg.get("docs.rca", "docs/RCA.md"),
-                   self.cfg.get("docs.developing", "docs/DEVELOPING.md"), "docs/*", "docs/**"]
-        res = self.session("docs", self.ctx.docs_prompt(phase, self.state), self.cfg.get("models.docs", "sonnet"),
-                           phase=phase.id, label=f"docs {phase.id}")
+                   self.cfg.get("docs.developing", "docs/DEVELOPING.md"), "HOWTO.md", "docs/*", "docs/**"]
+        res = self.session("docs", self.ctx.docs_prompt(phase, self.state, self.gate_output()),
+                           self.cfg.get("models.docs", "sonnet"), phase=phase.id, label=f"docs {phase.id}",
+                           timeout_sec=self.audit_timeout())
         files = self.git.staged_files()
         bad = [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
         for f in files:  # prose about secrets (an RCA of a scanner) can look like one: redact the line, keep the docs
@@ -2043,6 +2198,13 @@ class Orchestrator:
             self.state.event("docs", f"{phase.id}: result dropped ({why})")
             self.git.discard()
             return
+        # W20: the project test command runs on the staged tree; a red result drops the docs result like a bad scope
+        if files and (red := self._red_test(self.root)):
+            why = fail_line(red)
+            log.warning("docs session for %s dropped: tests: %s", phase.id, why)
+            self.state.event("docs", f"{phase.id}: result dropped (tests: {why})")
+            self.git.discard()
+            return
         log.info("docs session for %s wrote %s", phase.id, files)
         self._commit_main(f"[autopilot] docs for phase {phase.id}")
 
@@ -2054,8 +2216,8 @@ class Orchestrator:
         fix = self.plan.phase_by_id.get(self.state.get_meta(f"featfix:{phase.id}") or "")
         if fix and any(self.state.status_map().get(t.id) in ("pending", "running") for t in fix.tasks):
             return True  # its corrective phase is still being built: don't pay for another check yet
-        res = self._isolated("verify", self.ctx.verify_prompt(phase, phase.features),
-                             self.cfg.get("models.verifier", "sonnet"), phase=phase.id,
+        res = self._isolated("verify", self.ctx.verify_prompt(phase, phase.features, self.gate_output()),
+                             self.cfg.get("models.verifier", "sonnet"), phase=phase.id, timeout_sec=self.audit_timeout(),
                              effort=self.cfg.get("functional.effort", "medium"),
                              mcp_config=self.cfg.get("functional.mcp_config", ""), label=f"functional check {phase.id}")
         got = {str(f.get("id")): f for f in (res.report.get("features") or [])
@@ -2210,12 +2372,20 @@ class Orchestrator:
         max_new = int(self.cfg.get("audit.max_new_tasks", 15))
         self.git.start_branch("autopilot/audit", self.main)
         try:
-            res = self.session("audit", self.ctx.auditor_prompt(kind, max_new), self.cfg.get("models.auditor", "opus"),
-                               phase=phase_id, read_only=True, label=f"audit {kind}")
+            res = self.session("audit", self.ctx.auditor_prompt(kind, max_new, self.gate_output()),
+                               self.cfg.get("models.auditor", "opus"), phase=phase_id, read_only=True,
+                               label=f"audit {kind}", timeout_sec=self.audit_timeout())
         finally:  # read-only: drop anything it touched
             self.git.discard()
             self.git.checkout_main(self.main)
             self.git.delete_branch("autopilot/audit")
+        if res.timed_out and res.text.strip():  # W30b: keep what it wrote; the notes go to the owner, the run goes on
+            n = self.audit_timeout()
+            notes = res.text.strip()[:2000]
+            self.state.event("audit", f"audit: partial after {n} s")
+            self.needs_you("audit", f"The {kind} audit stopped early",
+                           f"The {kind} audit stopped after {n} s; its notes so far: {notes}")
+            res.ok, res.report = True, {"partial": True, "complete": False, "summary": notes, "gaps": []}
         if not res.ok or not res.report:
             log.warning("audit produced no usable report: %s", res.error[:300])
             return None
@@ -2280,7 +2450,12 @@ class Orchestrator:
         before_plan = plan_path.read_text(encoding="utf-8")
         self.git.start_branch("autopilot/replan", self.main)
         try:
-            res = self.session("replan", self.ctx.replanner_prompt(backlog, source_diff), self.cfg.get("models.replanner", "opus"))
+            lb = self.cfg.get("escalate.load_bearing") or []
+            status = self.state.status_map()
+            risky = lb and any(_match(f, lb) for t in self.plan.all_tasks() if status.get(t.id) == "pending"
+                               for f in t.files_in_scope)  # W26: Opus only when a waiting task is load-bearing
+            model = "opus" if risky else self.cfg.get("models.replanner", "sonnet")
+            res = self.session("replan", self.ctx.replanner_prompt(backlog, source_diff), model)
             new_plan = plan_path.read_text(encoding="utf-8")
             new_brain = brain_path.read_text(encoding="utf-8") if brain_path.exists() else None
         finally:  # drop everything, then re-apply only the two allowed files on main

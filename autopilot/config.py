@@ -14,6 +14,8 @@ TEMPLATES = Path(__file__).parent / "templates"
 RISKS = ["low", "medium", "high", "critical"]
 REVIEW_SCOPES = ("critical", "all")  # W4: review.scope values
 SANDBOX_MODES = ("off", "allowlist", "docker")  # W11: sandbox.mode values
+SCOPE_ALWAYS = ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]  # W19: docs the scope check always allows
+TEST_MODES = ("changed", "full")  # W22: gate.tests values
 NATIVE_WINDOWS = os.name == "nt"
 # CLI flags that could replace or widen the sandbox settings Autopilot passes (P5 egress allowlist)
 SANDBOX_UNSAFE_ARGS = ("--settings", "--setting-sources", "--mcp-config", "--dangerously-skip-permissions",
@@ -31,6 +33,18 @@ def sandbox_mode(cfg) -> str:
 def allowlist_on(cfg) -> bool:
     """W11: true when Claude Code's egress allowlist applies (docker plus sandbox.enabled = both)."""
     return bool(cfg.get("sandbox.enabled")) or sandbox_mode(cfg) == "allowlist"
+
+
+def scope_always(cfg) -> list[str]:
+    """W19: files any task may change. A missing key gives the default list."""
+    value = cfg.get("gate.scope_always")
+    return list(SCOPE_ALWAYS) if value is None else list(value)
+
+
+def tests_mode(cfg) -> str:
+    """W22: the one tests rule. A missing key means changed (the changed modules' tests per task)."""
+    mode = cfg.get("gate.tests")
+    return "changed" if mode is None or mode == "" else str(mode)
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -153,7 +167,17 @@ class Config:
         if scope not in REVIEW_SCOPES:  # W4: at run time any other value acts as critical
             errs.append(f"review.scope must be critical or all, got {scope!r}. Use critical to review only critical tasks, "
                         "or all to review every task above low risk.")
-        return errs + self._git_errors() + self._sandbox_errors()
+        return errs + self._git_errors() + self._sandbox_errors() + self._gate_errors()
+
+    def _gate_errors(self) -> list[str]:
+        always = self.get("gate.scope_always")
+        if always is not None and (not isinstance(always, list) or not all(isinstance(p, str) for p in always)):
+            return ["gate.scope_always must be a list of file paths, for example - REFERENCE.md"]
+        mode = self.get("gate.tests")
+        if mode is not None and mode not in TEST_MODES:  # W22
+            return [f"gate.tests must be changed or full, got {mode!r}. Use changed to run the tests of the changed "
+                    "modules per task, or full to run the whole suite per task."]
+        return []
 
     def _sandbox_errors(self) -> list[str]:
         mode = sandbox_mode(self)

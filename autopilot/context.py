@@ -25,7 +25,16 @@ FIX_RULES = ("This is a corrective task. 1) Add a regression test that fails bef
              "2) Include `rca` (symptom, root_cause, fix, prevention) in your final report.")
 
 
+RESET = {False: ("The orchestrator reset the code to the pre-task state. Avoid repeating the same mistake.",
+                 "The code on disk is back at the state before your attempt: re-apply the parts that were right, "
+                 "fix the failure above."),
+         True: ("The diff is kept: the files of your attempt are still on disk. Add the scope reasons to the report / "
+                "fix the failing tests above; do not start over.",) * 2}  # W25: (retry.md, resume.md) text by `kept`
+
 TAMPER_COUNT_RX = re.compile(r"test count dropped in (\S+): (\d+) -> \d+")
+
+
+NO_GATE = "(no gate run yet)"  # W30a
 
 
 def render(name: str, **vars) -> str:
@@ -136,14 +145,14 @@ class ContextBuilder:
                       acceptance=bullets(task.acceptance_criteria), scope=bullets(task.files_in_scope, "(not restricted)"),
                       decisions=self.decisions(), research_block=self.research_block(task))
 
-    def verify_prompt(self, phase, features: list[dict]) -> str:
+    def verify_prompt(self, phase, features: list[dict], gate_output: str = NO_GATE) -> str:
         init = self.cfg.get("functional.init", "")
         return render("verify.md", phase_id=phase.id, phase_title=phase.title,
                       features="\n".join(f"- `{f['id']}` {f['title']}: {f['journey']}" for f in features),
                       init=f"Run `{init}`." if init else "Work it out from the project brain, the README and the files.",
-                      once="" if self.cfg.lean else ", then one variation", variation=VARIATION_STEP[self.cfg.lean])
+                      once="" if self.cfg.lean else ", then one variation", variation=VARIATION_STEP[self.cfg.lean], gate_output=gate_output)
 
-    def docs_prompt(self, phase, state) -> str:
+    def docs_prompt(self, phase, state, gate_output: str = NO_GATE) -> str:
         """O11: one documentation session per phase: RCA entries for retried or repaired tasks, a README section per
         feature, and DEVELOPING.md for a person."""
         root, hist = self.cfg.root, self.cfg.get("docs.history_dir", ".agent/history")
@@ -169,7 +178,8 @@ class ContextBuilder:
                       brain=read_capped(self.ad / "BRAIN.md", 4000),
                       readme_headings=", ".join(l[3:].strip() for l in readme_text.splitlines() if l.startswith("## ")) or "(no README)",
                       rca_ids=", ".join(re.findall(r"^## \S+ · (\S+)", rca_text, re.M)) or "(none)",
-                      developing_state="exists; update it" if (root / dev).exists() else "missing; create it")
+                      developing_state="exists; update it" if (root / dev).exists() else "missing; create it",
+                      gate_output=gate_output)
 
     def research_prompt(self, task, topic: str) -> str:
         return render("research.md", topic=topic, task_id=task.id, task_title=task.title,
@@ -196,11 +206,11 @@ class ContextBuilder:
         return (f"## Approach decided for this task (follow it; ADR `{rel}`)\n"
                 + read_capped(self.cfg.root / rel, 8000, default="(the ADR file is missing)"))
 
-    def task_prompt(self, task, attempt: int, last_error: str | None, git_log: str = "") -> str:
+    def task_prompt(self, task, attempt: int, last_error: str | None, git_log: str = "", kept: bool = False) -> str:
         phase = self.plan.phase_of(task)
         retry = ""
         if attempt > 1 and last_error:
-            retry = render("retry.md", attempt=attempt - 1, errors=last_error[-6000:])
+            retry = render("retry.md", attempt=attempt - 1, errors=last_error[-6000:], reset_line=RESET[kept][0])
             # J14.4: a tamper failure becomes one instruction with the real file and count
             keep = [f"Keep all {m[1]} tests in {m[0]}. Add, do not remove." for m in TAMPER_COUNT_RX.findall(last_error)]
             retry += "".join(f"\n**{k}**\n" for k in keep)
@@ -217,22 +227,25 @@ class ContextBuilder:
             helper_index=helper_index(self.cfg.root) or "(none)", test_rule=TEST_RULE[self.cfg.lean],
         )
 
-    def resume_prompt(self, task, attempt: int, last_error: str | None) -> str:
+    def resume_prompt(self, task, attempt: int, last_error: str | None, kept: bool = False) -> str:
         """Retry inside the failed attempt's own session: the brief is already in its context, so only the failure."""
         return render("resume.md", task_id=task.id, task_title=task.title, verify_cmds=self.verify_cmds(task.verify),
-                      retry_block=render("retry.md", attempt=attempt - 1, errors=(last_error or "(none)")[-6000:])
+                      state_line=RESET[kept][1],
+                      retry_block=render("retry.md", attempt=attempt - 1, errors=(last_error or "(none)")[-6000:],
+                                         reset_line=RESET[kept][0])
                       + (f"\n\n{h}" if (h := self.hints(task.id)) else ""))
 
     def fixer_prompt(self, errors: str, git_log: str) -> str:
         return render("fixer.md", decisions=self.decisions(), git_log=git_log,
                       errors=errors[-8000:], verify_cmds=self.verify_cmds())
 
-    def auditor_prompt(self, kind: str, max_new: int) -> str:
+    def auditor_prompt(self, kind: str, max_new: int, gate_output: str = NO_GATE) -> str:
         completion = ("Completion: is the product described in the goal actually complete and usable end to end? "
                       "Set complete=true ONLY if nothing important is missing." if kind == "completion"
                       else "Set complete=false unless the entire goal is already met.")
         return render("auditor.md", audit_kind=kind, plan_status=plan_status(self.plan, self.state),
-                      decisions=self.decisions(), followups=self.followups(), completion_check=completion, max_new=max_new)
+                      decisions=self.decisions(), followups=self.followups(), completion_check=completion, max_new=max_new,
+                      gate_output=gate_output)
 
     def replanner_prompt(self, backlog: list[str] | None = None, source_diff: str = "") -> str:
         blocked = [f"{r['id']}: {(r['last_error'] or '')[:500]}" for r in self.state.tasks("blocked")]

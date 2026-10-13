@@ -41,7 +41,7 @@ def test_unknown_window_size_never_pauses(tmp_path):
 
 def test_opus_heavy_sessions_wait_for_a_fresh_window(tmp_path):
     phases = tasks(2) + [{"id": "P02", "title": "Two", "tasks": [{"id": "P02-T01", "title": "risky", "risk": "high"}]}]
-    cfg = {"usage": {"window_usd": 1.0, "opus_by_pct": 50}, "decide": {"enabled": True}}
+    cfg = {"usage": {"window_usd": 1.0, "opus_by_pct": 50}, "decide": {"enabled": True, "risks": ["high", "critical"]}}
     _, slept, windows = run(tmp_path, phases, cfg)  # $0.50 spent >= 50% of the usable $0.85 before the decide session
     assert len(windows) == 1 and "Opus-heavy work waits for a fresh window" in windows[0] and len(slept) == 1
 

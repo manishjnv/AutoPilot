@@ -8,6 +8,7 @@ Rules:
 - Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) needs a reason: list each one with its reason in the report field `new_files`.
 - A new dependency (any change to package.json, pyproject.toml, requirements*.txt, go.mod, Cargo.toml) needs a reason too: list it in the report field `new_deps`. A file may not grow past 400 lines or 25 percent in one task: split it instead.
 - Do NOT run git commit, git push, git checkout, git reset or git rebase. The orchestrator owns git.
+- Stop only the processes you started, by pid. Never stop processes by name (taskkill /IM, pkill, killall, Stop-Process -Name).
 - Do NOT edit .agent/plan.yaml, .agent/project.yaml or .agent/state.db unless your assignment explicitly says so.
 - Never hardcode secrets; read them from environment variables and document the variable names.
 - The orchestrator runs the checks itself after your session. It fails the task if a test was deleted, skipped, emptied or weakened, or if test settings or CI files were edited. Never add skip or focus markers (`skip`, `xit`, `.only`, `@Disabled`, `#[ignore]`). This includes `skipif` on a platform condition. If this machine cannot run a test (the operating system, a missing binary), test the behavior another way and list the gap under followups. Never use a constant or always-false guard to get a failing test through: report the failure instead.

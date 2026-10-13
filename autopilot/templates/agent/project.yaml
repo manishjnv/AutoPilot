@@ -20,6 +20,8 @@ verify_timeout_sec: 1200
 
 gate:
   allow_no_checks: false  # true = allow a run with no build/lint/typecheck/test command (not recommended)
+  scope_always: ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]  # docs a task may always change (outside its files_in_scope)
+  tests: changed          # which tests the gate runs per task: changed (the changed modules' tests) or full (the whole suite)
   test_globs:             # files treated as tests by the test-tamper guard
     - "tests/**"
     - "test/**"
@@ -78,6 +80,11 @@ agent:
     - "Bash(git reset:*)"
     - "Bash(git rebase:*)"
     - "Bash(rm -rf /:*)"
+    # Stop processes by pid only: a kill by name ends the orchestrator too (always added, also to your own list)
+    - "Bash(taskkill:*)"
+    - "Bash(pkill:*)"
+    - "Bash(killall:*)"
+    - "Bash(Stop-Process:*)"
   extra_args: []          # e.g. ["--bare"] with API-key billing only (it skips OAuth, hooks, plugins and CLAUDE.md)
   env_passthrough: []    # extra env var names sessions and checks may see (e.g. DATABASE_URL)
   env: {}                 # e.g. ANTHROPIC_BASE_URL: http://localhost:4000  (LiteLLM)
@@ -114,7 +121,7 @@ models:
     triage: low
   subagent: ""            # e.g. haiku: model for subagents inside sessions (CLAUDE_CODE_SUBAGENT_MODEL; all of them)
   fixer: [sonnet, opus, opus]   # repair attempt N uses entry N (a single model also works)
-  replanner: opus
+  replanner: sonnet       # opus when a pending task touches a load-bearing path
   auditor: opus
   onboard: opus
   unstick: sonnet         # diagnoses a stuck task (may search the web) before anyone is asked
@@ -144,7 +151,7 @@ research:                 # a task's `research: [topics]` -> one web-only sessio
 
 decide:                   # before risky work, one read-only session scores 2-3 approaches -> an ADR in docs.adr_dir
   enabled: true
-  risks: [high, critical] # plus any task with needs_decision: true; corrective (FIX) tasks never
+  risks: [critical]       # plus any task with needs_decision: true; corrective (FIX) tasks never
   effort: high
 
 review:                   # W4: one read-only session reviews the diff after the gate, before the merge
@@ -231,6 +238,7 @@ audit:                    # reviews overall implementation vs plan -> corrective
   every_n_phases: 0       # periodic audits off; one completion audit when the plan is done
   completion_audit: true  # when the plan is exhausted: is the app actually complete? gaps -> new tasks
   max_completion_rounds: 2
+  timeout_sec: 1200       # W30b: an audit, verify or docs session stops here (a partial audit report is kept)
   max_new_tasks: 15       # per audit, keeps self-correction bounded
   consolidate: false      # O9: at each phase close, a rise in duplicate blocks, files over budget or layer violations adds one [consolidate] task to the next phase
 

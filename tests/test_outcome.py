@@ -41,10 +41,21 @@ def test_budget_cap_is_budget_stop(tmp_path):
     assert events(orch, "budget")[0].startswith("BUDGET_STOP total budget")
 
 
+def test_stop_file_is_stopped(tmp_path):
+    root = make_project(tmp_path, phases_basic())
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    (root / ".agent" / "STOP").write_text("", encoding="utf-8")
+    assert "STOP file" in orch.run()
+    assert orch.state.get_meta("outcome") == "STOPPED"
+    assert events(orch, "run_done")[0].startswith("STOPPED stopped by")
+    assert not events(orch, "budget")
+
+
 def test_outcome_word_rules():
     assert outcome_word("", False, Stop("the service is down", fatal=True, word="STALLED")) == "STALLED"
     assert outcome_word("", False, Stop("login ran out", fatal=True)) == "FAILED"
-    assert outcome_word("", True, Stop("stopped by .agent/STOP file")) == "BUDGET_STOP"
+    assert outcome_word("", True, Stop("session limit reached (1)")) == "BUDGET_STOP"
+    assert outcome_word("", True, Stop("stopped by .agent/STOP file", word="STOPPED")) == "STOPPED"
     assert outcome_word("fatal: invalid plan", True) == "FAILED"
     assert outcome_word("crashed: ValueError (see x)", False) == "FAILED"
     assert outcome_word("plan complete", True) == "BLOCKED"
@@ -75,7 +86,7 @@ def test_status_prints_outcome_only_when_set(tmp_path, capsys):
     assert "outcome: BLOCKED" in capsys.readouterr().out
 
 
-def test_interrupted_run_is_budget_stop(tmp_path):
+def test_interrupted_run_is_stopped(tmp_path):
     root = make_project(tmp_path, phases_basic())
     orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
     def boom():
@@ -85,9 +96,9 @@ def test_interrupted_run_is_budget_stop(tmp_path):
         orch._run()
     except KeyboardInterrupt:
         pass
-    assert orch.state.get_meta("outcome") == "BUDGET_STOP"
-    assert events(orch, "run_end") == ["BUDGET_STOP interrupted"]
-    assert run_journal(root)["word"] == "BUDGET_STOP"
+    assert orch.state.get_meta("outcome") == "STOPPED"
+    assert events(orch, "run_end") == ["STOPPED interrupted"]
+    assert run_journal(root)["word"] == "STOPPED"
 
 
 def test_dashboard_data_and_bar_carry_the_word(tmp_path):

@@ -9,6 +9,23 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W30: the completion audit, the functional check and the phase docs session get the last gate output and do not run the test suite again. They stop after `audit.timeout_sec` (1200 seconds). A stopped completion audit keeps its notes so far, sends them to "Questions for you", and the run goes on.
+- W25: a task that fails only on its scope or on its tests keeps its diff for the retry. The next session adds the missing scope reasons or fixes the tests; it does not rebuild the files.
+- W26: high-risk tasks no longer get an extra Opus planning session before the work; only critical tasks and tasks with `needs_decision: true` do (`decide.risks: [critical]`). Re-planning runs on Sonnet, and on Opus only when a waiting task touches a load-bearing path. Set `decide.risks: [high, critical]` for the old behaviour.
+- W34: a run that you stop by hand (Ctrl+C, `ap stop`) now ends with the word STOPPED. BUDGET_STOP is only for a cost, session or usage limit.
+- W31: `scripts/premerge.py` runs the suite on WSL and on the host before a merge (`--ci` also runs CI), and `tests/test_hygiene.py` finds three test traps that pass on WSL but fail in CI.
+- Fix: the kill-by-name guard also finds `sudo pkill`, `cmd /c taskkill /IM` and `powershell -c Stop-Process -Name`, and it no longer fails `taskkill /PID` or `Stop-Process -Id`.
+- Fix: when git fails during the check of a new main commit, the commit is checked again at the next loop; before, it counted as green.
+- W21: a red main is detected, not skipped: each new commit on main is tested once before the next task, the failing test is named in the `main_red` event, and a main that stays red after the repair ends the run with `main is red` (FAILED).
+- W21: a task report can list `failing_before` (tests that failed before the change); each name is checked against main, a name that passes on main fails the attempt, and a name that fails on main sends the task back, not counted, until main is repaired.
+- W37: on Windows a command that times out now ends with all its child processes, even one whose parent already exited (each command runs in a job object; if that cannot be set up, the old `taskkill /T` is used).
+- W37: a session may stop only the processes it started, by pid. Claude Code sessions can no longer run `taskkill`, `pkill`, `killall` or `Stop-Process`, and a task whose session ran one fails the gate with the command named.
+- W37: a run whose process is gone shows `DEAD since HH:MM` (not ON) in `ap status`, `ap watch` and the status page, and the next command is `ap start`. The run writes `beat_at` into `run.json` every 30 seconds.
+- W19 and W22 setup: `gate.scope_always` (the docs a task may always change) and `gate.tests` (`changed` or `full`) are new settings with defaults; a wrong value is reported by `ap validate`. The gate does not use them yet.
+- W22 Tests run once: the task gate runs the changed modules' tests in every profile (`gate.tests: changed`, the default); the phase close runs the full suite; `gate.tests: full` restores the full command per task; the task prompt tells the agent not to run the full suite.
+- W19 Docs files are always in scope: a task may change REFERENCE.md, CHANGELOG.md, HOWTO.md and README.md (the `gate.scope_always` list) without naming them in its scope; the prompts say so, and HOWTO has the work-branch recipe for a GitHub backup after every task.
+- W20: the phase docs session passes the tests too. If the project tests fail on what the docs session wrote, Autopilot drops that result and says which test failed, so main stays green.
+
 ## [0.7.1] - 2026-10-13
 
 - A session that fails with "Can't reach the API server" (a DNS or connection outage) is an infrastructure fault again: the run waits and retries, no try is spent, no task is parked.
@@ -192,3 +209,12 @@ to run. A short outage at the AI service no longer ends your build. Login works 
 - 2026-10-13 **P14-T01** Outcome word for an interrupted run and in the watch bar — A KeyboardInterrupt end now stores BUDGET_STOP via _end_word in the finally of _run (only when no word is set). The dashboard data exposes project.word and the dash_term bottom bar shows the word afte
 - 2026-10-13 **P14-T02** Receipt end-to-end test and test hygiene — Added an end-to-end receipt test that drives a one-task phase close with the fake backend and checks receipt.json plus ap verify exit 0. Gave the test_steps upgrade test a tmp_path, a chdir and a stub
 - 2026-10-13 **P14-T03** REFERENCE entries for the plugin Stop hook and the Routine page — REFERENCE.md `## Proof features` now has a `### Stop hook in the plugin` subsection (seal.py's two checks, the 300 s test limit, the 330 s hook timeout in hooks.json, the 5-block counter file, `/plugi
+- 2026-10-13 **P01-T01** W20 The phase docs session passes the gate too — docs_phase now runs commands.test through gate.run_commands on the staged docs result. A red result is discarded with the event '<phase>: result dropped (tests: <first failing line>)' and main stays u
+- 2026-10-13 **P02-T00** Contract: gate.scope_always and gate.tests keys — Added config.scope_always(cfg) and config.tests_mode(cfg) with the defaults (REFERENCE.md, CHANGELOG.md, HOWTO.md, README.md / changed), using only cfg.get. validate() reports a non-list gate.scope_al
+- 2026-10-13 **P02-T01** W19 Docs files are always in scope — task_gate now allows every entry of config.scope_always(cfg) beside the task scope, with no addition and no warning. A code file outside scope still fails. The task and replanner prompts carry the doc
+- 2026-10-13 **P02-T02** W22 Tests run once, not twice — verify_commands now narrows tests per task when gate.tests is changed (the default), in every profile. The phase close (phase=True) always runs the full command, and gate.tests: full keeps the full co
+- 2026-10-13 **P01-T01b** W37a A dead run shows DEAD, not ON — The earlier work was not in the tree (git was clean), so I built the whole task, including the D-001 fix. A run.json that says running with a dead pid now shows `DEAD since HH:MM` in `ap status`, `ap 
+- 2026-10-13 **P01-T01c** W37b Sessions may not kill processes by name — Every Claude Code session now gets the four kill-by-name deny rules (KILL_DENY in claude_cli.py, added on top of any project list), system.md has the stop-by-pid rule, and task_gate(log_path=...) fail
+- 2026-10-13 **P01-T01d** W37c A session's child processes end with it on Windows too — On Windows run_proc and stream_proc now put each process in a kill-on-close job object via ctypes; _kill_tree calls TerminateJobObject before taskkill /T, and the handle is closed when the call return
+- 2026-10-13 **P01-T02** W21 Red main is detected, not deselected — Each new commit on main (run start, `_commit_main`, a pull) is now tested once before the next task. The result is cached by sha, and a red main sends a `main_red` event naming the failing test. If ma
+- 2026-10-13 **P01-T02b** W21 failing_before is checked against main — Added optional `failing_before` to the task report schema and task.md. Added `Orchestrator.failing_before(phase, report, base)`, called in `execute_task` after `_fix_problem` and in `_finish_parallel`

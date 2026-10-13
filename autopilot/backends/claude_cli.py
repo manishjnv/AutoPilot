@@ -15,6 +15,7 @@ from . import SessionRequest, SessionResult, detect_infra, detect_limit, docker_
 
 progress = logging.getLogger("autopilot")
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
+KILL_DENY = ("Bash(taskkill:*)", "Bash(pkill:*)", "Bash(killall:*)", "Bash(Stop-Process:*)")  # W37: by pid only
 # Deny-list, not --tools: --tools might also drop the synthetic tool that --json-schema relies on.
 WEB_ONLY_DENY = ["Bash", "Agent", "Task"]
 # Untrusted issue text: nothing to read (it could copy secrets into a committed task), run or fetch.
@@ -109,6 +110,17 @@ def _events(raw: str):
             continue
         if isinstance(ev, dict):
             yield ev
+
+
+def partial_text(raw: str) -> str:
+    """W30b: the assistant text seen so far in a killed session's stream."""
+    out = []
+    for ev in _events(raw):
+        msg = ev.get("message") if ev.get("type") == "assistant" else None
+        for b in (msg.get("content") or []) if isinstance(msg, dict) and isinstance(msg.get("content"), list) else []:
+            if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
+                out.append(str(b["text"]))
+    return "\n".join(out)
 
 
 def result_event(raw: str) -> dict:
@@ -275,7 +287,8 @@ class ClaudeCLIBackend:
         allowed = c.get("agent.allowed_tools", [])
         if allowed:
             cmd += ["--allowedTools", *allowed]
-        denied = list(c.get("agent.disallowed_tools", []))
+        denied = list(c.get("agent.disallowed_tools", []))  # a project list replaces the template list
+        denied += [d for d in KILL_DENY if d not in denied]  # always, so a session never kills by name
         if req.read_only:
             denied += READ_ONLY_DENY
         if req.web_only:  # research reads untrusted pages: no shell, no subagents (removed even under bypass)
@@ -347,7 +360,8 @@ class ClaudeCLIBackend:
                           cost=round(sum(u["cost"] for u in usage.values()), 6), window=window_info(p.stdout),
                           config=config_load(p.stdout))
             if p.timed_out:
-                return SessionResult(error=f"session timed out after {req.timeout_sec}s", timed_out=True, **killed)
+                return SessionResult(error=f"session timed out after {req.timeout_sec}s", timed_out=True,
+                                     text=partial_text(p.stdout), **killed)
             return SessionResult(error=p.stopped, stuck=True, **killed)
 
         raw = p.stdout.strip()

@@ -79,6 +79,8 @@ class FakeBackend:
             action = actions[min(n, len(actions) - 1)]
             if action == "nothing":
                 return SessionResult(ok=True, text="did nothing", cost=0.1, report={"status": "done"})
+            if "The diff is kept" in req.prompt:  # W25: the failed attempt's files stay; the retry repairs the break
+                (cwd / "BROKEN").unlink(missing_ok=True)
             if action == "break":
                 (cwd / "BROKEN").write_text("x")
             if action == "blocked":

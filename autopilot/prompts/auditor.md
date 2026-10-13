@@ -13,10 +13,14 @@ orchestrator can schedule corrective tasks. Be concrete and evidence-based — c
 ## Follow-ups reported by earlier sessions
 {{followups}}
 
+## Last gate output
+The last gate output is below. Do not run the test suite.
+{{gate_output}}
+
 ## What to check
 1. Completed tasks: do their acceptance criteria actually hold in the code today? (stubs, TODOs, mocked logic, dead code, regressions)
 2. Integration: do modules built in different sessions actually work together (routes wired, migrations applied, config used, UI calls real APIs)?
-3. Tests & checks: run the verify commands; note failures and untested critical paths.
+3. Tests & checks: use the gate output above, do not run the test suite; note failures and untested critical paths.
 4. Security & invariants from BRAIN.md (auth, tenant isolation, secrets, input validation).
 5. {{completion_check}}
 

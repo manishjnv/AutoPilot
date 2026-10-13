@@ -55,7 +55,7 @@ def test_tasks_without_topics_never_research(tmp_path):
 
 
 def test_research_feeds_the_decide_session(tmp_path):
-    _, fake = run(tmp_path, plan({"risk": "high", "research": ["auth tokens"]}))
+    _, fake = run(tmp_path, plan({"risk": "high", "research": ["auth tokens"]}), cfg={"decide": {"risks": ["high"]}})
     assert [c[0] for c in fake.calls] == ["research", "decide", "P01-T01"]
     assert "notes on auth tokens" in fake.reqs[1].prompt
 

@@ -183,7 +183,7 @@ def test_task_prompt_has_recent_commits_with_a_real_subject(tmp_path):
 
 
 def test_run_journal_and_this_run_report(tmp_path):
-    root = make_project(tmp_path, phases_basic(), NO_AUDIT)
+    root = make_project(tmp_path, phases_basic(), {**NO_AUDIT, "decide": {"risks": ["high", "critical"]}})  # W26: 4th session = decide
     seen = []
 
     class Spy(FakeBackend):
