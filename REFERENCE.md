@@ -58,6 +58,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot resume` | Removes the stop flag. It does not start a run |
 | `autopilot review --kind periodic\|completion\|replan` | Starts an audit or a replan now |
 | `autopilot audit` | Starts the completion audit now |
+| `ap audit --history [--days N] [--home PATH]` | Reads `<home>/projects/*/*.jsonl` of Claude Code (default `~/.claude`, last 30 days) and prints one row per project: sessions, tokens, tool calls, repeats (the same Bash command failing 3 or more times in one session) and the cost of those retries at public API rates (unknown model = Sonnet), then `Retries cost about $X of $Y.` Prints `No Claude Code history found.` when the folder is missing. Needs no project and no network, writes no file, and never prints a prompt or a command |
 | `autopilot report --tokens` | Shows the tokens and the cost of each step type |
 
 **Options of `autopilot run`:**
