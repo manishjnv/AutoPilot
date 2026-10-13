@@ -34,7 +34,7 @@ def test_parked_task_is_blocked(tmp_path):
 
 
 def test_budget_cap_is_budget_stop(tmp_path):
-    root = make_project(tmp_path, phases_basic(), {"budget_usd": {"total": 0.01}})
+    root = make_project(tmp_path, phases_basic(), {"budget_usd": {"total": 0.01}, "usage": {"billing": "api"}})
     orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
     assert "total budget" in orch.run()
     assert orch.state.get_meta("outcome") == "BUDGET_STOP"
