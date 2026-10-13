@@ -95,6 +95,10 @@ Type `ap verify` to check every closed phase. It works offline. Use `ap verify <
 
 Set `git.mode: pr` in `project.yaml` and each task opens a pull request. If the gate gave a warning, or an acceptance criterion has no test, the PR opens as a draft. Its body lists each item under `## Not proven`. A clean task opens a ready PR, and the list says "Nothing". When CI is green, Autopilot marks a draft ready and merges it; the list stays in the body. `git.mode: direct` works as before. See [REFERENCE.md](REFERENCE.md).
 
+## Proof card and README badge per phase
+
+When a phase closes, Autopilot writes two files next to `PHASE.md` in `.agent/history/<phase>/`. `proof.svg` is a 600x200 card. It shows the project name, the phase, the tasks merged of the total, the verified features, the cost and the date. It holds no absolute path, and it stays valid XML when a phase title has `<` or `&`. `BADGE.md` holds one markdown image line, `![Built by Autopilot](proof.svg)`, and the repo-relative path `.agent/history/<phase>/proof.svg`. Paste that path into your README to show the badge. The signed receipt covers both files. See [REFERENCE.md](REFERENCE.md).
+
 ## Install
 
 Three steps, no administrator prompt.
