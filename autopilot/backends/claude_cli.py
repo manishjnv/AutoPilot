@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from ..config import allowlist_on, sandbox_mode
-from ..proc import agent_env, stream_proc
+from ..proc import OWNER_STOP, agent_env, stream_proc
 from . import SessionRequest, SessionResult, detect_infra, detect_limit, docker_box, parse_report, since
 
 progress = logging.getLogger("autopilot")
@@ -362,6 +362,8 @@ class ClaudeCLIBackend:
             if p.timed_out:
                 return SessionResult(error=f"session timed out after {req.timeout_sec}s", timed_out=True,
                                      text=partial_text(p.stdout), **killed)
+            if p.stopped == OWNER_STOP:  # W39: not a loop, so never a stuck or escalation signal
+                return SessionResult(error=p.stopped, text=partial_text(p.stdout), **killed)
             return SessionResult(error=p.stopped, stuck=True, **killed)
 
         raw = p.stdout.strip()

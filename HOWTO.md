@@ -65,6 +65,8 @@ maximum of 2000 characters each. A hint does not change the rules or the checks.
    ```
 
    The run stops before its next session. It does not stop a session that is in progress.
+   To end the session in progress too, run `ap stop --now` (or `ap stop` again within 60 seconds). The session ends
+   within 30 seconds, its files stay on the task branch, and the next `ap start` continues from them.
 2. Continue the run in the background:
 
    ```powershell

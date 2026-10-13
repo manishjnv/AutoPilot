@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -920,6 +921,7 @@ def watch_end(root: Path, run: dict, color: bool, hold: bool):
 def restarting(root: Path, wait: float = 90, sleep=None, clock=None) -> bool:
     """J14.9: a run that ended `interrupted` may be restarting itself after a crash. True when run.json turns
     `running` again within `wait` seconds."""
+    import datetime as dt
     import time
 
     from .report import run_journal
@@ -1534,10 +1536,32 @@ def cmd_mcp(args):
     serve(Path(args.path).resolve())
 
 
+NOW_WINDOW = 60  # W39: a second `ap stop` within this many seconds of the first counts as `--now`
+
+
 def cmd_stop(args):
-    p = Path(args.path).resolve() / AGENT_DIR / "STOP"
-    p.write_text("stop requested\n")
+    """W39: `ap stop` stops before the next session; `--now` (or a second stop within NOW_WINDOW s) ends it at once."""
+    import datetime as dt
+    import time
+
+    from .report import run_journal
+    root = Path(args.path).resolve()
+    p = root / AGENT_DIR / "STOP"
+    try:
+        now_mode = bool(getattr(args, "now", False)) or time.time() - p.stat().st_mtime < NOW_WINDOW
+    except OSError:
+        now_mode = bool(getattr(args, "now", False))
+    p.write_text("now\n" if now_mode else "stop requested\n")
+    if now_mode:
+        print("the session in flight ends now; its files stay on the task branch and `ap start` continues from them")
+        return
     print("the run will stop before its next session (remove with `autopilot resume`)")
+    since = str(run_journal(root).get("session_at") or "")
+    with contextlib.suppress(ValueError):
+        if since:
+            mins = int((dt.datetime.now() - dt.datetime.fromisoformat(since)).total_seconds() // 60)
+            print(f"the current session has run {mins} min")
+    print("`ap stop --now` ends the session at once and keeps its files.")
 
 
 def cmd_budget(args):
@@ -1762,7 +1786,8 @@ def main(argv=None):
     p.add_argument("--skip-login", action="store_true", help="do not check or start a login")
     p.add_argument("--skip-probe", action="store_true", help="do not send the one test prompt (CI)")
     p.add_argument("--reset", action="store_true", help="forget the finished steps and start over")
-    add("stop", cmd_stop, "graceful stop before the next session")
+    p = add("stop", cmd_stop, "graceful stop before the next session; --now ends the session at once")
+    p.add_argument("--now", action="store_true", help="end the session in flight now and keep its files")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("budget", cmd_budget, "set the total cost cap budget_usd.total; a live run uses it before its next task")
     p.add_argument("usd", type=float, help="the new cap in US dollars")
