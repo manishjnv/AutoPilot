@@ -253,6 +253,8 @@ def test_doctor_docker_row_ok_when_docker_is_on_path(tmp_path, monkeypatch):
 
 def test_doctor_docker_row_fails_without_docker(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    if os.name == "nt":  # Windows finds docker.exe in the system folders even with an empty PATH (CI runners have it)
+        monkeypatch.setattr("autopilot.doctor._run", lambda cmd, **k: (127, "not found") if cmd[:1] == ["docker"] else (0, ""))
     rows = docker_rows(tmp_path, {"sandbox": {"mode": "docker", "image": "my-autopilot"}})
     assert rows == [("FAIL", "docker", "not found (needed for sandbox.mode: docker)")]
 
