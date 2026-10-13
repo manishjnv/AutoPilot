@@ -345,7 +345,7 @@ show it after `Done`, for example `Done VERIFIED`. `ap status` shows `outcome: <
 |---|---|
 | `VERIFIED` | The plan is complete and no task is parked |
 | `BLOCKED` | One or more tasks are parked, or a decision waits for your answer |
-| `BUDGET_STOP` | A limit that you set stopped the run: a budget cap, the session limit, or the `.agent/STOP` file |
+| `BUDGET_STOP` | A limit that you set stopped the run: a budget cap, the session limit, the `.agent/STOP` file, or Ctrl+C. `ap watch` shows the word after `Stopped` |
 | `STALLED` | Work remains that cannot start, the service was down, or the same error came from three tasks |
 | `FAILED` | A fatal condition: a config error, a plan that does not load, an expired login, or a repeated crash |
 

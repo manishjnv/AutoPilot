@@ -393,11 +393,12 @@ def status_bar(d: dict, cols: int, color: bool) -> str:
     if wide and active > 0 and count(now.get("attempt")) and count(now.get("max_attempts")):
         task += f" Try {count(now['attempt'])}/{count(now['max_attempts'])}"
     st = p["state"]
-    state = ("Stopped", "dim") if p["status"] and p["status"] != "running" or a and a["stopped"] else \
+    state = (f"Stopped {p['word']}".strip() if p.get("word") else "Stopped", "dim") \
+        if p["status"] and p["status"] != "running" or a and a["stopped"] else \
         (({"Commit": "Merge", "Block": "Wait"}.get(st, st)), "cyan")
     sp = spin_cell(d)  # J13/18: the spinner sits before the state word; a stopped run says so instead of the word
     state_cells = [(sp[0], sp[1]), (" ", None), state] if sp and d["spin"]["kind"] != "stopped" else \
-        [sp] if sp else [state]
+        [sp] + ([(" ", None), (p["word"], "dim")] if p.get("word") else []) if sp else [state]
     age = (f"{a['age']}s" if a["age"] < 60 else f"{a['age'] // 60}m", "yellow" if a["age"] > 30 else "dim") \
         if a and a["age"] is not None and not a["stopped"] else ("", None)
     q = count(pr.get("questions"))
@@ -454,7 +455,7 @@ def normalize(data) -> dict:
         "project": {**{k: clean(p.get(k)) for k in ("name", "branch", "model", "started", "status", "tone", "stale",
                                                     "state_words", "state", "elapsed", "eta", "next", "last_commit",
                                                     "last_commit_age", "other", "runner", "login", "resets",
-                                                    "last_error")},
+                                                    "last_error", "word")},
                     "stale_min": count(p.get("stale_min")), "commit_stalled": bool(p.get("commit_stalled"))},
         "spin": spin,
         "progress": {**pr, "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6],

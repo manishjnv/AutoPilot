@@ -73,3 +73,31 @@ def test_status_prints_outcome_only_when_set(tmp_path, capsys):
     state.db.close()
     assert cli_main(["status", "-C", str(root)]) == 0
     assert "outcome: BLOCKED" in capsys.readouterr().out
+
+
+def test_interrupted_run_is_budget_stop(tmp_path):
+    root = make_project(tmp_path, phases_basic())
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    def boom():
+        raise KeyboardInterrupt
+    orch.loop = boom
+    try:
+        orch._run()
+    except KeyboardInterrupt:
+        pass
+    assert orch.state.get_meta("outcome") == "BUDGET_STOP"
+    assert events(orch, "run_end") == ["BUDGET_STOP interrupted"]
+    assert run_journal(root)["word"] == "BUDGET_STOP"
+
+
+def test_dashboard_data_and_bar_carry_the_word(tmp_path):
+    from autopilot.dash_term import normalize, status_bar
+    from autopilot.dashboard import dashboard_data
+    root = make_project(tmp_path, phases_basic())
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    orch.reload_plan()
+    run = {"status": "finished", "word": "BUDGET_STOP", "updated_at": "2026-10-11T12:50:09"}
+    data = dashboard_data(orch.cfg, orch.plan, orch.state, run)
+    assert data["project"]["word"] == "BUDGET_STOP"
+    bar = status_bar(normalize(data), 160, False)
+    assert "Stopped BUDGET_STOP" in bar or ("stopped" in bar and "BUDGET_STOP" in bar)
