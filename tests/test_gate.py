@@ -5,8 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
-from autopilot.config import Config
+from autopilot.config import Config, scope_always
+from autopilot.config import tests_mode as gate_tests_mode
 from autopilot.gate import run_commands, scan_secrets, task_gate, test_tamper
 from autopilot.gitops import Git
 from autopilot.proc import agent_env
@@ -347,3 +349,52 @@ def test_task_report_schema_names_every_field_the_gate_reads():
     props = REPORTS["task"]["properties"]
     assert props["scope_additions"]["type"] == "object" and props["new_deps"]["type"] == "array"
     assert {"name", "reason"} <= set(props["new_deps"]["items"]["properties"])
+
+
+class Fake:
+    def __init__(self, **kv):
+        self.kv = kv
+
+    def get(self, key, default=None):
+        return self.kv.get(key, default)
+
+
+def test_scope_always_and_tests_mode_defaults():  # P02-T00 contract
+    assert scope_always(Fake()) == ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]
+    assert gate_tests_mode(Fake()) == "changed"
+    assert scope_always(Fake(**{"gate.scope_always": ["NOTES.md"]})) == ["NOTES.md"]
+    assert gate_tests_mode(Fake(**{"gate.tests": "full"})) == "full"
+
+
+def test_old_project_yaml_without_the_keys(tmp_path):  # a project.yaml from before W19/W22
+    cfg = Config.load(tmp_path)
+    cfg.data.get("gate", {}).pop("scope_always", None)
+    cfg.data.get("gate", {}).pop("tests", None)
+    assert scope_always(cfg) == ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]
+    assert gate_tests_mode(cfg) == "changed"
+    assert not [e for e in cfg.validate() if "gate." in e]
+
+
+def test_gate_keys_validation(tmp_path):
+    cfg = Config.load(tmp_path)
+    cfg.data.setdefault("gate", {})["scope_always"] = "REFERENCE.md"
+    assert any("gate.scope_always must be a list" in e for e in cfg.validate())
+    cfg.data["gate"]["scope_always"] = ["REFERENCE.md", 3]
+    assert any("gate.scope_always must be a list" in e for e in cfg.validate())
+    cfg.data["gate"]["scope_always"] = ["NOTES.md"]
+    assert not [e for e in cfg.validate() if "gate." in e]
+    cfg.data["gate"]["tests"] = "some"
+    assert any("gate.tests must be changed or full, got 'some'" in e for e in cfg.validate())
+    cfg.data["gate"]["tests"] = "full"
+    assert not [e for e in cfg.validate() if "gate." in e]
+
+
+def test_template_gate_block_has_both_keys_with_comments():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "autopilot" / "templates" / "agent" / "project.yaml").read_text(encoding="utf-8")
+    block = text[text.index("\ngate:\n") + 1:].splitlines()[1:]
+    scope = next(line for line in block if line.startswith("  scope_always:"))
+    tests = next(line for line in block if line.startswith("  tests:"))
+    assert "# " in scope and "# " in tests
+    assert yaml.safe_load(scope.strip())["scope_always"] == ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]
+    assert yaml.safe_load(tests.strip())["tests"] == "changed"
