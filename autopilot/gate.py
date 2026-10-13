@@ -84,6 +84,11 @@ class GateResult:
     problems: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
+    def keepable(self) -> bool:
+        """W25: a failure whose diff is worth keeping: only scope lines, or only failed test commands."""
+        return (bool(self.problems) or any(r.rc != 0 for r in self.results)) and all(
+            p.startswith(("outside files_in_scope", "scope_additions")) for p in self.problems)
+
     def report(self, max_chars: int = 6000) -> str:
         parts = [f"PROBLEM: {p}" for p in self.problems]
         for r in self.results:

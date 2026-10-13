@@ -1013,6 +1013,7 @@ class Orchestrator:
             self.decide(task, phase)
         extra, guidance, suggestion, fail_err = False, "", "", ""
         chain, chain_model = None, ""  # the last failed attempt's session, resumable by the next attempt
+        kept = False  # W25: the last failed attempt's diff is still in the tree (scope or test failure only)
         risk = self.effective_risk(task)
         floor = model_rank(row["model"]) if attempts and row["model"] else -1  # U6: never route down
         own_model, own_used, fail_model, fail_why = "", "", "", ""  # J14.6 own fix; J14.8 facts of the last failure
@@ -1032,25 +1033,26 @@ class Orchestrator:
             model = own_model or self.model_for(risk, attempts, floor)
             own_model, self.last_gate = "", last_error or ""  # N11: the last gate output goes into a handoff
             effort = self.cfg.get(f"models.effort.{risk}", "")
-            base = self.git.start_branch(branch, self.main)
+            base = self.git.head() if kept else self.git.start_branch(branch, self.main)
             res = None
             if chain and chain.session_id and model == chain_model:  # same model: continue that session, cache warm
-                res = self.session("task", self.ctx.resume_prompt(task, attempts + 1, last_error), model,
+                res = self.session("task", self.ctx.resume_prompt(task, attempts + 1, last_error, kept), model,
                                    task_id=task.id, phase=phase.id, attempt=attempts + 1, resume=chain, effort=effort)
                 if not res.ok and not res.num_turns and not res.rate_limited:  # the old session is gone: start fresh
                     log.info("resume of %s failed (%s); starting fresh", chain.session_id, res.error[:200])
                     res = None
             if res is None:
-                prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline())
+                prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline(), kept)
                 res = self.session("task", prompt, model, task_id=task.id, phase=phase.id, attempt=attempts + 1,
                                    effort=effort)
             if res.rate_limited:
                 self.git.discard()
+                kept = False
                 continue  # not counted as an attempt
             attempts += 1
             self.state.set_task(task.id, attempts=attempts, model=model)
             self.git.normalize_after_session(branch, base)
-            agent_blocked = False
+            agent_blocked, keep, kept = False, False, False
             cut = bool((res.timed_out or res.stuck) and self.git.staged_files())  # J14.3: a cut session keeps its diff
             if cut:
                 log.info("task %s: session cut (%s); its diff is gated first", task.id, res.error[:120])
@@ -1073,6 +1075,7 @@ class Orchestrator:
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 self._journal(state="Test")
+                wiped = False
                 gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts,
                                  log_path=self.last_log)
                 if not gate.ok and self.env_problem(gate.report()):  # a missing tool, not the agent's code
@@ -1083,6 +1086,7 @@ class Orchestrator:
                         report = gate.report()
                         self.git.discard()
                         self.git.checkout_main(self.main)
+                        wiped = True  # the diff is gone: nothing to keep
                         if self.repair_env(report):  # redo the task on the repaired main; not counted
                             attempts -= 1
                             self.state.set_task(task.id, attempts=attempts)
@@ -1112,6 +1116,7 @@ class Orchestrator:
                         self.git.checkout_main(self.main)
                 else:
                     last_error = gate.report()
+                    keep = gate.keepable() and not cut and not wiped
                     if cut:  # the diff and the gate text become the retry input; nothing is thrown away
                         last_error = (f"session cut ({res.error[:200]}); its diff failed the gate:\n{gate.report()}\n\n"
                                       f"Diff of the cut session (start from it, do not rewrite):\n"
@@ -1124,12 +1129,17 @@ class Orchestrator:
             self.state.set_meta(f"stepup:{task.id}", bool(why))  # survives a restart; a plain test failure clears it
             if why:
                 log.info("task %s escalates to a stronger model: %s", task.id, why)
-            self.git.discard()
+            kept = keep and not why and not (res.timed_out or res.stuck)
+            if not kept:
+                self.git.discard()
             fail_err = last_error or ""
             if (self.cfg.get("unstick.enabled", True) and not self.cfg.lean  # O10: lean = one retry, then park
                     and not self.state.get_meta(f"unstick:{task.id}", False)
                     and (agent_blocked or res.stuck or attempts >= int(self.cfg.get("unstick.after_attempts", 2)))):
+                if kept:  # unstick branches from main: a kept diff must not ride along
+                    self.git.discard()
                 kind, text, rep = self.unstick(task, phase, fail_err)
+                kept = False
                 fix_model, fix_line, fix_label = own_fix(rep.get("suggestion")) if kind != "skip" else ("", "", "")
                 if kind == "owner" and not fix_label:
                     self._park(task, branch, attempts, fail_err)
@@ -1245,6 +1255,7 @@ class Orchestrator:
     GENERIC_QUESTION = "The agent could not complete this task. How must it continue?"
 
     def _park(self, task, branch, attempts, error):
+        self.git.discard()  # W25: a kept diff of the last attempt must not ride along to main
         self.git.checkout_main(self.main)
         self.git.delete_branch(branch)
         self.state.set_task(task.id, status="blocked", last_error=error[-6000:], finished_at=now())
@@ -1465,6 +1476,7 @@ class Orchestrator:
                     self.git.drop_worktree(path, branch)
         except GitError as exc:
             log.warning("could not test main at %s: %s", sha, exc)
+            self.main_due = True  # unknown is not green: test it again at the next loop
             return None
         self.main_results[sha] = red
         return red

@@ -1,5 +1,5 @@
 ## ⚠ Previous attempt {{attempt}} failed verification
-The orchestrator reset the code to the pre-task state. Avoid repeating the same mistake.
+{{reset_line}}
 Failure output:
 ```
 {{errors}}
