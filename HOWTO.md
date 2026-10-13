@@ -15,7 +15,7 @@ setting, use the [reference](REFERENCE.md). The guides use `ap`, the short name 
 | Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [What the script does](#what-the-script-does) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) · [Merge each task through a pull request](#merge-each-task-through-a-pull-request) |
-| Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
+| Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Run with the laptop off](#run-with-the-laptop-off-claude-code-routines) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
 | Accounts and agents | [Limit the usage and the cost](#limit-the-usage-and-the-cost-of-a-run) · [Use an API key](#use-an-api-key-instead-of-a-subscription) · [Use a different agent CLI](#use-a-different-agent-cli) · [Share Autopilot](#share-autopilot-with-a-different-person) |
 | Autopilot itself | [Run the smoke test](#run-the-smoke-test) · [Test a change to a prompt](#test-a-change-to-a-prompt) · [Run the tests of Autopilot](#run-the-tests-of-autopilot) |
 
@@ -287,6 +287,34 @@ This path has not run on a real server yet.
 > [!CAUTION]
 > Do not give production secrets to the agent. Your deploy commands must read them from CI or from the server.
 
+## Run with the laptop off (Claude Code Routines)
+
+This path has not been run live yet (written 2026-10-13). The prompt is tested for its commands only.
+
+A Claude Code Routine is a scheduled cloud run. Anthropic's cloud starts a Claude Code session on a schedule. The session
+clones your repository, runs one Autopilot build, pushes the branches it made, and stops. Your laptop can be off.
+
+1. Connect the repository in your Claude Code Routines settings. Use the repository that holds `.agent/`.
+2. Open `examples/routine/prompt.md` in this repository. Paste its whole text as the prompt of the routine.
+3. Set the schedule, for example once each night. Each run starts a new build from the plan in the repository.
+4. Set the budget in `.agent/project.yaml` before the first run:
+   - `budget_usd.per_session` and `budget_usd.total` cap the cost. A run stops when a cap is spent.
+   - `scheduling.max_sessions_per_run` caps the number of sessions. The prompt sets it to 3 for its run.
+5. Start the routine once by hand. Wait for it to end.
+6. Read the result in the next `ap status`. The line `outcome: <word>` shows how the run ended, for example
+   `VERIFIED` or `BUDGET_STOP`. The branches are on the remote for you to review.
+
+> [!CAUTION]
+> The routine has no one to answer a question. A task that needs you parks and waits for your next run.
+> Do not give production secrets to the routine. Keep deploy keys out of the cloud run.
+
+Check these first when you run it for the first time:
+
+- Does `uv` exist in the routine's environment? The prompt installs `ap` with `uv tool install dev-autopilot`.
+- Can the routine's session log in to Claude Code? Without a login, no task can run.
+- Can the routine push to the remote? Without push rights, the branches stay in the cloud copy only.
+- Does `ap status` show an `outcome:` line after the run? If not, read the log in the routine's output.
+
 ## Open the status page from a different computer
 
 The status page shows task errors and open questions. By default, it is available only on the computer that runs
@@ -334,6 +362,28 @@ Shell commands in a session can then connect only to these domains. Other effect
 
 When the run reaches the reserve, it pauses until the window resets. When it reaches the `daily` limit, it sleeps
 until the next day. When it reaches the `total` limit, it stops. The `usage` keys apply to a subscription only.
+
+## Use a local model
+
+Use a model on your own computer (Ollama or LM Studio) for low-risk tasks. Nothing leaves the machine and it costs nothing.
+
+1. Start the server, for example `ollama serve`, and pull a coding model: `ollama pull qwen2.5-coder:7b`.
+2. In `.agent/project.yaml`, set:
+
+   ```yaml
+   agent:
+     backend: openai_compat
+     base_url: http://localhost:11434/v1
+     model_map:
+       haiku: qwen2.5-coder:7b
+   ```
+
+3. Send only low-risk tasks to it. The `low` tier of `models.ladder` is `[haiku, sonnet, opus]`, so the first attempt of a low-risk task uses `haiku`, which the map sends to the local model. Higher tiers keep the Claude models.
+4. Run `ap doctor`. The `endpoint` row says whether the server answers.
+
+> [!NOTE]
+> The local model cannot run tools or tests. It writes files and a report only. The gate runs the tests and the checks
+> after each task, so a weak model fails the gate instead of passing it. Keep it on small tasks.
 
 ## Use an API key instead of a subscription
 
@@ -441,6 +491,46 @@ shows the effect of a prompt change.
 
 4. Ask your IDE chat for the status of the build. The chat calls `ap_status`.
 
+## Stop a run and still get a word
+
+Press Ctrl+C during `ap start`. The run stops and stores the outcome word BUDGET_STOP, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped". See [Run outcome](REFERENCE.md#run-outcome).
+
+## Local models
+
+Run low-risk tasks on a model on your own computer (Ollama or LM Studio). Nothing leaves the machine and it costs nothing.
+
+1. Start the server and pull a coding model, for example `ollama pull qwen2.5-coder:7b`.
+2. In `.agent/project.yaml`, set `agent.backend: openai_compat`. Optionally set `agent.base_url` (default
+   `http://localhost:11434/v1`) and `agent.model_map` (for example `haiku: qwen2.5-coder:7b`).
+3. Run `ap doctor`. The `endpoint` row says whether the server answers. It warns and never fails when the server is down.
+
+The model cannot run tools. It writes each file as a fenced block and Autopilot writes the files into the worktree.
+A path outside the worktree is refused. The gate then runs the tests and the checks, so a weak model fails the gate.
+See [Use a local model](HOWTO.md#use-a-local-model).
+
+## VS Code extension
+
+A thin side panel for VS Code. It lives in `vscode/`. It has no chat participant.
+
+1. Run `Autopilot: Start`, `Autopilot: Answer` or `Autopilot: Stop` from the command palette. Each one sends `ap start`, `ap answer` or `ap stop` to a terminal named Autopilot. The terminal is reused when it is open.
+2. Open the Autopilot view in the Explorer side bar. It shows the status page of the run.
+3. The view reads the port from `.agent/status.port`. `ap start` writes that file with the port the status page uses, and new projects ignore it in git. When nothing answers, the view says to run `ap` first.
+
+Build it with `cd vscode`, `npm install` and `npx tsc --noEmit`. See [vscode/README.md](vscode/README.md). This repository does not publish the extension.
+
+## Stop hook in the plugin
+
+The Claude Code plugin adds a Stop hook. Claude cannot say "done" while the tests fail.
+
+- The hook runs your test command: `commands.test` in `.agent/project.yaml`, else `python -m pytest -q` or `npm test`.
+- If the tests fail, the hook blocks the stop and gives Claude a plain reason.
+- If a test file has fewer lines than at HEAD, the hook blocks the stop too.
+- On a clean repository the hook prints nothing and exits 0.
+- One session gets at most five blocks. The sixth stop goes through.
+
+Install the plugin from `.claude-plugin/marketplace.json`. The hook is `plugin/hooks/hooks.json`; the script is
+`plugin/scripts/seal.py`.
+
 ## Start from inside Claude Code
 
 You can start a build from a Claude Code chat in the terminal, in VS Code, or in the desktop app. The build uses
@@ -469,7 +559,7 @@ Install Autopilot and start a build for me. Show me each command before you run 
 ```
 
 Then type `/autopilot` and your idea. `/autopilot status`, `/autopilot answer` and `/autopilot stop` control the
-run. If a different command has the same name, use the full name `/autopilot:autopilot`. The plugin has no hooks. It only runs `autopilot` commands, and it asks before it installs Autopilot.
+run. If a different command has the same name, use the full name `/autopilot:autopilot`. The plugin adds a Stop hook. When Claude Code tries to stop, the hook runs the project test command. It blocks the stop if the tests fail or a test file lost lines (at most 5 times in one session). Turn it off with `/plugin disable autopilot`. Autopilot's own sessions do not load plugins (`--setting-sources`), so the hook never runs inside a build. The slash command only runs `autopilot` commands, and it asks before it installs Autopilot.
 
 Both options start the build with `--detach`. The build is a separate process, so it continues after you close the
 chat. Stop it with `ap stop -C "<folder>"`.

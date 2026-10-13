@@ -149,7 +149,8 @@ def pr_run(tmp_path, checks=(), fake=None):
 def test_pr_mode_merges_on_github_when_ci_is_green(tmp_path):
     root, remote, orch, outcome = pr_run(tmp_path)
     assert outcome == "plan complete"
-    assert orch._gh.calls == ["pr create", "pr checks", "pr merge"] * 2  # P01-T01 and P01-T02
+    calls = [c for c in orch._gh.calls if c != "pr ready"]  # W6: a task with a criterion no test mentions opens a draft, marked ready after green CI
+    assert calls == ["pr create", "pr checks", "pr merge"] * 2  # P01-T01 and P01-T02
     assert git(remote, "rev-parse", "main") == git(root, "rev-parse", "main")
     assert "[autopilot] P01-T01" in git(root, "log", "--format=%s")
     assert git(root, "ls-remote", "--heads", "origin", "autopilot/P01-T01") == ""  # branch cleaned up
@@ -159,7 +160,8 @@ def test_red_ci_closes_the_pr_and_retries_with_the_ci_output(tmp_path):
     fake = FakeBackend()
     _, _, orch, outcome = pr_run(tmp_path, checks=[(1, "unit-tests\tfail\t1m2s")], fake=fake)
     assert outcome == "plan complete" and orch.state.task("P01-T01")["attempts"] == 2
-    assert orch._gh.calls[:6] == ["pr create", "pr checks", "pr close", "pr create", "pr checks", "pr merge"]
+    calls = [c for c in orch._gh.calls if c != "pr ready"]  # W6: draft, then ready after green CI
+    assert calls[:6] == ["pr create", "pr checks", "pr close", "pr create", "pr checks", "pr merge"]
     retry = [p for t, p in fake.prompts if t == "P01-T01"][1]
     assert "CI failed on the pull request" in retry and "unit-tests" in retry
 

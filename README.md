@@ -3,6 +3,8 @@
 Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
 It is for one developer, or for a person with an idea and a developer friend.
 
+Python decides when a task is done, not the model. Every step is recorded. Works on Windows. Runs any coding agent CLI.
+
 **Give it a plan tonight. Wake up to a working app, and proof that it works.** Claude Code (the coding agent) writes the code; Python code decides when a task is complete.
 
 [![CI](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml)
@@ -68,6 +70,29 @@ Two real projects built from a plan:
 | Cost at API prices | $17.13 | $19.01 |
 
 Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot fixed all. envguard is private; numbers come from the run log.
+
+## What every run proves
+
+- [Outcome word](REFERENCE.md#run-outcome): every run ends with VERIFIED, BLOCKED, BUDGET_STOP, STALLED or FAILED.
+- [Not proven list](REFERENCE.md#not-proven-list): each phase lists the criteria that no changed test mentions.
+- [Replay](REFERENCE.md#commands): `ap tour` replays a recorded run offline, with no login and no network.
+- [Fresh review](REFERENCE.md#fresh-context-review): a fresh session reviews each task before it merges.
+- [Signed receipt](REFERENCE.md#signed-receipt): `ap verify` checks each closed phase against its signature.
+- [Draft PR](REFERENCE.md#draft-pull-request): a task with a warning or an untested criterion opens as a draft.
+- [Proof card](REFERENCE.md#proof-card-and-badge): each closed phase writes `proof.svg` and a badge line.
+- [Retry cost](REFERENCE.md#commands): `ap audit --history` prices your past retries in Claude Code.
+
+## Safety
+
+- The gate runs your build, lint and test commands before each merge.
+- The plan cannot change during a run.
+- Budget caps apply per task, phase, day and run ([settings](REFERENCE.md#settings)).
+- A network allowlist applies when `sandbox.enabled` is true or `sandbox.mode` is `allowlist`.
+- `sandbox.mode: docker` runs each Claude Code session in a plain container. Only the worktree is mounted, never your home folder ([settings](REFERENCE.md#settings)).
+- Every task runs in its own git worktree.
+- Secrets are scrubbed from logs.
+- `ap run --no-prod` keeps production untouched.
+- `ap verify` checks the signed record.
 
 ## Install
 

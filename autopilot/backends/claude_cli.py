@@ -9,8 +9,9 @@ import shutil
 import time
 from pathlib import Path
 
+from ..config import allowlist_on, sandbox_mode
 from ..proc import agent_env, stream_proc
-from . import SessionRequest, SessionResult, detect_infra, detect_limit, parse_report, since
+from . import SessionRequest, SessionResult, detect_infra, detect_limit, docker_box, parse_report, since
 
 progress = logging.getLogger("autopilot")
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
@@ -257,7 +258,7 @@ class ClaudeCLIBackend:
             cmd += ["--resume", req.resume]
         if req.mcp_config:  # only these servers, not the project's own .mcp.json
             cmd += ["--mcp-config", req.mcp_config, "--strict-mcp-config"]
-        elif req.no_tools or c.get("sandbox.enabled"):  # no MCP servers at all (they'd run outside the sandbox)
+        elif req.no_tools or allowlist_on(c):  # no MCP servers at all (they'd run outside the sandbox)
             cmd += ["--strict-mcp-config"]
         if int(c.get("agent.max_turns", 0) or 0):
             cmd += ["--max-turns", str(int(c.get("agent.max_turns")))]
@@ -281,7 +282,7 @@ class ClaudeCLIBackend:
             denied += WEB_ONLY_DENY
         if req.no_tools:
             denied += NO_TOOLS_DENY
-        if c.get("sandbox.enabled"):
+        if allowlist_on(c):
             cmd += ["--settings", json.dumps(sandbox_settings(c), separators=(",", ":"))]
             # The sandbox covers shell commands only, so a session gets the web or the repo, never both.
             denied += FILE_READ_TOOLS if req.web_only else WEB_TOOLS
@@ -297,7 +298,12 @@ class ClaudeCLIBackend:
         return cmd
 
     def run(self, req: SessionRequest) -> SessionResult:
-        cmd = self.build_cmd(req)
+        if sandbox_mode(self.cfg) == "docker":  # W11: the same argv, run by `claude` inside a plain container
+            with docker_box.wrapped(self.cfg, self.build_cmd(req), req.cwd, self.env()) as cmd:
+                return self._run(req, cmd)
+        return self._run(req, self.build_cmd(req))
+
+    def _run(self, req: SessionRequest, cmd: list[str]) -> SessionResult:
         prompt = f"{req.system_append}\n\n---\n\n{req.prompt}" if req.system_append and self.shim else req.prompt
         watch = stuck_watch(int(self.cfg.get("agent.stuck_repeats", 4) or 0))
         started = time.monotonic()
@@ -330,7 +336,7 @@ class ClaudeCLIBackend:
         try:
             p = stream_proc(cmd, input=prompt, cwd=req.cwd, env=self.env(), timeout=req.timeout_sec, on_line=on_line)
         except OSError as exc:
-            return SessionResult(ok=False, error=f"cannot start claude ({self.binary}): {exc}", infra="cli")
+            return SessionResult(ok=False, error=f"cannot start claude ({cmd[0]}): {exc}", infra="cli")
         finally:
             if log:
                 log.write(f"\n\nSTDERR:\n{p.stderr if p else ''}")

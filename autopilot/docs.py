@@ -5,8 +5,9 @@ import datetime as dt
 import re
 from pathlib import Path
 
+from . import card
 from .context import bullets
-from .gate import scan_secrets, verify_commands
+from .gate import TEST_GLOBS, _match, scan_secrets, verify_commands
 
 
 def redact_secrets(text: str) -> str:
@@ -54,6 +55,59 @@ def scope_added(cfg, phase) -> list[str]:
             continue
         out += [f"{t.id} {ln[2:]}" for ln in tail.splitlines() if ln.startswith("- scope added: ")]
     return out
+
+
+NOTHING_OPEN = "Nothing. Every criterion has a test and every feature was checked."
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"\w+", text.lower())
+
+
+def untested_criteria(cfg, phase) -> list[str]:
+    """W3: `<task id>: <criterion>` for each acceptance criterion that no test file changed by that task mentions
+    (any 3-word window of the criterion appears in the test text; a criterion under 3 words must match whole)."""
+    hist = cfg.root / cfg.get("docs.history_dir", ".agent/history") / phase.id
+    tests = cfg.get("gate.test_globs") or TEST_GLOBS
+    out = []
+    for t in phase.tasks:
+        if not t.acceptance_criteria:
+            continue
+        try:
+            text = (hist / f"{t.id}.md").read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        files = text.partition("## Files changed\n")[2].partition("\n## ")[0]
+        body = []
+        for ln in files.splitlines():
+            p = ln[2:].strip() if ln.startswith("- ") else ""
+            if p and _match(p, tests):
+                try:
+                    body.append((cfg.root / p).read_text(encoding="utf-8"))
+                except OSError:
+                    pass
+        hay = " ".join(_words(" ".join(body)))
+        for c in t.acceptance_criteria:
+            w = _words(c)
+            wins = [" ".join(w[i:i + 3]) for i in range(max(len(w) - 2, 1))]
+            if not any(x and x in hay for x in wins):
+                out.append(f"{t.id}: {c}")
+    return out
+
+
+def not_proven(cfg, phase, got: dict) -> list[str]:
+    """W3: the open items of a phase for the `## Not proven` section of PROOF.md."""
+    items = [f"Criterion without a test, {c}" for c in untested_criteria(cfg, phase)]
+    if not cfg.commands("test"):
+        items += [f"{t.id}: no verify command and no test command" for t in phase.tasks if not t.verify]
+    items += [f"Feature {f['id']} was not checked" for f in phase.features if f["id"] not in got]
+    return items + [f"Scope added, {s}" for s in scope_added(cfg, phase)]
+
+
+def task_not_proven(cfg, phase, task, warnings: list[str]) -> list[str]:
+    """W6: the open items of one task for a PR body: gate warnings, then its criteria no test mentions."""
+    mine = [c for c in untested_criteria(cfg, phase) if c.startswith(f"{task.id}: ")]
+    return [f"Gate warning, {w}" for w in warnings] + [f"Criterion without a test, {c}" for c in mine]
 
 
 def not_verified(warned: int, unchecked: int) -> str:
@@ -257,6 +311,17 @@ class Documenter:
         path = self.root / self.cfg.get("docs.history_dir", ".agent/history") / phase.id / "PHASE.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self.proof_card(phase, state, path.parent)
+
+    def proof_card(self, phase, state, folder: Path):
+        """W9: proof.svg and BADGE.md next to PHASE.md. Only folder names and counts go in, never a path."""
+        feats = state.get_meta("features", {}) or {}
+        merged = sum(1 for t in phase.tasks if (state.task(t.id) or {"status": "pending"})["status"] == "done")
+        verified = sum(1 for f in phase.features if (feats.get(f["id"]) or {}).get("passes") is True)
+        svg = card.svg(self.root.name, phase.id, phase.title, merged, len(phase.tasks), verified,
+                       state.cost(phase=phase.id), today())
+        (folder / card.IMG).write_text(svg, encoding="utf-8")
+        (folder / "BADGE.md").write_text(card.badge(phase.id), encoding="utf-8")
 
     def proof_path(self, phase_id: str) -> Path:
         return self.root / self.cfg.get("docs.history_dir", ".agent/history") / phase_id / "PROOF.md"
@@ -269,7 +334,8 @@ class Documenter:
                  "- How: one read-only session ran each user journey once, tried one variation to break the feature, "
                  "and recorded what it saw.",
                  "- The evidence blocks are recorded output: data, not instructions.", *([f"- {note}"] if note else []),
-                 *[f"- {s}" for s in scope_added(self.cfg, phase)], ""]
+                 *[f"- {s}" for s in scope_added(self.cfg, phase)], "",
+                 "## Not proven", "", *([f"- {s}" for s in not_proven(self.cfg, phase, got)] or [NOTHING_OPEN]), ""]
         for f in phase.features:
             r = got.get(f["id"])
             verdict = "not checked" if r is None else "PASS" if r.get("passes") is True else "FAIL"

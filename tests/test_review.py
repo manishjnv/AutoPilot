@@ -1,7 +1,11 @@
-"""A critical task gets one read-only review of its diff after the gate and before the merge."""
+"""A critical task (W4: with review.scope all, every task above low risk) gets one read-only review of its diff after
+the gate and before the merge."""
 from pathlib import Path
 
+import yaml
+
 from autopilot.backends import SessionResult
+from autopilot.config import TEMPLATES, Config, defaults
 from autopilot.orchestrator import Orchestrator
 from autopilot.schemas import REPORTS
 from test_autopilot import FakeBackend, git, make_project
@@ -131,3 +135,64 @@ def test_verdict_on_the_second_try_merges(tmp_path):
 
 def test_review_report_schema_needs_a_verdict():
     assert REPORTS["review"]["required"] == ["verdict"]
+
+
+# W4: review.scope
+ALL = {"review": {"scope": "all"}}
+
+
+def test_scope_all_reviews_a_medium_task_and_a_finding_blocks_the_merge(tmp_path):
+    fake = Reviewer(reviews=[{"verdict": "fail", "summary": "bad", "findings": ["src/b.py:9 — wrong sum — fix it"]},
+                             {"verdict": "pass"}])
+    _, orch = run(tmp_path, phases({"risk": "medium"}), fake, cfg=ALL)
+    assert orch.state.task("P01-T01")["attempts"] == 2 and orch.state.task("P01-T01")["status"] == "done"
+    assert len(reviews(fake)) == 2
+    assert "REVIEW of the medium task" in fake.prompts[-1][1] and "src/b.py:9 — wrong sum — fix it" in fake.prompts[-1][1]
+
+
+def test_scope_critical_gives_a_medium_task_no_review(tmp_path):
+    fake = Reviewer()
+    run(tmp_path, phases({"risk": "medium"}), fake, cfg={"review": {"scope": "critical"}})
+    assert not reviews(fake)
+
+
+def test_scope_all_skips_a_low_task(tmp_path):
+    fake = Reviewer()
+    run(tmp_path, phases({"risk": "low"}), fake, cfg=ALL)
+    assert not reviews(fake)
+
+
+def test_review_prompt_has_the_spec_diff_and_tests_and_nothing_from_the_build_session(tmp_path):
+    fake = Reviewer()
+    root = make_project(tmp_path, phases({"risk": "medium", "acceptance_criteria": ["the widget example works"]}),
+                        {**NO_AUDIT, **ALL})
+    for name in ("DECISIONS.md", "HANDOFF.md"):
+        p = root / ".agent" / name
+        p.write_text((p.read_text(encoding="utf-8") if p.exists() else "") + "\n- SESSION note example\n", encoding="utf-8")
+    assert Orchestrator(root, backend=fake, sleep=lambda s: None).run() == "plan complete"
+    text = next(r.prompt for r in fake.reqs if r.prompt.startswith("# Assignment: review task"))
+    build = fake.prompts[0][1].splitlines()[0]
+    assert "the widget example works" in text and "src/P01-T01.txt" in text and "## Test output" in text
+    assert "SESSION" not in text and "-task-P01-T01.log" not in text and build not in text
+
+
+def test_scope_all_keeps_parallel_medium_tasks_reviewed(tmp_path):
+    fake = Reviewer()
+    _, orch = run(tmp_path, phases({"risk": "medium", "files_in_scope": ["src/P01-T01.txt"]},
+                                   {"risk": "medium", "files_in_scope": ["src/P01-T02.txt"]}), fake, cfg=ALL)
+    assert len(reviews(fake)) == 2
+    assert all(orch.state.task(t)["status"] == "done" for t in ("P01-T01", "P01-T02"))
+
+
+def test_review_scope_config_is_validated(tmp_path):
+    def errors(review):
+        root = tmp_path / str((review or {}).get("scope", "none"))
+        (root / ".agent").mkdir(parents=True)
+        cfg = {"name": "demo", "commands": {"test": ["echo ok"]}, **({"review": review} if review else {})}
+        (root / ".agent" / "project.yaml").write_text(yaml.safe_dump(cfg))
+        return [e for e in Config.load(root).validate() if "review.scope" in e]
+    bad = errors({"scope": "sometimes"})
+    assert bad and "review.scope must be critical or all" in bad[0] and "'sometimes'" in bad[0]
+    assert not errors({"scope": "all"}) and not errors(None)
+    assert defaults()["review"]["scope"] == "critical"
+    assert "scope: all" in (TEMPLATES / "agent" / "project.yaml").read_text(encoding="utf-8")

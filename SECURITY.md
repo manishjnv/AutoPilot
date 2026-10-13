@@ -47,3 +47,14 @@ Four presets let the agent run every tool without a prompt. This is not limited 
 ## Rights the installer takes
 
 The installer takes rights once, with one prompt, so a later run never asks. On Windows it creates the scheduled task `Autopilot-Setup` with the highest run level. The task runs only `%ProgramData%\Autopilot\setup.ps1`. Only Administrators can change that script. The script installs only `winget` ids from the queue file in the same folder. On Linux it writes `/etc/sudoers.d/autopilot` for `apt-get`, `dpkg`, `snap` and `brew`. You accept this standing elevation when you run the installer on a solo PC. On a shared PC, do not run the installer. Remove the rights with `ap uninstall --rights`.
+
+## Docker sandbox
+
+With `sandbox.mode: docker` each Claude Code session runs in a container from `sandbox.image`. The container protects
+the rest of the computer: only the worktree (at `/work`), its git folders (the shared one read-only) and a temp copy
+of the login file are mounted. Your home folder is not mounted, and secret variables pass by name only, so their values
+never appear in the command line. The container and the temp folder are removed after each session.
+
+It does not protect the network. The API host must be reachable, and the default `bridge` network is open egress
+unless `sandbox.enabled: true` also turns on the allowlist. A mount outside the worktree, such as an absolute
+`mcp_config` path, is not visible inside the container.
