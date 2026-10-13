@@ -99,6 +99,10 @@ Set `git.mode: pr` in `project.yaml` and each task opens a pull request. If the 
 
 When a phase closes, Autopilot writes two files next to `PHASE.md` in `.agent/history/<phase>/`. `proof.svg` is a 600x200 card. It shows the project name, the phase, the tasks merged of the total, the verified features, the cost and the date. It holds no absolute path, and it stays valid XML when a phase title has `<` or `&`. `BADGE.md` holds one markdown image line, `![Built by Autopilot](proof.svg)`, and the repo-relative path `.agent/history/<phase>/proof.svg`. Paste that path into your README to show the badge. The signed receipt covers both files. See [REFERENCE.md](REFERENCE.md).
 
+## ap audit --history
+
+Run `ap audit --history` to see what retries cost you in Claude Code, before you use Autopilot. It reads the session files in `~/.claude/projects/` on your machine. It prints one row per project: sessions, tokens, tool calls and repeats. A repeat is the same Bash command that fails three or more times in one session. The last line says how much those retries cost at public API rates, for example `Retries cost about $X of $Y.` Use `--days N` to change the 30-day window and `--home PATH` to read another folder. If the folder does not exist, it prints `No Claude Code history found.` and exits 0. The command works outside a project folder, needs no network, writes no file, and never prints a prompt or a command. Plain `ap audit` still runs the completion audit. See [REFERENCE.md](REFERENCE.md).
+
 ## Install
 
 Three steps, no administrator prompt.
