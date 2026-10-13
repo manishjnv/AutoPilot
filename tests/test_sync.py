@@ -149,7 +149,8 @@ def pr_run(tmp_path, checks=(), fake=None):
 def test_pr_mode_merges_on_github_when_ci_is_green(tmp_path):
     root, remote, orch, outcome = pr_run(tmp_path)
     assert outcome == "plan complete"
-    assert orch._gh.calls == ["pr create", "pr checks", "pr merge"] * 2  # P01-T01 and P01-T02
+    calls = [c for c in orch._gh.calls if c != "pr ready"]  # W6: a task with a criterion no test mentions opens a draft, marked ready after green CI
+    assert calls == ["pr create", "pr checks", "pr merge"] * 2  # P01-T01 and P01-T02
     assert git(remote, "rev-parse", "main") == git(root, "rev-parse", "main")
     assert "[autopilot] P01-T01" in git(root, "log", "--format=%s")
     assert git(root, "ls-remote", "--heads", "origin", "autopilot/P01-T01") == ""  # branch cleaned up
