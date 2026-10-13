@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W13: `agent.backend: openai_compat` sends each session to an OpenAI-compatible `/chat/completions` endpoint (`agent.base_url`, default Ollama `http://localhost:11434/v1`; `agent.model_map`; optional `agent.api_key_env` for a Bearer token) and writes the fenced `path:` file blocks of the answer into the worktree. A path outside the worktree is refused and nothing is written.
 - W11: `sandbox.mode: docker` runs each Claude Code session in `docker run --rm -i` from `sandbox.image`, with only the worktree at `/work`, its git folders (the shared one read-only) and a temp copy of `~/.claude/.credentials.json` mounted; secrets pass by name only, and the container and the temp folder are removed after the session. `sandbox.enabled` alone still means the allowlist.
 - W11: `ap doctor` prints the docker row in docker mode, the gate and doctor read `sandbox.mode: allowlist` as `sandbox.enabled: true`, and REFERENCE and SECURITY document the mode.
 - W10: HOWTO `Run with the laptop off (Claude Code Routines)` and `examples/routine/prompt.md`, a Routine prompt that installs `ap`, runs `ap run --no-prod` with `scheduling.max_sessions_per_run: 3`, pushes the `autopilot/` branches and ends with `ap status`. Not run live yet (2026-10-13); tests/test_routine.py checks the commands exist.
@@ -144,3 +145,4 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - 2026-10-13 **P11-T01** sandbox.mode key: the one mode rule and its config checks — Added sandbox_mode(cfg) and allowlist_on(cfg) to config.py and rewrote _sandbox_errors on top of them. It rejects an unknown mode, docker without sandbox.image, docker with a non-claude_cli backend, a
 - 2026-10-13 **P11-T02** docker run wrapper for the Claude CLI backend — With sandbox.mode: docker, ClaudeCLIBackend.run wraps the unchanged build_cmd argv in docker run --rm -i via the new docker_box.wrapped(). Only the worktree (at /work), its git folders (the shared one
 - 2026-10-13 **P11-T03** Doctor docker line, gate reader and the docker docs — Implemented Doctor docker line, gate reader and the docker docs.
+- 2026-10-13 **P12-T01** openai_compat backend — Added autopilot/backends/openai_compat.py: one non-streaming urllib POST to <base_url>/chat/completions with model_map, an optional Bearer key from agent.api_key_env, fenced `path:` file blocks writte
