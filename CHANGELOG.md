@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W27: the task prompt lists the text of each file named exactly in `files_in_scope` (a missing file is `(new file)`, globs are not expanded, `gate.scope_always` docs are left out), capped by `context.scope_chars` (60000). A file that does not fit gives its first 80 lines and its `def` / `class` lines.
 - W40: a failed review keeps its findings as a numbered list. The retry fixes exactly that list; the next review checks each listed finding first (`fixed` or `open`). A new defect fails the task only when it breaks an acceptance criterion, otherwise it goes to `.agent/FOLLOWUPS.md` and the task merges. A medium task over 8 files or 250 lines (tests and docs excluded) gets a `split signal` and no escalation.
 - W41: a retry moves to a stronger model only on hard work. Test files and the always-allowed docs no longer count toward `escalate.max_diff_files` and `max_diff_lines`; a failure of only growth, scope or lint problems retries on the same model with the exact problem named; the task prompt lists the lines left for each scoped file within 40 lines of its growth budget.
 
@@ -232,3 +233,4 @@ to run. A short outage at the AI service no longer ends your build. Login works 
 - 2026-10-14 **P01-T04** W23 The model ladder is measured, not assumed — Added `ap audit --ladder` in commands/audit.py, wired in cli.py. It reads the project's state.db read-only and prints, per model and risk, finished tasks, median minutes per task (the sum of the task'
 - 2026-10-14 **P02-T01** W41 Escalate on hard work, not on file count or a mechanical gate failure — The retry now escalates only on hard work. The size rule ignores test files, `gate.scope_always` files and `.agent/`, and a gate failure made only of growth, scope or lint problems returns '' from `es
 - 2026-10-14 **P02-T02** W40 A retry fixes the review's list; the next review checks that list first — A failed review's findings are now kept per task (state meta review_list:<id>) and shown in the retry prompt as a numbered list under 'Fix exactly these review findings, nothing else:'. The next revie
+- 2026-10-14 **P02-T03** W27 Scoped files in the prompt — Added autopilot/scope_files.py with scoped_files_block(root, files, cap, skip); task_prompt appends the '## Files in scope (current content)' block (exact files in list order, '(new file)' for missing
