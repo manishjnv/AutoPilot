@@ -1,0 +1,32 @@
+{
+  "name": "autopilot-vscode",
+  "displayName": "Autopilot",
+  "description": "Start, answer and stop Autopilot runs and see the status page in the side bar.",
+  "version": "0.1.0",
+  "publisher": "manishjnv",
+  "license": "MIT",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "autopilot.start", "title": "Autopilot: Start" },
+      { "command": "autopilot.answer", "title": "Autopilot: Answer" },
+      { "command": "autopilot.stop", "title": "Autopilot: Stop" }
+    ],
+    "views": {
+      "explorer": [
+        { "type": "webview", "id": "autopilotStatus", "name": "Autopilot" }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "vscode:prepublish": "tsc -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.0"
+  }
+}

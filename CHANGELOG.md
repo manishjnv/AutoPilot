@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W12: `vscode/` has a thin VS Code extension: commands Autopilot Start, Answer and Stop run `ap` in a terminal named Autopilot, and an Explorer view shows the status page (port from `.agent/status.port`). Not published.
 - W13: `agent.backend: openai_compat` sends each session to an OpenAI-compatible `/chat/completions` endpoint (`agent.base_url`, default Ollama `http://localhost:11434/v1`; `agent.model_map`; optional `agent.api_key_env` for a Bearer token) and writes the fenced `path:` file blocks of the answer into the worktree. A path outside the worktree is refused and nothing is written.
 - W13: `ap doctor` and `ap preflight` print an `endpoint` row for `openai_compat` (OK when the endpoint answers, WARN when it does not, never FAIL).
 - W11: `sandbox.mode: docker` runs each Claude Code session in `docker run --rm -i` from `sandbox.image`, with only the worktree at `/work`, its git folders (the shared one read-only) and a temp copy of `~/.claude/.credentials.json` mounted; secrets pass by name only, and the container and the temp folder are removed after the session. `sandbox.enabled` alone still means the allowlist.
@@ -149,3 +150,4 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - 2026-10-13 **P12-T01** openai_compat backend — Added autopilot/backends/openai_compat.py: one non-streaming urllib POST to <base_url>/chat/completions with model_map, an optional Bearer key from agent.api_key_env, fenced `path:` file blocks writte
 - 2026-10-13 **P12-T02** Doctor endpoint line and the local-model docs — Added check_endpoint in doctor.py (OK 'endpoint: <url> answers' when any HTTP answer comes back, WARN 'does not answer (start Ollama or LM Studio)' otherwise, never raises). checks() and check_runner_
 - 2026-10-13 **P13-T01a** Status page port file — start_status_page now writes `<root>/.agent/status.port` with the port it bound (digits and a newline; an OSError on write is ignored). `.agent/status.port` is in the new-project gitignore template, a
+- 2026-10-13 **P13-T01** vscode/ extension skeleton with three commands and the webview — Added the thin VS Code extension in vscode/. It has the three commands (`autopilot.start`, `autopilot.answer`, `autopilot.stop`), which send `ap start`, `ap answer` and `ap stop` to a reused terminal 
