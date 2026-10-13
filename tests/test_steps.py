@@ -92,8 +92,10 @@ def test_the_install_method_is_recorded_and_ap_upgrade_reads_it_back(tmp_path, m
     assert detect_install(file=f, which=lambda n: None, run=FakeRun()) == "pip"  # a recorded uv that is gone falls back
 
 
-def test_upgrade_uses_the_command_of_the_recorded_method(monkeypatch):
+def test_upgrade_uses_the_command_of_the_recorded_method(tmp_path, monkeypatch):
     from test_upgrade import GH_JSON, fake_open
+    monkeypatch.chdir(tmp_path)  # the upgrade's migration writes .gitignore and .agent/backup-legacy in the cwd
+    monkeypatch.setattr("autopilot.upgrade.checkout_root", lambda file=None: None)  # not a git checkout: no git pull
     monkeypatch.setattr("autopilot.upgrade.__version__", "0.3.0")
     steps.remember_method("autopilot", "pip")
     run = FakeRun({"gh release view": GH_JSON})
