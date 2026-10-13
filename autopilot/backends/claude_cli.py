@@ -15,6 +15,7 @@ from . import SessionRequest, SessionResult, detect_infra, detect_limit, docker_
 
 progress = logging.getLogger("autopilot")
 READ_ONLY_DENY = ["Edit", "Write", "NotebookEdit"]
+KILL_DENY = ("Bash(taskkill:*)", "Bash(pkill:*)", "Bash(killall:*)", "Bash(Stop-Process:*)")  # W37: by pid only
 # Deny-list, not --tools: --tools might also drop the synthetic tool that --json-schema relies on.
 WEB_ONLY_DENY = ["Bash", "Agent", "Task"]
 # Untrusted issue text: nothing to read (it could copy secrets into a committed task), run or fetch.
@@ -275,7 +276,8 @@ class ClaudeCLIBackend:
         allowed = c.get("agent.allowed_tools", [])
         if allowed:
             cmd += ["--allowedTools", *allowed]
-        denied = list(c.get("agent.disallowed_tools", []))
+        denied = list(c.get("agent.disallowed_tools", []))  # a project list replaces the template list
+        denied += [d for d in KILL_DENY if d not in denied]  # always, so a session never kills by name
         if req.read_only:
             denied += READ_ONLY_DENY
         if req.web_only:  # research reads untrusted pages: no shell, no subagents (removed even under bypass)

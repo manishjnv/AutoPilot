@@ -210,6 +210,7 @@ class Orchestrator:
         self.tracker = outage.Tracker()  # Q22: outage and repeated-error counters of this run (monotonic clock)
         self.outage_waits = 0  # Q22.1: 15-minute waits taken for a vendor outage in this run (outage.OUTAGE_WAITS at most)
         self.last_gate = ""  # N11
+        self.last_log = ""  # W37: the log of the last session, read by the task gate
         self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
         self.env_repair_tried = False  # self-healing: one environment repair session per run
         self.git_offline = ""   # self-healing: why this run neither pulls nor pushes ('' = it does)
@@ -813,6 +814,7 @@ class Orchestrator:
         sid = self.state.start_session(kind, task_id, phase, attempt, model)
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
+        self.last_log = str(log_path)
         log.info("session #%s %s %s model=%s attempt=%s", sid, kind, task_id or "", model, attempt)
         task = self.plan.task_by_id.get(task_id) if task_id and self.plan else None
         who = " ".join(x for x in (task_id or kind, task.title[:50] if task else label) if x)
@@ -1069,10 +1071,12 @@ class Orchestrator:
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 self._journal(state="Test")
-                gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts)
+                gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts,
+                                 log_path=self.last_log)
                 if not gate.ok and self.env_problem(gate.report()):  # a missing tool, not the agent's code
                     self.run_setup()
-                    gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts)  # same work, tools reinstalled
+                    gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts,
+                                     log_path=self.last_log)  # same work, tools reinstalled
                     if not gate.ok and self.env_problem(gate.report()) and not self.env_repair_tried:
                         report = gate.report()
                         self.git.discard()
@@ -1577,7 +1581,7 @@ class Orchestrator:
                     self.state.set_task(t.id, status="pending")  # not an attempt
                     continue
                 self.state.set_task(t.id, attempts=1, model=model)
-                err = self._finish_parallel(t, phase, path, branch, model, res, base)
+                err = self._finish_parallel(t, phase, path, branch, model, res, base, log_path)
                 if err:  # back in the queue: the serial path retries it with this error
                     log.info("parallel task %s failed: %s", t.id, err[:300])
                     log.info("parallel: %s not merged, back in the queue", t.id)
@@ -1594,7 +1598,7 @@ class Orchestrator:
         if limited:
             self.backoff(limited)
 
-    def _finish_parallel(self, task, phase, path, branch, model, res, base) -> str:
+    def _finish_parallel(self, task, phase, path, branch, model, res, base, log_path=None) -> str:
         """Gate the worktree, merge into main, then write the docs on main. Returns the error, or '' when done."""
         wt = Git(path)
         wt.normalize_after_session(branch, base)
@@ -1602,7 +1606,7 @@ class Orchestrator:
             return f"agent session failed ({model}): {res.error}"
         if str(res.report.get("status", "done")).lower() == "blocked":
             return f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
-        gate = task_gate(Config(path, self.cfg.data), wt, task, report=res.report)
+        gate = task_gate(Config(path, self.cfg.data), wt, task, report=res.report, log_path=log_path)
         if not gate.ok:
             return gate.report()
         files, summary = wt.staged_files(), str(res.report.get("summary", "")).strip()
