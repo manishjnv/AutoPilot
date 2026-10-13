@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-13
+
 - W3: a run ended with Ctrl+C now stores the outcome word BUDGET_STOP, and the `ap watch` bottom bar shows the word after `Stopped`.
 - W12: `vscode/` has a thin VS Code extension: commands Autopilot Start, Answer and Stop run `ap` in a terminal named Autopilot, and an Explorer view shows the status page (port from `.agent/status.port`). Not published.
 - W13: `agent.backend: openai_compat` sends each session to an OpenAI-compatible `/chat/completions` endpoint (`agent.base_url`, default Ollama `http://localhost:11434/v1`; `agent.model_map`; optional `agent.api_key_env` for a Bearer token) and writes the fenced `path:` file blocks of the answer into the worktree. A path outside the worktree is refused and nothing is written.

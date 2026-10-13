@@ -11,7 +11,7 @@ try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::
 # T1: a script from main installs main; the release workflow points the asset copy at its tag. MinVersion is this
 # script's own version (bump.py writes it): an Autopilot below it, found or fresh from PyPI, is replaced.
 $DefaultRef = 'main'
-$MinVersion = '0.6.0'
+$MinVersion = '0.7.0'
 
 if ($env:AUTOPILOT_DRY_RUN -eq '1') { $DryRun = $true }
 if ($env:AUTOPILOT_SKIP_LOGIN -eq '1') { $SkipLogin = $true }
