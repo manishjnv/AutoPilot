@@ -25,6 +25,7 @@ from . import AGENT_DIR, decisions, outage, signals
 from .backends import SessionRequest, SessionResult, get_backend
 from .config import RISKS, Config, load_yaml, scope_always
 from .context import ContextBuilder, numbered, progress_line
+from .contracts import added_duplicates
 from .deploy import deploy
 from .docs import Documenter, redact_secrets, research_path, task_not_proven
 from .gate import (TEST_GLOBS, CmdResult, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
@@ -2266,6 +2267,11 @@ class Orchestrator:
                 log.info("docs session for %s: a line in %s looked like a secret and was redacted", phase.id, f)
         files = self.git.staged_files()  # re-stage the redacted text
         bad += scan_secrets(self.git.staged_added_lines())
+        for f in (f for f in files if f.endswith(".md")):  # W36b: a second section on the same topic drops the result
+            p = self.root / f
+            after = p.read_text(encoding="utf-8", errors="replace") if p.is_file() else ""
+            head = self.git.run("cat-file", "blob", f"HEAD:{f}", check=False)
+            bad += [f"duplicate heading in {f}: {h}" for h in added_duplicates(head, after)]
         if not res.ok or bad:
             why = "; ".join(map(str, bad))[:300] or (res.error or "")[:300]
             log.warning("docs session for %s dropped: %s", phase.id, why)

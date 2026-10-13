@@ -22,7 +22,9 @@ REPORTS = {  # session kind -> schema of its final report
                 # O1 and O3: the gate reads these two; a field the schema does not name never reaches the report
                 scope_additions={"type": "object", "additionalProperties": S},
                 new_deps={"type": "array", "items": obj(["name", "reason"], name=S, reason=S)},
-                failing_before=A),  # W21: tests that failed before the change; each is checked against main
+                failing_before=A,  # W21: tests that failed before the change; each is checked against main
+                contracts={"type": "array", "items": obj(["id", "status"], id=S, why=S,  # W36b: the gate reads it
+                                                         status={"type": "string", "enum": ["kept", "changed"]})}),
     "fixer": obj(["status", "summary"], status=STATUS, summary=S, root_cause=S, rca=RCA, decisions=A, blocker=S),
     "unstick": obj(["class"], **{"class": {"type": "string", "enum": ["technical", "spec", "owner"]}}, diagnosis=S,
                    decision=S, options_considered=A, question=S, checked=S, why=S, suggestion=S),

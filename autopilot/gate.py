@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import allowlist_on, scope_always, tests_mode
+from .contracts import contract_problems
 from .kill_guard import kill_commands
 from .proc import agent_env, run_proc, with_tool_dirs
 
@@ -367,6 +368,7 @@ def task_gate(cfg, git, task, report=None, attempt: int = 1, log_path=None) -> G
     if touched_protected:
         gate.problems.append(f"session modified protected files: {touched_protected}")
     (gate.warnings if task.allow_test_changes else gate.problems).extend(test_tamper(cfg, git, task.allow_test_changes))
+    gate.problems += contract_problems(cfg, git, report)  # W36b: always a problem, even with allow_test_changes
     gate.problems += scan_secrets(git.staged_added_lines())
     log_text = Path(log_path).read_text(encoding="utf-8", errors="replace") if log_path and Path(log_path).is_file() else ""
     gate.problems += [f"the session ran a process-wide kill: {c}. Stop only the processes you started, by pid."
