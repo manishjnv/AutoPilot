@@ -13,10 +13,24 @@ from . import AGENT_DIR
 TEMPLATES = Path(__file__).parent / "templates"
 RISKS = ["low", "medium", "high", "critical"]
 REVIEW_SCOPES = ("critical", "all")  # W4: review.scope values
-NATIVE_WINDOWS = os.name == "nt"
+SANDBOX_MODES = ("off", "allowlist", "docker")  # W11: sandbox.mode values
+NATIVE_WINDOWS =os.name == "nt"
 # CLI flags that could replace or widen the sandbox settings Autopilot passes (P5 egress allowlist)
 SANDBOX_UNSAFE_ARGS = ("--settings", "--setting-sources", "--mcp-config", "--dangerously-skip-permissions",
                        "--allowedTools", "--allowed-tools")
+
+
+def sandbox_mode(cfg) -> str:
+    """W11: the one mode rule. An explicit sandbox.mode wins; a missing key follows sandbox.enabled."""
+    mode = cfg.get("sandbox.mode")
+    if mode is None or mode == "":
+        return "allowlist" if cfg.get("sandbox.enabled") else "off"
+    return str(mode)
+
+
+def allowlist_on(cfg) -> bool:
+    """W11: true when Claude Code's egress allowlist applies (docker plus sandbox.enabled = both)."""
+    return bool(cfg.get("sandbox.enabled")) or sandbox_mode(cfg) == "allowlist"
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -139,12 +153,20 @@ class Config:
         return errs + self._git_errors() + self._sandbox_errors()
 
     def _sandbox_errors(self) -> list[str]:
-        if not self.get("sandbox.enabled"):
+        mode = sandbox_mode(self)
+        if mode not in SANDBOX_MODES:  # W11
+            return [f"sandbox.mode must be off, allowlist or docker, got {mode!r}."]
+        if mode == "off" and not allowlist_on(self):
             return []
         if self.get("agent.backend") != "claude_cli":
-            return ["sandbox.enabled needs agent.backend: claude_cli (it is Claude Code's own sandbox)"]
-        if NATIVE_WINDOWS:  # Claude Code's sandbox runs on Linux, WSL2 and macOS only
-            return ["sandbox.enabled is not supported on native Windows: run Autopilot in WSL2 or the Docker image"]
+            what = "sandbox.mode: docker" if mode == "docker" else "sandbox.enabled"
+            return [f"{what} needs agent.backend: claude_cli (it runs the Claude CLI)"]
+        if mode == "docker" and not str(self.get("sandbox.image", "") or "").strip():
+            return ["sandbox.mode: docker needs sandbox.image: the name of the image you built from deploy/Dockerfile."]
+        if NATIVE_WINDOWS:  # Claude Code's sandbox and the Docker mode run on Linux, WSL2 and macOS only
+            return ["sandbox is not supported on native Windows: run Autopilot in WSL2 or the Docker image"]
+        if not allowlist_on(self):
+            return []
         if not isinstance(self.get("sandbox.allowed_domains", []), list):
             return ["sandbox.allowed_domains must be a list of host names"]
         unsafe = [a for a in self.get("agent.extra_args", []) if str(a).split("=")[0] in SANDBOX_UNSAFE_ARGS]
