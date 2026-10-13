@@ -7,4 +7,5 @@
 .agent/STOP
 .agent/REPORT.md
 .agent/run.json
+.agent/status.port
 .agent/approvals/

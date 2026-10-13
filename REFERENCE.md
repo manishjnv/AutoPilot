@@ -70,7 +70,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `--clear-stop` | Removes the stop flag before the run starts |
 | `--no-browser` | Starts the status page, but does not open the browser |
 | `--no-prod` | Runs everything, staging included, except the deploy to the production host. The phase then waits with `prod skipped (--no-prod)`; run `autopilot approve <phase>` later |
-| `--no-page` | Does not start the status page |
+| `--no-page` | Does not start the status page. Otherwise the port it uses is written to `.agent/status.port` (digits and a newline), so an editor can find the page |
 | `-v` | Shows more log lines |
 
 ## Versions and releases

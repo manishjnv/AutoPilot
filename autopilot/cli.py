@@ -1180,6 +1180,10 @@ def start_status_page(root: Path, port: int = 8765) -> str:
         except OSError:
             continue
         threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:  # W11-port: the VS Code extension reads the port from this file
+            (root / ".agent" / "status.port").write_text(f"{p}\n", encoding="utf-8")
+        except OSError:
+            pass
         if p != port:  # Q21.8: say which port was taken
             print(f"status page: port {port} is in use, so it runs on port {p}", flush=True)
         return f"http://127.0.0.1:{p}/"
