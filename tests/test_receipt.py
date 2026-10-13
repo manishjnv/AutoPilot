@@ -53,3 +53,21 @@ def test_wrong_key_is_bad_signature(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AUTOPILOT_HOME", str(tmp_path / "other"))
     assert receipt.check(tmp_path, out) == ["bad signature"]
     assert verify(tmp_path, "P01") == 1 and "bad signature" in capsys.readouterr().out
+
+
+def test_a_phase_close_writes_a_receipt_that_ap_verify_accepts(tmp_path, monkeypatch, capsys):
+    from test_autopilot import FakeBackend, git, make_project
+    from autopilot.orchestrator import Orchestrator
+    phases = [{"id": "P01", "title": "One", "tasks": [
+        {"id": "P01-T01", "title": "a", "risk": "low", "acceptance_criteria": ["x"]}]}]
+    root = make_project(tmp_path, phases, {"audit": {"completion_audit": False}})
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    orch.run()
+    assert orch.state.status_map() == {"P01-T01": "done"}
+    out = root / ".agent" / "history" / "P01" / "receipt.json"
+    assert out.is_file()
+    body = json.loads(out.read_text(encoding="utf-8"))
+    assert body["phase"] == "P01" and body["commit"] == git(root, "rev-parse", "HEAD~1").strip()  # the receipt commit is the one after it
+    assert "PHASE.md" in body["files"] and "P01-T01.md" in body["files"]
+    assert receipt.check(root, out) == []
+    assert verify(root, "P01") == 0 and "P01 ok" in capsys.readouterr().out
