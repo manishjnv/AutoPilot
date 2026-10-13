@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W41: a retry moves to a stronger model only on hard work. Test files and the always-allowed docs no longer count toward `escalate.max_diff_files` and `max_diff_lines`; a failure of only growth, scope or lint problems retries on the same model with the exact problem named; the task prompt lists the lines left for each scoped file within 40 lines of its growth budget.
+
 - W23: `ap audit --ladder` prints minutes, attempts, retries and cost per model and risk of the project, and a `propose:` line when a tier's first model is slower than the next model up and not cheaper. New projects start low-risk tasks on Sonnet (`low: [sonnet, sonnet, opus]`) and high-risk tasks on Sonnet (`high: [sonnet, opus, opus]`), from the measured run of 2026-10-13.
 - W24: `ap validate` prints how many phases can run side by side and the shared file of each dependent pair; the plan writer, replanner and onboard prompts ask for `depends_on: []` on a phase that shares no file with the phases before it. A phase without the key still depends on the previous phase.
 
@@ -227,3 +229,4 @@ to run. A short outage at the AI service no longer ends your build. Login works 
 - 2026-10-13 **P01-T02** W29b ap audit --signals prints the signals table — Added `ap audit --signals` (commands/audit.py cmd_signals, wired in cli.py next to --history, reusing --days). It reads unknown.jsonl and the quality/task_blocked events of every recent project's stat
 - 2026-10-13 **P01-T03** W24 Dependencies come from the files, not from the order — Added plan.independent_groups(plan) and shared_files in plan.py; ap validate prints 'N phases can run side by side' and each pair of phases that shares a file with the shared path. The plan writer, re
 - 2026-10-14 **P01-T04** W23 The model ladder is measured, not assumed — Added `ap audit --ladder` in commands/audit.py, wired in cli.py. It reads the project's state.db read-only and prints, per model and risk, finished tasks, median minutes per task (the sum of the task'
+- 2026-10-14 **P02-T01** W41 Escalate on hard work, not on file count or a mechanical gate failure — The retry now escalates only on hard work. The size rule ignores test files, `gate.scope_always` files and `.agent/`, and a gate failure made only of growth, scope or lint problems returns '' from `es
