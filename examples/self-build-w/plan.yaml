@@ -1,0 +1,662 @@
+# Autopilot plan: roadmap section W (2026-10-13, session 34). Built by Autopilot on a clone of its own repository.
+# Phases depend on the previous phase unless `depends_on` is given ([] = independent).
+# Task ids must be unique and stable. One phase per roadmap item, in value order.
+# Conventions of this repository (read .agent/BRAIN.md first): stdlib only, no new dependencies; tests on WSL with
+# fake runners and tmp_path fixtures, never a live login; REFERENCE.md documents every new key and command;
+# CHANGELOG.md Unreleased gets one line per item; plain words in every user-facing sentence (no jargon).
+
+version: 1
+goal: >
+  Roadmap section W of Autopilot (this repository): make a run visible, trusted and found. Every run ends with one
+  outcome word and a NOT PROVEN list (W3); `ap tour` replays a recorded run offline (W2); a fresh-context review
+  runs on every task (W4); a signed receipt and `ap verify` (W7); a draft PR for an unverified task (W6); a proof
+  card SVG and a README badge (W9); `ap audit --history` reads the local Claude Code history (W8); the README states the
+  position and the safety block (W1); the plugin gets a Stop hook and a marketplace file (W5); a Routine page
+  (W10); `sandbox.mode: docker` with a plain container (W11); local models through an OpenAI-compatible runner
+  (W13); the VS Code extension (W12, last). Done when every item has tests on WSL, a REFERENCE entry and a
+  CHANGELOG line.
+
+phases:
+  # ------------------------------------------------------------------ W3
+  - id: P01
+    title: "W3 One outcome word and a NOT PROVEN list"
+    goal: >
+      Every run ends with one word (VERIFIED, BLOCKED, BUDGET_STOP, STALLED, FAILED) in the state, the log, the
+      notification and the watch title; every PROOF.md has a "Not proven" section.
+    tasks:
+      - id: P01-T01
+        title: "Outcome word at the end of every run"
+        risk: high
+        description: |
+          `autopilot/orchestrator.py`: the run end (the places that return "plan complete", raise `Stop`, or end on
+          a fatal condition) sets one outcome word in the state meta key `outcome`: VERIFIED (plan complete, no parked
+          task), BLOCKED (one or more tasks wait for an answer), BUDGET_STOP (a budget cap ended it), STALLED (the
+          stuck detector or an outage ended it), FAILED (a fatal condition). Write the word as the first token of the
+          run_done / fatal / budget notification text and as a `run_end` event. `autopilot/dash_term.py` and
+          `autopilot/dash_web.py`: the title shows the word after the state word when the run has ended.
+          `ap status` prints `outcome: <word>` when set. Keep every existing return value and message unchanged
+          after the word. Tests in `tests/test_outcome.py` (new) on the fake backend of `tests/test_autopilot.py`:
+          a complete plan → VERIFIED; a parked task → BLOCKED; a budget of 0.01 → BUDGET_STOP.
+        acceptance_criteria:
+          - "A run that completes the plan stores outcome VERIFIED and the run_done notification starts with VERIFIED"
+          - "A run with a parked task stores BLOCKED"
+          - "A run stopped by budget_usd.total stores BUDGET_STOP"
+          - "ap status prints the outcome line when the meta key is set and nothing new when it is not"
+          - "All existing tests pass unchanged"
+        files_in_scope: ["autopilot/orchestrator.py", "autopilot/dash_term.py", "autopilot/dash_web.py",
+                         "autopilot/cli.py", "autopilot/state.py", "tests/test_outcome.py", "REFERENCE.md",
+                         "CHANGELOG.md"]
+        verify: []
+      - id: P01-T02
+        title: "Not proven section in PROOF.md"
+        risk: medium
+        description: |
+          `autopilot/docs.py:proof`: after the header lines add a section `## Not proven` with one line per item:
+          each acceptance criterion of a task in the phase that no test file in the merged diff mentions (match a
+          criterion to a test when any 3-word window of the criterion appears in a test file changed by that task;
+          keep it simple), each task that has no `verify` command and no test command, each feature whose verdict is
+          "not checked", each `scope added` warning. When nothing is open the section says "Nothing. Every criterion
+          has a test and every feature was checked." Tests in `tests/test_docs.py` (or the existing proof test
+          file): a phase with one criterion without a test lists it; a fully tested phase prints the one sentence.
+        acceptance_criteria:
+          - "PROOF.md contains a '## Not proven' section in every phase"
+          - "A criterion that no changed test mentions appears in the section with its task id"
+          - "A phase where every criterion is covered prints the one-sentence form"
+        files_in_scope: ["autopilot/docs.py", "tests/test_docs.py", "REFERENCE.md", "CHANGELOG.md"]
+        verify: []
+
+  # ------------------------------------------------------------------ W2
+  - id: P02
+    title: "W2 ap tour: a recorded run replayed offline"
+    goal: >
+      `ap tour` plays a recorded run in the watch window with no login, no key and no spend, then prints the proof
+      and the install line.
+    tasks:
+      - id: P02-T01
+        title: "Recording format and the examples/tour data"
+        risk: medium
+        description: |
+          Add `examples/tour/` with a small recorded run: `events.jsonl` (one JSON object per line: t (seconds
+          from start), kind, message, task_id, state words, usage numbers) and `PROOF.md`. Produce the events from
+          the real history of `examples/self-build/` (read `history/*/*.md`, `features.json`, the plan): write a
+          one-off script `scripts/make_tour.py` that converts that folder into events.jsonl, and commit its output.
+          The recording must not contain any path of this PC, any email, or any token (run `log_scrub` on every
+          line). Keep the file under 200 KB. Document the format in REFERENCE.md.
+        acceptance_criteria:
+          - "examples/tour/events.jsonl exists, parses line by line, and has at least 40 events with rising t"
+          - "No line contains 'C:\\\\Users', '/home/', '@', or a string that log_scrub would redact"
+          - "scripts/make_tour.py regenerates the same file from examples/self-build"
+        files_in_scope: ["examples/tour/events.jsonl", "examples/tour/PROOF.md", "scripts/make_tour.py",
+                         "tests/test_tour.py", "REFERENCE.md"]
+        new_files: ["examples/tour/events.jsonl", "examples/tour/PROOF.md", "scripts/make_tour.py", "tests/test_tour.py"]
+        verify: []
+      - id: P02-T02
+        title: "ap tour command"
+        risk: medium
+        description: |
+          `autopilot/commands/tour.py` (new) and `autopilot/cli.py`: `ap tour [--speed N] [--once]` loads
+          `examples/tour/events.jsonl` from the installed package data (add the folder to the package data in
+          `pyproject.toml`, under `autopilot/templates/tour/`; move the files there and keep `examples/tour` as a
+          copy only if the examples folder is documented, else only the package copy) and feeds the events into the
+          existing terminal watch renderer (`dash_term.py`) at `--speed` times real time (default 10). The window
+          shows the same panels as `ap watch`. At the end it prints the PROOF.md text and the two lines
+          "Install: uv tool install dev-autopilot" and "Start: ap". `--once` renders the last frame only and exits 0,
+          for CI. No network, no login check, no state file written. Tests in `tests/test_tour.py`: `--once` exits 0
+          and the output contains the outcome word and the install line.
+        acceptance_criteria:
+          - "ap tour --once exits 0 with no network and no runner installed (empty PATH fixture)"
+          - "The output contains the outcome word VERIFIED and the line 'uv tool install dev-autopilot'"
+          - "ap tour writes nothing under .agent/ and nothing in the home folder"
+          - "REFERENCE.md lists ap tour in the command table"
+        files_in_scope: ["autopilot/commands/tour.py", "autopilot/cli.py", "autopilot/dash_term.py", "pyproject.toml",
+                         "autopilot/templates/tour/events.jsonl", "autopilot/templates/tour/PROOF.md",
+                         "tests/test_tour.py", "REFERENCE.md", "README.md", "CHANGELOG.md"]
+        new_files: ["autopilot/commands/tour.py", "autopilot/templates/tour/events.jsonl", "autopilot/templates/tour/PROOF.md"]
+        verify: []
+        depends_on: ["P02-T01"]
+
+  # ------------------------------------------------------------------ W4
+  - id: P03
+    title: "W4 Fresh-context review on every task"
+    goal: >
+      `review.scope: critical | all`; with `all` every merged diff gets one read-only review session that sees
+      the task spec and the diff only.
+    tasks:
+      - id: P03-T01
+        title: "review.scope key and the review on medium and high tasks"
+        risk: high
+        description: |
+          `autopilot/orchestrator.py:review` (around line 1083): replace the `task.risk != "critical"` check with a
+          scope rule: `review.scope` is `critical` (default when the key is missing, so old projects do not change)
+          or `all`. With `all`, every task with a non-empty diff is reviewed; `low` risk tasks are skipped. The
+          review prompt must contain only: the task title, description, acceptance criteria, the diff, and the
+          test output. Never the session transcript or the history files. A finding is a failed gate as today.
+          `autopilot/config.py`: validate the value. `autopilot/templates/agent/project.yaml`: `review.scope: all`
+          with a comment, so new projects get it. Tests in `tests/test_review.py` (extend the existing one): a
+          medium task with a finding from the fake review → retry; scope critical → no review call on a medium task;
+          the review prompt text contains the criteria and not the string "SESSION" or the task's prompt file.
+        acceptance_criteria:
+          - "review.scope: all reviews a medium task and a finding blocks the merge"
+          - "review.scope missing or critical keeps today's behaviour (only critical tasks)"
+          - "The review prompt contains the acceptance criteria and the diff and nothing from the build session"
+          - "config validation rejects any other value with a plain sentence"
+        files_in_scope: ["autopilot/orchestrator.py", "autopilot/config.py", "autopilot/templates/agent/project.yaml",
+                         "autopilot/prompts", "tests/test_review.py", "REFERENCE.md", "CHANGELOG.md"]
+        verify: []
+
+  # ------------------------------------------------------------------ W7
+  - id: P04
+    title: "W7 Signed receipt and ap verify"
+    goal: >
+      Each phase close writes a signed receipt; `ap verify` checks it offline.
+    tasks:
+      - id: P04-T01
+        title: "receipt.py: sign the phase record"
+        risk: medium
+        description: |
+          `autopilot/receipt.py` (new, stdlib only: hmac, hashlib, json, secrets). A key file at
+          `~/.autopilot/receipt.key` (32 random bytes, created once, mode 0600 on POSIX; `AUTOPILOT_HOME` respected
+          like steps.py does). `write(root, phase_id, files, commit) -> Path` writes
+          `.agent/history/<phase>/receipt.json`: version, phase id, date, the merged commit sha, a sha256 per file
+          (PROOF.md, PHASE.md, every task file of the phase), and `sig` = HMAC-SHA256 over the canonical JSON of the
+          rest. `check(root, path) -> list[str]` returns the problems (missing file, changed hash, bad signature) or
+          an empty list. `autopilot/orchestrator.py:close_phase` calls `write` after the phase docs are committed.
+          `autopilot/cli.py`: `ap verify [phase]` prints one line per phase: `P01 ok` or `P01 CHANGED: PROOF.md`,
+          exit 1 on any problem. Tests in `tests/test_receipt.py`: write then check is ok; edit PROOF.md → CHANGED;
+          a wrong key → bad signature.
+        acceptance_criteria:
+          - "close_phase writes receipt.json with a signature"
+          - "ap verify prints ok for an untouched phase and exits 0"
+          - "Editing PROOF.md makes ap verify print CHANGED and exit 1"
+          - "A different key makes ap verify report a bad signature"
+          - "The key file is never committed: .agent/ ignore rules or the home folder location guarantee it"
+        files_in_scope: ["autopilot/receipt.py", "autopilot/orchestrator.py", "autopilot/cli.py",
+                         "tests/test_receipt.py", "REFERENCE.md", "CHANGELOG.md"]
+        new_files: ["autopilot/receipt.py", "tests/test_receipt.py"]
+        verify: []
+
+  # ------------------------------------------------------------------ W6
+  - id: P05
+    title: "W6 Draft PR for an unverified task"
+    goal: >
+      Under `git.mode: pr` a task with warnings or an open Not proven line opens a draft PR with the list in the body.
+    tasks:
+      - id: P05-T01
+        title: "Draft flag and the Not proven body"
+        risk: medium
+        description: |
+          Find where pr mode creates the pull request (grep `pr create` or `pull` in `autopilot/orchestrator.py`,
+          `autopilot/gitops.py`, `autopilot/github_util.py`). Add `--draft` when the task gate produced warnings
+          (scope added, test guard warnings) or the task has a criterion without a test (reuse the P01-T02 matcher
+          from `docs.py`). The PR body gets a `## Not proven` section with the same lines, else "Nothing". A clean
+          task opens a ready PR as today. Tests with the existing fake `gh` recorder: a task with a warning records
+          `--draft` and the body contains the warning; a clean task records no `--draft`.
+        acceptance_criteria:
+          - "A task with a gate warning opens a draft PR whose body lists the warning under Not proven"
+          - "A clean task opens a ready PR, as before"
+          - "git.mode: direct is unchanged"
+        files_in_scope: ["autopilot/orchestrator.py", "autopilot/gitops.py", "autopilot/github_util.py",
+                         "autopilot/docs.py", "tests/test_pr_mode.py", "REFERENCE.md", "CHANGELOG.md"]
+        verify: []
+
+  # ------------------------------------------------------------------ W9
+  - id: P06
+    title: "W9 Proof card SVG and README badge"
+    goal: >
+      One SVG per phase and a badge line, so a run can be shared as one image.
+    tasks:
+      - id: P06-T01
+        title: "proof.svg per phase and the badge markdown"
+        risk: low
+        description: |
+          New module `autopilot/card.py` (stdlib only; `docs.py` is 355 lines and must stay under 400):
+          `svg(project, phase_id, title, merged, total, verified, cost, date) -> str` returns hand-written SVG text
+          (600x200 card, dark text on a light background, every text value escaped with `xml.sax.saxutils.escape`):
+          the project name (the root folder name), "<phase id> <phase title>", "tasks merged N of M", "verified N"
+          (features of the phase with passes true in the state meta `features`), "cost $X.XX", the date.
+          `badge(phase_id) -> str` returns one markdown line `![Built by Autopilot](proof.svg)` for the phase
+          folder and one README-ready line with the path `.agent/history/<phase>/proof.svg`.
+          `autopilot/docs.py:Documenter.phase_done` (it already writes PHASE.md and has `state`) also writes
+          `proof.svg` and `BADGE.md` next to PHASE.md. They are then in the close-phase commit, and
+          `Orchestrator.write_receipt` signs them with the other files of the folder (it signs every file there):
+          no orchestrator change. No outcome word on the card: the run has not ended when a phase closes.
+          Tests in `tests/test_docs.py`: call `Documenter.phase_done` on a tmp project; the SVG parses with
+          `xml.etree.ElementTree`, contains the merged count, the cost and the date, and no path of tmp_path;
+          a title with `<` and `&` still parses; BADGE.md has one markdown image line.
+        acceptance_criteria:
+          - "proof.svg exists per closed phase next to PHASE.md and parses as XML"
+          - "The SVG text contains the merged count, the cost and the date, and no absolute path"
+          - "A phase title with < and & characters still gives valid XML"
+          - "BADGE.md has one markdown image line that points at proof.svg"
+          - "REFERENCE.md describes proof.svg and BADGE.md; CHANGELOG has one line"
+        files_in_scope: ["autopilot/card.py", "autopilot/docs.py", "tests/test_docs.py", "REFERENCE.md", "CHANGELOG.md"]
+        new_files: ["autopilot/card.py"]
+        verify: []
+
+  # ------------------------------------------------------------------ W8
+  - id: P07
+    title: "W8 ap audit --history: retry cost from the local Claude Code history"
+    goal: >
+      `ap audit --history` reads `~/.claude/projects/*/*.jsonl` and prints one table per project with the money
+      spent in repeated failing commands. No network, no session, no project needed.
+    tasks:
+      - id: P07-T01
+        title: "ap audit --history"
+        risk: medium
+        description: |
+          `ap audit` already exists: it runs the completion audit session (`cli.py`, `add("audit", cmd_review, ...)`
+          with `kind="completion"`). Keep that unchanged. Add a flag `--history` to the same parser, plus
+          `--days N` (default 30) and `--home PATH` (default `~/.claude`). `ap audit --history` calls
+          `autopilot/commands/audit.py:cmd_history(args)` (new module) and needs no project: in `cli.main`, route it
+          before the project lookup like the no-project commands (`tour`, `upgrade`), so it never calls
+          `pick_project` or `remember` and writes nothing. The module reads every `*.jsonl` under
+          `<home>/projects/` modified in the last N days and skips lines that do not parse or have unknown shapes.
+          Per project folder: sessions (files), input and output tokens from `message.usage`, tool calls
+          (`tool_use` blocks), and "repeats": the same Bash `command` string run three or more times in one session
+          with an error result (`tool_result` with `is_error` true or a non-zero exit text). Cost at the public API
+          rates of the model named in the line: a small dated dict in the module; an unknown model uses the Sonnet
+          rate. A repeat's cost is the share of the session cost of its turns (keep it simple: session cost times
+          repeat calls / all tool calls). Print one plain table (project label = the folder name with the user's
+          home prefix removed), a total line and "Retries cost about $X of $Y." Print "No Claude Code history
+          found." and exit 0 when the folder is missing. Never print a prompt text, a command text or any path
+          inside a project. Tests in `tests/test_audit.py` with fixture JSONL written in tmp_path (3 sessions,
+          fake values) and `--home` pointing at it.
+        acceptance_criteria:
+          - "A fixture with one failing command run three times in one session counts one repeat and a cost above 0"
+          - "A missing home folder prints the one sentence and exits 0"
+          - "No prompt text and no command text from the fixture appears in the output"
+          - "Plain ap audit still runs the completion audit (parser default kind=completion unchanged)"
+          - "ap audit --history writes no file and works outside a project folder"
+          - "REFERENCE.md lists ap audit --history; CHANGELOG has one line"
+        files_in_scope: ["autopilot/commands/audit.py", "autopilot/cli.py", "tests/test_audit.py", "REFERENCE.md",
+                         "CHANGELOG.md"]
+        new_files: ["autopilot/commands/audit.py", "tests/test_audit.py"]
+        verify: []
+
+  # ------------------------------------------------------------------ W1
+  - id: P08
+    title: "W1 Position and safety in the README"
+    goal: >
+      The README says in one screen why Autopilot is not a model-judged loop, and lists what protects the user.
+    tasks:
+      - id: P08-T01
+        title: "README position line, Safety block and a shorter feature list"
+        risk: low
+        description: |
+          `README.md` is about 1400 words; the W tasks each added a section (`## Outcome word at the end of every
+          run`, `## Not proven section in PROOF.md`, `## Replay a recorded run with ap tour`, `## Fresh-context
+          review on every task`, `## Signed receipt and ap verify`, `## Draft PR for an unverified task`, and later
+          ones). Replace those sections with one section `## What every run proves`: one line per item with a link
+          to its REFERENCE.md anchor; move any detail that REFERENCE.md does not have yet into REFERENCE.md (or
+          GUIDE.md), never drop it. After the opening paragraph (keep the first three lines: `tests/test_opening.py`
+          pins them) add one line: "Python decides when a task is done, not the model. Every step is recorded.
+          Works on Windows. Runs any coding agent CLI." Add `## Safety` with one line each: the gate runs your
+          build, lint and tests; the plan cannot change during a run; budget caps per task, phase, day and run;
+          a network allowlist (`sandbox.enabled`); every task in its own git worktree; secrets are scrubbed from
+          logs; `ap run --no-prod` keeps production untouched; `ap verify` checks the signed record. Add a test in
+          `tests/test_opening.py`: README.md has the position line, a `## Safety` section with at least seven
+          list lines, and at most 1200 words. Sentences under 20 words, plain words (run `vale README.md` if vale
+          is on PATH, else say so in the report).
+        acceptance_criteria:
+          - "README.md has the position line and a Safety section with at least seven lines"
+          - "README.md is at most 1200 words and a new test in tests/test_opening.py checks it"
+          - "Every W feature still has one README line with a link; no detail is lost from the documents"
+          - "Every new sentence is under 20 words; the existing opening test passes"
+        files_in_scope: ["README.md", "REFERENCE.md", "GUIDE.md", "HOWTO.md", "tests/test_opening.py", "CHANGELOG.md"]
+        allow_no_changes: false
+        verify: []
+
+  # ------------------------------------------------------------------ W5
+  - id: P09
+    title: "W5 Stop hook in the plugin"
+    goal: >
+      The Claude Code plugin refuses "done" while the project tests fail or a test file shrank. The marketplace
+      file `.claude-plugin/marketplace.json` already exists and lists `./plugin`.
+    tasks:
+      - id: P09-T01
+        title: "Stop hook script and hooks.json"
+        risk: medium
+        description: |
+          The plugin folder has `plugin/.claude-plugin/plugin.json` and `plugin/commands/autopilot.md`; the root
+          `.claude-plugin/marketplace.json` exists. Add `plugin/hooks/hooks.json`: a `Stop` hook whose command runs
+          `plugin/scripts/seal.py` through `${CLAUDE_PLUGIN_ROOT}` with `python3`, falling back to `python` (the
+          command must work in sh). `plugin/scripts/seal.py` is stdlib only and must not import `autopilot` (the
+          plugin can be installed without it): read the hook JSON from stdin (`session_id`, `cwd`); find the test
+          command in `<cwd>/.agent/project.yaml` (`commands:` block, `test:` line, read with a regex: no PyYAML),
+          else `python -m pytest -q` when a `tests` folder exists, `npm test` when package.json has a test script,
+          else exit 0 with no output. Run it with a 300 s timeout. Compare the line count of each changed file that
+          matches the test globs (`git diff --name-only HEAD`) with `git show HEAD:<file>`. Keep a copy of
+          `gate.TEST_GLOBS` in seal.py; a test pins it equal to `autopilot.gate.TEST_GLOBS`. When tests fail or a
+          test file lost lines: print `{"decision": "block", "reason": "<one plain sentence naming the failing
+          command or the file>"}` and exit 0. At most 5 blocks per session (a counter file under
+          `tempfile.gettempdir()` keyed by the session id); otherwise exit 0 with no output. Update HOWTO.md: the
+          sentence "The plugin has no hooks." becomes a short description of the Stop hook and how to turn it off
+          (`/plugin disable`); note that Autopilot's own sessions do not load plugins (`--setting-sources`).
+          Tests in `tests/test_plugin_hook.py` run seal.py with `sys.executable` in tmp_path git repositories
+          (TMP/TEMP set to tmp_path): a repo whose project.yaml test command fails → block JSON; a passing repo → no
+          output, exit 0; a test file with fewer lines than HEAD → block; the sixth block in one session prints
+          nothing; hooks.json and marketplace.json parse and marketplace.json names `./plugin`.
+        acceptance_criteria:
+          - "seal.py blocks with a plain reason when the test command fails"
+          - "seal.py blocks when a test file has fewer lines than at HEAD"
+          - "seal.py prints nothing and exits 0 on a clean repository"
+          - "The sixth block in one session is not emitted"
+          - "hooks.json registers a Stop hook; marketplace.json parses and names the plugin folder"
+          - "HOWTO.md no longer says the plugin has no hooks; CHANGELOG has one line"
+        files_in_scope: ["plugin/hooks/hooks.json", "plugin/scripts/seal.py", "plugin/.claude-plugin/plugin.json",
+                         ".claude-plugin/marketplace.json", "HOWTO.md", "REFERENCE.md", "tests/test_plugin_hook.py",
+                         "CHANGELOG.md"]
+        new_files: ["plugin/hooks/hooks.json", "plugin/scripts/seal.py", "tests/test_plugin_hook.py"]
+        verify: []
+
+  # ------------------------------------------------------------------ W10
+  - id: P10
+    title: "W10 Routine page: ap run inside a Claude Code cloud Routine"
+    goal: >
+      One HOWTO section and one template so a run can happen with the laptop off.
+    tasks:
+      - id: P10-T01
+        title: "HOWTO section and examples/routine"
+        risk: low
+        description: |
+          `HOWTO.md`: a section "Run with the laptop off (Claude Code Routines)": what a Routine is (Anthropic's
+          cloud runs a Claude Code session on a schedule), then numbered steps: connect the repository, paste the
+          prompt from `examples/routine/prompt.md`, set the schedule, set the budget keys in project.yaml
+          (`budget_usd`, `scheduling.max_sessions_per_run`), read the result in the next `ap status` (the outcome
+          word line). `examples/routine/prompt.md`: a prompt that installs `ap` with `uv tool install
+          dev-autopilot`, works in the cloned repository, runs `ap run --no-prod` with
+          `scheduling.max_sessions_per_run: 3` set for this run (say how: the project.yaml key; do not invent a CLI
+          flag that `ap run --help` does not list), pushes the branch Autopilot made, and ends with `ap status`.
+          State clearly that the author has not run it live yet (date 2026-10-13), and what to check first. Plain
+          words, short sentences. Add a test in `tests/test_opening.py` or a new `tests/test_routine.py`: the
+          prompt file exists, names `ap run --no-prod`, and every `ap` subcommand it names exists in the parser.
+        acceptance_criteria:
+          - "HOWTO.md has the section with numbered steps"
+          - "examples/routine/prompt.md exists and names ap run --no-prod"
+          - "The text says it was not run live, with the date"
+          - "A test checks that every ap command the prompt uses exists"
+        files_in_scope: ["HOWTO.md", "examples/routine/prompt.md", "tests/test_routine.py", "CHANGELOG.md"]
+        new_files: ["examples/routine/prompt.md", "tests/test_routine.py"]
+        verify: []
+
+  # ------------------------------------------------------------------ W11
+  - id: P11
+    title: "W11 sandbox.mode: docker"
+    goal: >
+      The Claude CLI can start inside a plain Docker container with only the worktree (and its git folders) mounted.
+      Note: `docker sandbox` was removed in Docker 29; use `docker run`.
+    tasks:
+      - id: P11-T01
+        title: "sandbox.mode key: the one mode rule and its config checks"
+        risk: medium
+        description: |
+          Contract task for P11-T02 and P11-T03 (they import these helpers; they never edit config.py).
+          Today `sandbox.enabled: true` turns on Claude Code's own sandbox with the egress allowlist
+          (`claude_cli.sandbox_settings`, `config.Config._sandbox_errors`, 169-line `autopilot/config.py`). Add the
+          key `sandbox.mode`: `off` | `allowlist` | `docker`, and `sandbox.image` (no default: the user builds
+          `deploy/Dockerfile`, which has the pinned Claude CLI, git, bubblewrap, socat and user 1000), and
+          `sandbox.network` (default `bridge`).
+          In `autopilot/config.py` add two module-level functions that use only `cfg.get` (so test fakes work):
+          `sandbox_mode(cfg) -> str` (the only mode rule: an explicit `sandbox.mode` wins; a missing key means
+          `allowlist` when `sandbox.enabled` is true, else `off`) and `allowlist_on(cfg) -> bool` (true when
+          `sandbox.enabled` is true or the mode is `allowlist`; docker plus `sandbox.enabled: true` = both).
+          Rewrite `_sandbox_errors` on top of them: an unknown mode gives one plain sentence that names the three
+          values; docker needs `agent.backend: claude_cli` and a non-empty `sandbox.image`; docker on native
+          Windows is refused like the allowlist ("run Autopilot in WSL2"); every allowlist rule of today stays and
+          applies when `allowlist_on` is true. Do not change the other readers of `sandbox.enabled` here
+          (claude_cli.py, doctor.py, gate.py): P11-T02 and P11-T03 switch them. `autopilot/templates/agent/
+          project.yaml`: commented lines for `mode`, `image` and `network` under `sandbox:` (keep every comment).
+          Tests in `tests/test_sandbox_docker.py` (new): sandbox_mode for missing/enabled/explicit values;
+          allowlist_on for the four cases; config errors for a bad mode, docker without an image, docker with
+          `agent.backend: command`; an existing project.yaml with only `sandbox.enabled: true` validates as today.
+        acceptance_criteria:
+          - "sandbox_mode(cfg) returns off, allowlist or docker; a missing key keeps today's meaning of sandbox.enabled"
+          - "allowlist_on(cfg) is true for sandbox.enabled: true and for sandbox.mode: allowlist"
+          - "config validation rejects an unknown mode, docker without sandbox.image and docker with a non-claude_cli backend"
+          - "Existing sandbox config tests pass unchanged"
+        files_in_scope: ["autopilot/config.py", "autopilot/templates/agent/project.yaml", "tests/test_sandbox_docker.py"]
+        new_files: ["tests/test_sandbox_docker.py"]
+        verify: []
+      - id: P11-T02
+        title: "docker run wrapper for the Claude CLI backend"
+        risk: high
+        description: |
+          `autopilot/backends/claude_cli.py` is 368 lines, so the wrapper goes in a new module
+          `autopilot/backends/docker_box.py` (stdlib only). Pure helper `docker_argv(cfg, cmd, cwd, login_dir,
+          git_dirs=(), uid=None) -> list[str]`: `docker run --rm -i --network <sandbox.network, default bridge>
+          [--user <uid>:<gid> -e HOME=/tmp when uid is given] -v <cwd>:/work -w /work -e CLAUDE_CONFIG_DIR=/claude
+          -v <login_dir>:/claude [-v <dir>:<dir> per git dir: the common dir with :ro, the worktree's own git dir
+          read-write, both at their host paths so the worktree's `.git` file resolves] <sandbox.image> claude
+          <cmd[1:]>`. The host binary path in cmd[0] is replaced by `claude`. Secret variables (`ANTHROPIC_API_KEY`,
+          `CLAUDE_CODE_OAUTH_TOKEN` and every name `ClaudeCLIBackend.env()` adds) pass by name only (`-e NAME`),
+          never `NAME=value` in argv. Context manager `login_dir()`: a fresh temp folder outside the worktree with a
+          copy of `~/.claude/.credentials.json` when it exists (mode 0600), deleted on exit. Never mount the home
+          folder. `git_dirs` come from `git rev-parse --git-common-dir` / `--git-dir` in `req.cwd` through
+          `proc.run_proc` (an error = no git mounts). In `ClaudeCLIBackend.run`, when `config.sandbox_mode(cfg) ==
+          "docker"`, wrap the built cmd with `docker_argv` inside `login_dir()`; uid from `os.getuid` when it
+          exists. `build_cmd` is unchanged for off/allowlist, and its two `sandbox.enabled` reads become
+          `config.allowlist_on(c)` (the `--settings` allowlist stays inside the container when on). Keep
+          claude_cli.py under 400 lines. Tests in `tests/test_sandbox_docker.py` (extend; no real docker call):
+          argv has `--rm`, the cwd mount at /work, no mount of `Path.home()`, no secret value (set a fake
+          `ANTHROPIC_API_KEY=example-fake-key` and check it is absent), cmd[0] replaced by `claude`, the git dirs
+          mounted with the common dir read-only; mode off or missing gives the unchanged `build_cmd` output;
+          `login_dir()` copies a fake credentials file from a tmp `HOME` and removes the folder after exit; `run`
+          with a fake `docker` script on PATH (guard only the script part with a plain `if` on the platform) gets
+          the docker argv.
+        acceptance_criteria:
+          - "sandbox.mode: docker wraps the Claude command in docker run with the worktree mounted at /work"
+          - "The home folder is never mounted and no secret value appears in argv"
+          - "The temp login folder is removed after the session"
+          - "sandbox.mode off or missing leaves the command unchanged; sandbox.enabled alone still means allowlist"
+          - "No test calls the real docker"
+        files_in_scope: ["autopilot/backends/docker_box.py", "autopilot/backends/claude_cli.py",
+                         "tests/test_sandbox_docker.py"]
+        new_files: ["autopilot/backends/docker_box.py"]
+        verify: []
+        depends_on: ["P11-T01"]
+      - id: P11-T03
+        title: "Doctor docker line, gate reader and the docker docs"
+        risk: low
+        description: |
+          `autopilot/doctor.py:checks`: when `config.sandbox_mode(cfg) == "docker"`, one row through `doctor._run`:
+          OK `docker: found <version>` or FAIL `docker: not found (needed for sandbox.mode: docker)`; the
+          bubblewrap/socat row reads `config.allowlist_on(cfg)` instead of `sandbox.enabled`. `autopilot/gate.py`
+          line ~62: the `sandbox.enabled` read becomes `config.allowlist_on(cfg)`. REFERENCE.md: `sandbox.mode`,
+          `sandbox.image`, `sandbox.network` rows and how to build the image from `deploy/Dockerfile`. SECURITY.md:
+          what the container protects (only the worktree and its git folders are mounted, no home folder, secrets by
+          name) and what it does not (the API host must be reachable; `bridge` network is open egress unless the
+          allowlist is also on). CHANGELOG.md Unreleased: one line. Tests in `tests/test_sandbox_docker.py`
+          (extend): the doctor row with a fake `docker` script on PATH (OK) and with an empty PATH (FAIL); no row
+          when the mode is off.
+        acceptance_criteria:
+          - "ap doctor prints the docker line in docker mode and nothing in other modes"
+          - "The gate and doctor read allowlist_on, so sandbox.mode: allowlist acts like sandbox.enabled: true"
+          - "REFERENCE.md and SECURITY.md document the mode; CHANGELOG has one line"
+        files_in_scope: ["autopilot/doctor.py", "autopilot/gate.py", "tests/test_sandbox_docker.py", "REFERENCE.md",
+                         "SECURITY.md", "CHANGELOG.md"]
+        verify: []
+        depends_on: ["P11-T01", "P11-T02"]
+
+  # ------------------------------------------------------------------ W13
+  - id: P12
+    title: "W13 Local models through an OpenAI-compatible runner"
+    goal: >
+      `agent.backend: openai_compat` sends the prompt to an OpenAI-compatible HTTP endpoint (Ollama, LM Studio).
+    depends_on: ["P10"]
+    tasks:
+      - id: P12-T01
+        title: "openai_compat backend"
+        risk: high
+        description: |
+          `autopilot/backends/openai_compat.py` (new, stdlib `urllib` only): class `OpenAICompatBackend(cfg)` with
+          `run(req: SessionRequest) -> SessionResult` like `CommandBackend`. Keys: `agent.base_url` (module
+          constant `DEFAULT_BASE_URL = "http://localhost:11434/v1"`), `agent.model_map` (alias -> model name; an
+          alias not in the map is sent as is), `agent.api_key_env` (the name of an env variable for a Bearer token;
+          optional; never logged). One POST to `<base_url>/chat/completions` with `req.system_append` plus a fixed
+          FILE_FORMAT instruction (a module constant: each file as a fenced block whose info line is
+          `path: <relative path>`; the answer ends with the JSON report) as the system message and `req.prompt` as
+          the user message; timeout `req.timeout_sec`. Write each fenced file into `req.cwd`; refuse an absolute path
+          or a path with `..` (the result is ok=False with a plain error). Parse the report with
+          `backends.parse_report`; `usage` from the response's `usage` tokens when present, cost 0. A URL or HTTP
+          error, or a 5xx, gives `SessionResult(ok=False, error=..., infra="network")`; a 4xx is ok=False without
+          infra. `req.read_only` / `req.no_tools` sessions write no files. `backends/__init__.py:get_backend`
+          returns it for `openai_compat`; `config.py:validate` accepts the value (the error sentence lists
+          claude_cli, command and openai_compat); the existing `_sandbox_errors` rule already rejects
+          `sandbox.enabled` with it (do not edit `_sandbox_errors`). Tests in `tests/test_openai_compat.py` with a
+          local `http.server` thread on 127.0.0.1 port 0 that returns a canned answer: one file is written and the
+          report parses; a 500 maps to infra network; a `../` path is refused; the request body has the mapped
+          model; the Bearer header comes from a fake env value only when `agent.api_key_env` is set.
+        acceptance_criteria:
+          - "A canned answer with one fenced file block writes that file into the worktree and returns ok"
+          - "A 500 from the endpoint returns ok=False with infra network"
+          - "A path outside the worktree is refused"
+          - "config validation accepts agent.backend: openai_compat"
+          - "No real network in tests (only a 127.0.0.1 test server)"
+        files_in_scope: ["autopilot/backends/openai_compat.py", "autopilot/backends/__init__.py", "autopilot/config.py",
+                         "tests/test_openai_compat.py"]
+        new_files: ["autopilot/backends/openai_compat.py", "tests/test_openai_compat.py"]
+        verify: []
+      - id: P12-T02
+        title: "Doctor endpoint line and the local-model docs"
+        risk: low
+        description: |
+          `autopilot/doctor.py`: a helper `check_endpoint(cfg, timeout=2)` -> OK `endpoint: <base_url> answers` or
+          WARN `endpoint: <base_url> does not answer (start Ollama or LM Studio)`, from a GET to `<base_url>/models`;
+          it never raises. `checks()` adds the row in a new `elif` for `agent.backend == "openai_compat"` (today that
+          backend falls through with no runner row), and `check_runner_login` returns the same row for it (today it
+          says "custom command: not checked"), so `preflight` never stops a local-model run with FAIL. Import
+          `DEFAULT_BASE_URL` from `backends/openai_compat.py`, do not copy it. REFERENCE.md: the backend, its three
+          keys and the file block format; HOWTO.md: a short section "Use a local model" (Ollama example, use it for
+          low-risk tasks through `models` routing; the backend cannot run tools or tests, the gate runs them).
+          CHANGELOG.md Unreleased: one line. Tests in `tests/test_openai_compat.py` (extend): the row is OK with the
+          local test server and WARN with a closed port; `check_runner_login` gives the same row.
+        acceptance_criteria:
+          - "ap doctor prints the endpoint line without raising when the endpoint is down"
+          - "The default URL comes from the backend module constant"
+          - "REFERENCE.md and HOWTO.md document the backend; CHANGELOG has one line"
+        files_in_scope: ["autopilot/doctor.py", "tests/test_openai_compat.py", "REFERENCE.md", "HOWTO.md",
+                         "CHANGELOG.md"]
+        verify: []
+        depends_on: ["P12-T01"]
+
+  # ------------------------------------------------------------------ W12
+  - id: P13
+    title: "W12 VS Code extension (thin)"
+    goal: >
+      A side panel that loads the status page and three commands that run ap in the terminal. No chat participant.
+    tasks:
+      - id: P13-T01a
+        title: "Status page port file"
+        risk: low
+        description: |
+          Contract for the extension: the port file. No `.agent/status.port` file exists yet.
+          `autopilot/cli.py:start_status_page` writes the chosen port (digits and a newline) to
+          `<root>/.agent/status.port` once the server starts (it already returns the URL; ignore an OSError on
+          write); add `.agent/status.port` to `autopilot/templates/agent/gitignore` next to `.agent/run.json`.
+          REFERENCE.md: one sentence on the file next to the status page entry. Test in `tests/test_status_page.py`
+          (extend): `start_status_page(tmp_path, <free port>)` writes the port file with the port of the URL.
+        acceptance_criteria:
+          - "start_status_page writes .agent/status.port with the port it uses"
+          - "New projects ignore .agent/status.port in git"
+        files_in_scope: ["autopilot/cli.py", "autopilot/templates/agent/gitignore", "tests/test_status_page.py",
+                         "REFERENCE.md"]
+        verify: []
+      - id: P13-T01
+        title: "vscode/ extension skeleton with three commands and the webview"
+        risk: medium
+        description: |
+          `vscode/package.json` (publisher `manishjnv`, name `autopilot-vscode`, engines vscode ^1.90, no runtime
+          dependencies, devDependencies only `@types/vscode` and `typescript`), `vscode/tsconfig.json`,
+          `vscode/src/extension.ts`: commands `autopilot.start`, `autopilot.answer`, `autopilot.stop` that send
+          `ap start`, `ap answer`, `ap stop` to a terminal named Autopilot (reuse it when open); a view
+          `autopilotStatus` (webview view in the explorer side bar) that shows an iframe of the status page:
+          port from `<workspace>/.agent/status.port` (written by P13-T01a; default 8765 when the file is missing),
+          URL through `vscode.env.asExternalUri`, a CSP that allows only that frame source, and the line "run `ap`
+          first" when nothing answers. `vscode/README.md` with the three commands and the publish steps (`npx vsce
+          package`, `npx ovsx publish`). Do not publish. `vscode/.vscodeignore`; `.gitignore` gets
+          `vscode/node_modules/` and `vscode/out/`. REFERENCE.md: a short "VS Code extension" entry; CHANGELOG.md
+          Unreleased: one line. Tests: `tests/test_vscode_manifest.py` parses package.json and checks the three
+          command ids, the view id, no `dependencies` key, and that extension.ts names `.agent/status.port`.
+          Run `npx tsc --noEmit` in `vscode/` when node is on PATH; if not, say so in the report.
+        acceptance_criteria:
+          - "vscode/package.json parses and contributes the three commands and the view"
+          - "The webview reads the port from .agent/status.port"
+          - "tsc --noEmit passes on extension.ts when node is available"
+          - "No node_modules or out/ folder is committed"
+        files_in_scope: ["vscode/package.json", "vscode/tsconfig.json", "vscode/src/extension.ts", "vscode/README.md",
+                         "vscode/.vscodeignore", ".gitignore", "tests/test_vscode_manifest.py", "REFERENCE.md",
+                         "CHANGELOG.md"]
+        new_files: ["vscode/package.json", "vscode/tsconfig.json", "vscode/src/extension.ts", "vscode/README.md",
+                    "vscode/.vscodeignore", "tests/test_vscode_manifest.py"]
+        verify: []
+        depends_on: ["P13-T01a"]
+
+  # ------------------------------------------------------------------ follow-ups of sections W
+  - id: P14
+    title: "W follow-ups: outcome word gaps and test hygiene"
+    goal: >
+      Close the gaps the W sessions reported: a Ctrl+C end has an outcome word, the receipt is proven end to end,
+      the suite does not write into the repository or fail on a Windows checkout, and every W item has a REFERENCE
+      entry.
+    depends_on: ["P05"]
+    tasks:
+      - id: P14-T01
+        title: "Outcome word for an interrupted run and in the watch bar"
+        risk: medium
+        description: |
+          `autopilot/orchestrator.py`: `run()` catches only `Stop`; a KeyboardInterrupt (Ctrl+C) leaves
+          `outcome = "interrupted"` and reaches the `finally` with no word. Call `Orchestrator._end_word` there (once,
+          only when no word was set) so it stores
+          BUDGET_STOP (the owner ended the run, the same rule as the .agent/STOP file in DECISIONS.md); do not add a
+          new word. `outcome_word()` stays the only classifier. `autopilot/dashboard.py`: expose the run.json `word`
+          in the data dict; `autopilot/dash_term.py`: the bottom-bar `Stopped` cell shows the word after it. Tests in
+          `tests/test_outcome.py`: an interrupted run stores BUDGET_STOP; the dashboard data has the word; the
+          dash_term bar text contains it.
+        acceptance_criteria:
+          - "A run ended by KeyboardInterrupt stores the outcome word BUDGET_STOP"
+          - "The ap watch bottom bar shows the word after Stopped"
+          - "All existing outcome tests pass unchanged"
+        files_in_scope: ["autopilot/orchestrator.py", "autopilot/dashboard.py", "autopilot/dash_term.py",
+                         "tests/test_outcome.py", "REFERENCE.md", "CHANGELOG.md"]
+        verify: []
+      - id: P14-T02
+        title: "Receipt end-to-end test and test hygiene"
+        risk: low
+        description: |
+          Tests only, plus two lines in the existing `.gitattributes`. (1) `tests/test_receipt.py`: drive a phase close with the fake
+          backend of `tests/test_autopilot.py` (a one-task plan in tmp_path, AUTOPILOT_HOME from conftest) and check
+          that `.agent/history/<phase>/receipt.json` appears and `ap verify` exits 0. (2) `tests/test_steps.py::
+          test_upgrade_uses_the_command_of_the_recorded_method` has no tmp_path and writes a `.gitignore` line and
+          `.agent/backup-legacy/` into the real repository when run on Windows: give it tmp_path and
+          `monkeypatch.chdir(tmp_path)`; keep every assertion. (3) Append to `.gitattributes` (it has `*.sh`,
+          `*.ps1`, `*.cmd` lines) `examples/tour/* text eol=lf` and `autopilot/templates/tour/* text eol=lf`, so
+          `tests/test_tour.py::test_make_tour_regenerates_the_same_file` passes on a Windows checkout. No assertion
+          is removed or weakened.
+        acceptance_criteria:
+          - "A test drives a phase close and finds a valid receipt.json"
+          - "The test_steps upgrade test writes nothing outside tmp_path"
+          - ".gitattributes pins LF for the tour files"
+          - "No assertion is removed or weakened"
+        files_in_scope: ["tests/test_receipt.py", "tests/test_steps.py", ".gitattributes"]
+        verify: []
+      - id: P14-T03
+        title: "REFERENCE entries for the plugin Stop hook and the Routine page"
+        risk: low
+        description: |
+          The goal says every W item has a REFERENCE entry; W5 and W10 have none (P09-T01 follow-up). REFERENCE.md
+          `## Proof features`: a `### Stop hook in the plugin` subsection (what `plugin/scripts/seal.py` checks: the
+          project test command and test files that lost lines; at most 5 blocks per session, counted in
+          `autopilot-seal-<session>.count` in the temp folder; the 300 s test timeout and the 330 s hook timeout in
+          `plugin/hooks/hooks.json`; off with `/plugin disable autopilot`; Autopilot's own sessions never load it)
+          and a `### Routine` subsection (link to the HOWTO section and `examples/routine/prompt.md`, the
+          `scheduling.max_sessions_per_run: 3` local edit, "not run live yet"). Read seal.py, hooks.json and the
+          HOWTO section first and state only what they do. Add both anchors to the README links that point at
+          `REFERENCE.md#proof-features` only if the README already links the other subsections that way. A test in
+          `tests/test_plugin_hook.py` (extend): REFERENCE.md names `seal.py` and the hook timeout matches
+          hooks.json.
+        acceptance_criteria:
+          - "REFERENCE.md has a Stop hook subsection whose numbers match seal.py and hooks.json"
+          - "REFERENCE.md has a Routine subsection that links the HOWTO section and examples/routine/prompt.md"
+          - "A test pins the hook timeout in REFERENCE.md to hooks.json"
+        files_in_scope: ["REFERENCE.md", "README.md", "tests/test_plugin_hook.py"]
+        verify: []

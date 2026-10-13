@@ -1,0 +1,263 @@
+# Autopilot project contract — one file per repo, same shape for every project type.
+# Everything here is optional except `name`; unset keys fall back to Autopilot defaults.
+
+name: autopilot-self
+stack: python            # python | node | go | rust | java | static | docker | generic (set by `autopilot init`)
+main_branch: main
+profile: full             # owner choice 2026-10-12: full for the self-build
+                          # one retry, no periodic/completion audit (run `ap audit`), smaller prompt. full = every check, every audit
+
+# Commands the orchestrator runs itself. The agent's own "done" is never trusted.
+commands:
+  setup: []   # never pip install -e here: it would repoint the owner's live `ap` install to this clone
+  build: []
+  lint:
+  - python -m ruff check --select E9,F63,F7,F82 .
+  typecheck: []
+  test:
+  - wsl bash /mnt/e/code/AutoPilot/docs/wsltest_self.sh   # WSL only, from the worktree cwd ($PWD = this worktree)
+  phase_verify: []
+  smoke: []
+
+verify_timeout_sec: 1200
+
+gate:
+  allow_no_checks: false  # true = allow a run with no build/lint/typecheck/test command (not recommended)
+  test_globs:             # files treated as tests by the test-tamper guard
+    - "tests/**"
+    - "test/**"
+    - "**/tests/**"
+    - "**/test/**"
+    - "test_*.py"
+    - "*_test.py"
+    - "*_test.go"
+    - "*.test.*"
+    - "*.spec.*"
+    - "**/__tests__/**"
+    - "src/test/**"
+  ci_files:               # adding/editing/deleting a CI pipeline fails the gate (pipelines run with repo secrets)
+    - ".github/workflows/**"
+    - ".gitlab-ci.yml"
+    - ".circleci/**"
+    - "Jenkinsfile"
+    - "azure-pipelines.yml"
+    - "bitbucket-pipelines.yml"
+    - ".buildkite/**"
+  protected:              # editing/deleting these fails the gate (test-runner config)
+    - "pytest.ini"
+    - "tox.ini"
+    - "jest.config.*"
+    - "vitest.config.*"
+    - "karma.conf.*"
+    - "phpunit.xml*"
+  new_file_reasons: true # N7: on in new projects; a project.yaml without this key has it off. A file added by a task (test files and .agent/ excepted) needs a reason in the
+                          # report field `new_files`, else the gate fails and the retry quotes the rule. O3: the task may declare
+                          # `new_files` and `new_deps`; a dependency manifest change without a declared dependency fails
+  file_growth: true       # O2: a code file may not grow past 400 lines or 25 percent in one task (whichever is larger),
+                          # measured against `.agent/quality_baseline.json` from `autopilot init`; the retry says "split, do not grow"
+  layers: true            # O4: checks the ```layers block in BRAIN.md (none = no check); only violations new since day one fail
+  scope_fail: true        # O1: a changed file outside the task's files_in_scope fails the gate (false = warn only)
+
+agent:
+  backend: claude_cli
+  # backend: claude_cli   # claude_cli | command; unset = preflight writes the first agent CLI it finds on PATH (N3)
+  # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
+  # preset: codex          # backend=command without a command: codex | copilot | gemini | opencode | kiro | cursor | aider (ready-made invocations)
+  # fallback: [codex, copilot]   # N11: at a usage limit that resets in over 30 min, the task continues with the first runner here (own login)
+  # model_map: {haiku: <small model>, sonnet: <main model>, opus: <largest model>}   # ladder names -> CLI models;
+  #                         an unmapped haiku/sonnet/opus uses the CLI's default model
+  permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing; or dontAsk + allowed_tools
+  session_timeout_sec: 3600
+  max_turns: 200          # --max-turns per session (~ the 1-hour timeout at 10-20 s a turn); 0 = no limit
+  cache_ttl: ""           # 5m | 1h (CLAUDE_CODE_PROMPT_CACHE_TTL). 1h writes cost more but survive the gaps
+                          # when sessions alternate models (decide on opus, task on sonnet); empty = CLI default
+  user_config: false              # I2: true = sessions also load your ~/.claude settings, plugins, hooks and MCP servers
+  stuck_repeats: 4        # abort a session that makes the same tool call this many times in a row (0 = off)
+  effort: ""              # low | medium | high | xhigh | max  (empty = CLI default)
+  allowed_tools: []
+  disallowed_tools:
+    - "Bash(git push:*)"
+    - "Bash(git commit:*)"
+    - "Bash(git checkout:*)"
+    - "Bash(git reset:*)"
+    - "Bash(git rebase:*)"
+    - "Bash(rm -rf /:*)"
+  extra_args: []          # e.g. ["--bare"] with API-key billing only (it skips OAuth, hooks, plugins and CLAUDE.md)
+  env_passthrough: []    # extra env var names sessions and checks may see (e.g. DATABASE_URL)
+  env: {}                 # e.g. ANTHROPIC_BASE_URL: http://localhost:4000  (LiteLLM)
+
+# Network egress allowlist (P5) on Claude Code's own sandbox, passed with --settings to every session.
+# Shell commands reach only these hosts, and coding sessions lose WebFetch/WebSearch (the sandbox doesn't cover
+# them; research and read-only sessions keep them). Linux/WSL2 (needs bubblewrap + socat) and macOS only.
+# Autopilot's own gate and deploy commands run outside the sandbox.
+sandbox:
+  enabled: false
+  allowed_domains: []     # e.g. [pypi.org, files.pythonhosted.org, registry.npmjs.org, github.com]
+
+# Risk tier -> model ladder. Attempt N uses ladder[N] (last entry repeats).
+models:
+  ladder:
+    low: [haiku, sonnet, opus]
+    medium: [sonnet, sonnet, opus]
+    high: [opus, opus, opus]
+    critical: [opus, opus]
+  fallback: ""            # passed as --fallback-model when set
+  effort:                 # --effort per role (empty = agent.effort, then the CLI default); tasks use their risk tier
+    low: low
+    medium: medium
+    high: medium
+    critical: high
+    fixer: medium
+    unstick: medium
+    audit: high
+    replan: high
+    onboard: high
+    triage: low
+  subagent: ""            # e.g. haiku: model for subagents inside sessions (CLAUDE_CODE_SUBAGENT_MODEL; all of them)
+  fixer: [sonnet, opus, opus]   # repair attempt N uses entry N (a single model also works)
+  replanner: opus
+  auditor: opus
+  onboard: opus
+  unstick: sonnet         # diagnoses a stuck task (may search the web) before anyone is asked
+  decide: opus            # weighs 2-3 approaches before risky work (see decide:)
+  review: opus            # reviews a critical task's diff after the gate, before the merge (see review:)
+  research: sonnet        # web research for a task's `research:` topics (see research:)
+  verifier: sonnet        # the per-phase functional check (see functional:)
+  triage: haiku           # turns a GitHub issue into a task, with no tools (see intake:)
+
+intake:                   # GitHub issues and failing CI on main -> corrective (FIX) tasks; needs `gh` logged in
+  enabled: false
+  label: autopilot        # only open issues with this label (on GitHub only people with triage access can add labels)
+  ci: true                # also the latest failed run of each CI workflow on main
+  poll_minutes: 30        # at run start, then at most this often
+  max_per_poll: 5         # new issues triaged per poll
+
+functional:               # when a phase closes, one read-only session runs each of its `features:` journeys once
+  enabled: true
+  init: ""                # command that starts the app (e.g. ./init.sh); empty = the checker works it out
+  effort: medium
+  mcp_config: ""          # e.g. .agent/mcp.json with a Playwright MCP server, for UI journeys (run headless)
+
+research:                 # a task's `research: [topics]` -> one web-only session per new topic -> research.dir/<topic>.md
+  enabled: true
+  effort: medium
+  dir: docs/research      # coding sessions read only these notes, never raw web pages
+
+decide:                   # before risky work, one read-only session scores 2-3 approaches -> an ADR in docs.adr_dir
+  enabled: true
+  risks: [high, critical] # plus any task with needs_decision: true; corrective (FIX) tasks never
+  effort: high
+
+review:                   # risk: critical only: one read-only session reviews the diff after the gate, before the merge
+  enabled: true           # a finding = a failed attempt; no verdict = merge (never blocks the run)
+  effort: high
+
+escalate:                 # move a failing task up its model ladder early on these signals (never down)
+  on_timeout: true        # the attempt timed out or got stuck in a loop
+  max_diff_lines: 300     # the failed attempt changed more lines than this (0 = off)
+  max_diff_files: 5       # ... or more files than this (0 = off)
+  load_bearing: []        # globs, e.g. ["src/auth/**", "migrations/**"]: tasks scoped there use the `high` ladder
+
+unstick:                  # a failing task first gets one read-only diagnosis session, then one more attempt
+  enabled: true
+  after_attempts: 2
+
+needs_you:                # what only the owner can decide goes here; everything else keeps being built
+  path: docs/NEEDS-YOU.md
+  wait: true              # true = keep polling for answers instead of ending the run
+  poll_minutes: 15
+
+retries:
+  resume: true            # a retry on the same model continues the failed session (--resume): context and cache kept
+  # max_attempts_per_task: 3  # unset = 3 under `profile: full`, 2 under `lean` (one retry, then park)
+  max_fixer_attempts: 3
+  rate_limit_backoff_sec: [60, 300, 900, 1800, 3600]
+
+usage:                    # the subscription's 5-hour window (claude -p draws from it, like interactive use)
+  billing: subscription   # subscription | api (api = no window, only the budget_usd caps)
+  window_hours: 5
+  reserve_pct: 15         # leave this share of each window for you: pause until it resets (0 = off)
+  window_usd: 0           # only used when the CLI reports no usage figure: cost-equivalent of a full window;
+                          # 0 = learn it from the first usage-limit hit
+  opus_by_pct: 0          # Opus decide/audit/replan sessions start only before this share of the usable window
+                          # is spent, else wait for a fresh window (0 = off; waiting costs wall-clock time)
+
+budget_usd:
+  total: 40               # session 34 self-build cap
+  per_session: 8
+  per_task: 20
+  per_phase: 150
+  daily: 200
+  wait_for_next_day: true # when daily cap is hit: sleep until midnight instead of stopping
+
+scheduling:
+  phase_dependency: soft  # soft = blocked tasks don't hold later phases; strict = they do
+  max_sessions_per_run: 0 # 0 = unlimited
+  parallel: 1             # N12: 3 = up to three first attempts at once, each in a git worktree, when their files_in_scope
+                          # share no file; low, medium and high join, critical and retries stay serial; unset = 3 with
+                          # a test command. Default 1 until a measured run is 1.5x faster (see docs/ROADMAP.md N12).
+  worktree_setup: true    # run commands.setup in each new worktree (deps like node_modules aren't shared)
+  worktree_dir: ""        # where worktrees live; empty = <temp>/autopilot-worktrees (always outside the repo)
+
+git:
+  push: false             # self-build: the owner merges back by hand (N14)
+  pull: false             # origin is the local main checkout; no pull during the run
+  remote: origin
+  mode: direct            # direct = merge task branches locally | pr = push the branch, open a PR with `gh`,
+                          # merge it on GitHub when its CI is green (needs push: true, gh logged in / GH_TOKEN)
+  pr_timeout_min: 30      # how long to wait for a PR's checks; red or late CI = a failed attempt
+
+docs:
+  changelog: CHANGELOG.md
+  history_dir: .agent/history
+  rca: docs/RCA.md        # root-cause log; corrective tasks and repairs append an entry
+  adr_dir: docs/adr       # architecture decision records (MADR) from the decide session
+  status: docs/STATUS.md  # the plan as a checklist, regenerated at every commit ("" = off)
+  backlog: docs/BACKLOG.md  # new ideas ("- " lines); one replan adds them to the plan ("" = off)
+  session: true           # O11: one session per closed phase writes the RCA entries of retried tasks, a README
+                          # section per feature and the file below; it may touch only those files and docs/
+  developing: docs/DEVELOPING.md  # how to run, test, deploy and extend, for a person (under 200 lines)
+
+quality:                  # one line per finished task (model, risk, attempts, reworked, tokens) in the events log
+  every: 20               # after this many finished tasks, suggest model ladder changes from the data (0 = never)
+
+replan:                   # rewrites stale pending tasks, reopens blocked ones, refreshes BRAIN.md
+  enabled: true
+  every_n_phases: 5
+  on_stall: true          # when everything left is waiting on blocked tasks
+
+audit:                    # reviews overall implementation vs plan -> corrective tasks (self-correction)
+  enabled: true
+  every_n_phases: 0       # periodic audits off; one completion audit when the plan is done
+  completion_audit: true  # when the plan is exhausted: is the app actually complete? gaps -> new tasks
+  max_completion_rounds: 2
+  max_new_tasks: 15       # per audit, keeps self-correction bounded
+  consolidate: false      # O9: at each phase close, a rise in duplicate blocks, files over budget or layer violations adds one [consolidate] task to the next phase
+
+deploy:
+  staging:
+    enabled: false
+    cmd: ""               # gets $AUTOPILOT_REF, $AUTOPILOT_PHASE, $AUTOPILOT_ENV
+    health_url: ""
+    health_timeout_sec: 180
+    rollback_cmd: ""      # gets $AUTOPILOT_PREV_REF (last good deploy)
+  prod:
+    enabled: false
+    auto: false           # false = queued; run `autopilot approve <phase>`; the run keeps going
+    max_auto_risk: medium # auto-deploy only phases whose riskiest task is <= this
+    cmd: ""
+    health_url: ""
+    health_timeout_sec: 180
+    rollback_cmd: ""
+
+chat:                     # owner commands from Telegram: status, answer D-003 <text>, approve <phase>, unblock <task>
+  enabled: false          # uses the notify.telegram_* bot; only your PRIVATE chat with the bot (its id = the chat
+                          # env) is obeyed. One bot per project: two runs polling one bot steal each other's messages.
+
+notify:
+  telegram_token_env: AUTOPILOT_TG_TOKEN
+  telegram_chat_env: AUTOPILOT_TG_CHAT
+  slack_webhook_env: AUTOPILOT_SLACK_WEBHOOK
+  webhook_env: AUTOPILOT_WEBHOOK
+  ntfy_topic_env: AUTOPILOT_NTFY_TOPIC
+  events: [run_start, phase_done, task_blocked, deploy_failed, deploy_ok, approval_needed, needs_you, budget, stalled, run_done, fatal, quality, window, heal]
