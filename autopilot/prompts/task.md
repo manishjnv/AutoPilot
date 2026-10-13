@@ -52,7 +52,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
 1. Read the relevant existing code first. Follow the existing conventions in BRAIN.md.
 2. Implement the task completely — no stubs, TODOs or placeholder logic for anything in the acceptance criteria.
 3. {{test_rule}}
-4. Run the project's checks yourself and fix failures before finishing:
+4. Run the build, lint and typecheck commands below and fix failures before finishing. Run the tests of the files you changed. The gate runs the full suite at the phase close. Do not run the full test command yourself.
 {{verify_cmds}}
 5. Update documentation touched by this change (README, API docs, docstrings, the docs listed above).
 6. If the task is genuinely impossible (missing external dependency, contradictory spec), stop and report "blocked" with a precise reason — do not fake it.

@@ -143,7 +143,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | Section | Controls | Important keys (default) |
 |---|---|---|
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
-| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing), `scope_always` (docs a task may change outside its scope, with no scope addition and no warning; default `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md`, `README.md`), `tests` (`changed` default, or `full`: which tests the gate runs per task; a value other than these two is an error) |
+| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing), `scope_always` (docs a task may change outside its scope, with no scope addition and no warning; default `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md`, `README.md`), `tests` (`changed` default, or `full`: which tests the gate runs per task; the phase close always runs the full command; a value other than these two is an error) |
 | `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
 | `onboard` | The discovery pack of the `onboard` session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | Where the agent runs: `mode` `off`, `allowlist` (Claude Code's own sandbox with the network allowlist) or `docker` (each session in `docker run --rm` with only the worktree at `/work`, its git folders (the shared one read-only) and a temp login folder mounted; never the home folder; secret variables pass by name only). A missing `mode` follows `enabled` | `mode`, `enabled` (false), `allowed_domains`, `image` (needed for `docker`; the image must have `claude` on PATH), `network` (`bridge`) |
@@ -269,7 +269,7 @@ sandbox:
 ### Lean profile
 
 Set `profile` to `lean` or `full` in `.agent/project.yaml`; new projects start with `lean`.
-Under `lean`, a task writes one smoke test for each criterion, and the task gate runs only the tests of the changed modules.
+Under `lean`, a task writes one smoke test for each criterion. In every profile the task gate runs only the tests of the changed modules (`gate.tests: changed`, the default); `gate.tests: full` runs the full command per task.
 `lean` allows one retry, then parks the task in "Questions for you"; it also turns off the periodic and the completion audit, and the phase check runs no variations.
 `lean` cuts `BRAIN.md` to 6000 characters and the decisions to 2000, and `autopilot audit` runs the audit on demand.
 `autopilot report --tokens` shows the tokens and the cost of each step type; the total equals the state total.

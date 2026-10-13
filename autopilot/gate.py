@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import allowlist_on, scope_always
+from .config import allowlist_on, scope_always, tests_mode
 from .proc import agent_env, run_proc, with_tool_dirs
 
 SECRET_PATTERNS = [
@@ -186,7 +186,7 @@ def changed_tests(cfg, cmd: str, files: list[str]) -> str:
 
 def verify_commands(cfg, extra: list[str] | None = None, phase: bool = False, files: list[str] | None = None) -> list[str]:
     tests = cfg.commands("test")
-    if files is not None and cfg.lean and not phase:  # O10: per task only the changed modules; phase close runs it all
+    if files is not None and not phase and tests_mode(cfg) == "changed":  # W22: per task the changed modules' tests in every profile; the phase close runs it all
         tests = [changed_tests(cfg, c, files) for c in tests]
     cmds = cfg.commands("build", "lint", "typecheck") + tests + list(extra or [])
     if phase:

@@ -375,6 +375,41 @@ def test_old_project_yaml_without_the_keys(tmp_path):  # a project.yaml from bef
     assert not [e for e in cfg.validate() if "gate." in e]
 
 
+def _pytest_project(tmp_path, tests="changed"):  # W22
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_foo.py").write_text("def test_a():\n    pass\n")
+    cfg = Config.load(tmp_path)
+    cfg.data["profile"] = "full"
+    cfg.data["commands"] = {"test": ["python -m pytest -q"], "phase_verify": ["echo phase"]}
+    cfg.data.setdefault("gate", {})["tests"] = tests
+    return cfg
+
+
+def test_full_profile_task_gate_narrows_tests(tmp_path):
+    from autopilot.gate import verify_commands
+    cfg = _pytest_project(tmp_path)
+    cmds = verify_commands(cfg, files=["autopilot/foo.py"])
+    assert cmds == ["python -m pytest -q tests/test_foo.py"]
+
+
+def test_phase_close_runs_the_full_command(tmp_path):
+    from autopilot.gate import verify_commands
+    cfg = _pytest_project(tmp_path)
+    cmds = verify_commands(cfg, phase=True, files=["autopilot/foo.py"])
+    assert cmds == ["python -m pytest -q", "echo phase"]
+
+
+def test_gate_tests_full_runs_the_full_command_per_task(tmp_path):
+    from autopilot.gate import verify_commands
+    cfg = _pytest_project(tmp_path, tests="full")
+    assert verify_commands(cfg, files=["autopilot/foo.py"]) == ["python -m pytest -q"]
+
+
+def test_task_prompt_says_not_to_run_the_full_suite():
+    text = (Path(__file__).parent.parent / "autopilot" / "prompts" / "task.md").read_text(encoding="utf-8")
+    assert "Run the tests of the files you changed. The gate runs the full suite at the phase close." in text
+
+
 def test_gate_keys_validation(tmp_path):
     cfg = Config.load(tmp_path)
     cfg.data.setdefault("gate", {})["scope_always"] = "REFERENCE.md"
