@@ -3,7 +3,7 @@ from autopilot.backends import SessionResult
 from autopilot.orchestrator import Orchestrator
 from test_autopilot import FakeBackend, git, make_project
 
-NO_AUDIT = {"audit": {"completion_audit": False}}
+NO_AUDIT = {"audit": {"completion_audit": False}, "decide": {"risks": ["high", "critical"]}}  # W26: template says critical only
 
 
 def phases(*tasks):

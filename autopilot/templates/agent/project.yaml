@@ -121,7 +121,7 @@ models:
     triage: low
   subagent: ""            # e.g. haiku: model for subagents inside sessions (CLAUDE_CODE_SUBAGENT_MODEL; all of them)
   fixer: [sonnet, opus, opus]   # repair attempt N uses entry N (a single model also works)
-  replanner: opus
+  replanner: sonnet       # opus when a pending task touches a load-bearing path
   auditor: opus
   onboard: opus
   unstick: sonnet         # diagnoses a stuck task (may search the web) before anyone is asked
@@ -151,7 +151,7 @@ research:                 # a task's `research: [topics]` -> one web-only sessio
 
 decide:                   # before risky work, one read-only session scores 2-3 approaches -> an ADR in docs.adr_dir
   enabled: true
-  risks: [high, critical] # plus any task with needs_decision: true; corrective (FIX) tasks never
+  risks: [critical]       # plus any task with needs_decision: true; corrective (FIX) tasks never
   effort: high
 
 review:                   # W4: one read-only session reviews the diff after the gate, before the merge

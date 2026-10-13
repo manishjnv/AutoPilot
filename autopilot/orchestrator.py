@@ -2424,7 +2424,12 @@ class Orchestrator:
         before_plan = plan_path.read_text(encoding="utf-8")
         self.git.start_branch("autopilot/replan", self.main)
         try:
-            res = self.session("replan", self.ctx.replanner_prompt(backlog, source_diff), self.cfg.get("models.replanner", "opus"))
+            lb = self.cfg.get("escalate.load_bearing") or []
+            status = self.state.status_map()
+            risky = lb and any(_match(f, lb) for t in self.plan.all_tasks() if status.get(t.id) == "pending"
+                               for f in t.files_in_scope)  # W26: Opus only when a waiting task is load-bearing
+            model = "opus" if risky else self.cfg.get("models.replanner", "sonnet")
+            res = self.session("replan", self.ctx.replanner_prompt(backlog, source_diff), model)
             new_plan = plan_path.read_text(encoding="utf-8")
             new_brain = brain_path.read_text(encoding="utf-8") if brain_path.exists() else None
         finally:  # drop everything, then re-apply only the two allowed files on main
