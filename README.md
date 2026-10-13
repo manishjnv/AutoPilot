@@ -128,6 +128,19 @@ Three steps, no administrator prompt.
 See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot updates itself once a day; `ap uninstall --all`
 removes it. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
 
+## Local models
+
+Run low-risk tasks on a model on your own computer (Ollama or LM Studio). Nothing leaves the machine and it costs nothing.
+
+1. Start the server and pull a coding model, for example `ollama pull qwen2.5-coder:7b`.
+2. In `.agent/project.yaml`, set `agent.backend: openai_compat`. Optionally set `agent.base_url` (default
+   `http://localhost:11434/v1`) and `agent.model_map` (for example `haiku: qwen2.5-coder:7b`).
+3. Run `ap doctor`. The `endpoint` row says whether the server answers. It warns and never fails when the server is down.
+
+The model cannot run tools. It writes each file as a fenced block and Autopilot writes the files into the worktree.
+A path outside the worktree is refused. The gate then runs the tests and the checks, so a weak model fails the gate.
+See [Use a local model](HOWTO.md#use-a-local-model).
+
 ## Example output
 
 Shortened real output:
