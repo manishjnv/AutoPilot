@@ -20,6 +20,8 @@ verify_timeout_sec: 1200
 
 gate:
   allow_no_checks: false  # true = allow a run with no build/lint/typecheck/test command (not recommended)
+  scope_always: ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]  # docs a task may always change (outside its files_in_scope)
+  tests: changed          # which tests the gate runs per task: changed (the changed modules' tests) or full (the whole suite)
   test_globs:             # files treated as tests by the test-tamper guard
     - "tests/**"
     - "test/**"

@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W19 and W22 setup: `gate.scope_always` (the docs a task may always change) and `gate.tests` (`changed` or `full`) are new settings with defaults; a wrong value is reported by `ap validate`. The gate does not use them yet.
 - W20: the phase docs session passes the tests too. If the project tests fail on what the docs session wrote, Autopilot drops that result and says which test failed, so main stays green.
 
 ## [0.7.1] - 2026-10-13
@@ -195,3 +196,4 @@ to run. A short outage at the AI service no longer ends your build. Login works 
 - 2026-10-13 **P14-T02** Receipt end-to-end test and test hygiene — Added an end-to-end receipt test that drives a one-task phase close with the fake backend and checks receipt.json plus ap verify exit 0. Gave the test_steps upgrade test a tmp_path, a chdir and a stub
 - 2026-10-13 **P14-T03** REFERENCE entries for the plugin Stop hook and the Routine page — REFERENCE.md `## Proof features` now has a `### Stop hook in the plugin` subsection (seal.py's two checks, the 300 s test limit, the 330 s hook timeout in hooks.json, the 5-block counter file, `/plugi
 - 2026-10-13 **P01-T01** W20 The phase docs session passes the gate too — docs_phase now runs commands.test through gate.run_commands on the staged docs result. A red result is discarded with the event '<phase>: result dropped (tests: <first failing line>)' and main stays u
+- 2026-10-13 **P02-T00** Contract: gate.scope_always and gate.tests keys — Added config.scope_always(cfg) and config.tests_mode(cfg) with the defaults (REFERENCE.md, CHANGELOG.md, HOWTO.md, README.md / changed), using only cfg.get. validate() reports a non-list gate.scope_al
