@@ -19,11 +19,12 @@ import threading
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import NamedTuple
 
 from . import AGENT_DIR, decisions, outage, signals
 from .backends import SessionRequest, SessionResult, get_backend
 from .config import RISKS, Config, load_yaml, scope_always
-from .context import ContextBuilder, progress_line
+from .context import ContextBuilder, numbered, progress_line
 from .deploy import deploy
 from .docs import Documenter, redact_secrets, research_path, task_not_proven
 from .gate import (TEST_GLOBS, CmdResult, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
@@ -135,6 +136,15 @@ def new_file_lines(report: dict) -> str:
     lines = [f"new file {_one_line(e.get('path'))}: {_one_line(e.get('reason'))[:300] or '(no reason given)'}"
              for e in items if isinstance(e, dict) and _one_line(e.get("path"))]
     return "\n\n" + "\n".join(lines) if lines else ""
+
+
+SPLIT_FILES, SPLIT_LINES = 8, 250  # W40: a medium task over this is a split signal, not an escalation
+
+
+class Review(NamedTuple):
+    problem: str  # '' = merge
+    followups: list  # new defects that break no acceptance criterion
+    split: str  # W40: 'split signal: ...' or ''
 
 
 def review_tests(gate) -> str:
@@ -1028,13 +1038,23 @@ class Orchestrator:
             lines += int(added) + int(deleted) if added.isdigit() and deleted.isdigit() else 0
         return files, lines
 
-    def escalation(self, res: SessionResult, gate: GateResult | None = None) -> str:
+    def split_signal(self, task) -> str:
+        """W40: a medium task whose counted change (W41 rule) passes SPLIT_FILES or SPLIT_LINES says so; it is not escalated."""
+        if self.effective_risk(task) != "medium":
+            return ""
+        files, lines = self.counted_change()
+        if len(files) <= SPLIT_FILES and lines <= SPLIT_LINES:
+            return ""
+        return (f"split signal: {len(files)} files, {lines} lines (over {SPLIT_FILES} files / {SPLIT_LINES} lines for a medium "
+                "task); the model is not escalated")
+
+    def escalation(self, res: SessionResult, gate: GateResult | None = None, split: bool = False) -> str:
         """U6: why a failed attempt should move up the ladder now ('' = no signal). Reads the work before discard.
         W41: a failure of only mechanical problems stays on the model; tests and scope_always files do not count as size."""
         e = self.cfg.get
         if e("escalate.on_timeout", True) and (res.timed_out or res.stuck):
             return "timed out" if res.timed_out else "stuck in a loop"
-        if mechanical(self.cfg, gate):
+        if split or mechanical(self.cfg, gate):
             return ""
         files, lines = self.counted_change()
         max_lines, max_files = int(e("escalate.max_diff_lines", 300) or 0), int(e("escalate.max_diff_files", 5) or 0)
@@ -1099,7 +1119,7 @@ class Orchestrator:
             attempts += 1
             self.state.set_task(task.id, attempts=attempts, model=model)
             self.git.normalize_after_session(branch, base)
-            agent_blocked, keep, kept, gate = False, False, False, None
+            agent_blocked, keep, kept, gate, split, rev_followups = False, False, False, None, "", []
             cut = bool((res.timed_out or res.stuck) and self.git.staged_files())  # J14.3: a cut session keeps its diff
             if cut:
                 log.info("task %s: session cut (%s); its diff is gated first", task.id, res.error[:120])
@@ -1151,7 +1171,8 @@ class Orchestrator:
                         self.state.set_task(task.id, status="pending", attempts=attempts - 1, last_error=None)
                         return False
                 if gate.ok and not problem:
-                    problem = self.review(task, phase, branch, base, gate)
+                    problem, rev_followups, split = self.review(task, phase, branch, base, gate)
+                    res.report["followups"] = list(res.report.get("followups") or []) + [f"review: {f}" for f in rev_followups]
                 if problem:
                     last_error = problem
                 elif gate.ok:
@@ -1172,7 +1193,7 @@ class Orchestrator:
                                       f"{self.git.run('diff', '--cached', check=False)[:8000]}")
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
             chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
-            why = self.escalation(res, gate)
+            why = self.escalation(res, gate, bool(split))
             fail_model, fail_why = model, why
             floor = max(floor, model_rank(model) + (1 if why else 0))
             self.state.set_meta(f"stepup:{task.id}", bool(why))  # survives a restart; a plain test failure clears it
@@ -1263,14 +1284,16 @@ class Orchestrator:
         return bool(self.cfg.get("review.enabled", True)) and (
             risk == "critical" or (self.cfg.get("review.scope", "critical") == "all" and risk != "low"))
 
-    def review(self, task, phase, branch: str, base: str, gate) -> str:
+    def review(self, task, phase, branch: str, base: str, gate) -> Review:
         """W4 scope (review_due): one read-only Opus session reviews the gated diff before the merge. The prompt holds
         only the task spec, the diff and the gate output. A finding is a failed attempt (error text); a pass is "".
-        No verdict after one retry also fails the attempt, never a merge."""
-        if not self.review_due(task):
-            return ""
-        if not self.git.staged_files():  # the work is staged after the gate
-            return ""
+        No verdict after one retry also fails the attempt, never a merge.
+        W40: the findings of a failed review are kept (meta review_list:<id>); the next review checks them first and
+        fails only on a listed finding still open or a new defect that breaks a criterion; other new defects are followups."""
+        if not self.review_due(task) or not self.git.staged_files():  # the work is staged after the gate
+            return Review("", [], "")
+        key = f"review_list:{task.id}"
+        listed = [str(f) for f in (self.state.get_meta(key, []) or [])]
         # internal snapshot, removed below: no project hooks (a failing hook here would stop the whole run)
         self.git.run("commit", "-q", "--no-verify", "-m", f"[autopilot] review snapshot {task.id}")
         sha = self.git.head()
@@ -1278,7 +1301,7 @@ class Orchestrator:
         for _try in range(2):  # a missing verdict = one retry of the review session
             while True:
                 try:
-                    res = self.session("review", self.ctx.review_prompt(task, diff) + review_tests(gate), self.cfg.get("models.review", "opus"),
+                    res = self.session("review", self.ctx.review_prompt(task, diff, listed) + review_tests(gate), self.cfg.get("models.review", "opus"),
                                        task_id=task.id, phase=phase.id, read_only=True,
                                        effort=self.cfg.get("review.effort", "high"))
                 finally:  # read-only: drop what it touched (even its git moves), keep the work on the snapshot
@@ -1292,14 +1315,33 @@ class Orchestrator:
                 break
             log.warning("review session for %s gave no verdict: %s", task.id, (res.error or "")[:200])
         self.git.run("reset", "-q", "--soft", base)  # the work back as uncommitted staged changes
-        if verdict == "fail":
-            findings = [str(f) for f in (rep.get("findings") or []) if str(f).strip()]
-            return (f"REVIEW of the {task.risk} task found problems (fix them):\n"
-                    + ("\n".join(f"- {f}" for f in findings) or str(rep.get("summary") or "no details")))
-        if verdict != "pass":
+        if verdict not in ("pass", "fail"):
             self.state.event("review", f"{task.id}: no verdict after a retry, task failed")
-            return "REVIEW gave no verdict (no JSON report with a verdict) after a retry; the change is not merged."
-        return ""
+            return Review("REVIEW gave no verdict (no JSON report with a verdict) after a retry; the change is not merged.", [], "")
+        findings = [str(f) for f in (rep.get("findings") or []) if str(f).strip()]
+        followups = [str(f).strip() for f in (rep.get("followups") or []) if str(f).strip()]
+        if listed and "listed" in rep:  # a re-review: Python decides, the reviewer's verdict does not move the goal
+            status = {}
+            for row in rep.get("listed") or []:
+                if isinstance(row, dict) and isinstance(row.get("n"), int) and 1 <= row["n"] <= len(listed):
+                    status[row["n"]] = str(row.get("status", "")).lower()
+            still = [listed[n - 1] for n in range(1, len(listed) + 1) if status.get(n) != "fixed"]
+            fail = bool(still or findings)
+            findings = still + [f for f in findings if f not in still]
+        else:
+            fail = verdict == "fail"
+        if not fail:
+            self.state.set_meta(key, [])
+            return Review("", followups, "")
+        new_list = list(dict.fromkeys(findings))
+        self.state.set_meta(key, new_list)
+        split = self.split_signal(task)
+        if split:
+            self.state.event("review", f"{task.id}: {split}")
+        body = ("Fix exactly these review findings, nothing else:\n" + numbered(new_list)) if new_list \
+            else str(rep.get("summary") or "no details")
+        return Review(f"REVIEW of the {task.risk} task found problems (fix them):\n{body}" + (f"\n{split}" if split else ""),
+                      followups, split)
 
     GENERIC_QUESTION = "The agent could not complete this task. How must it continue?"
 

@@ -55,6 +55,16 @@ def read_capped(path: Path, max_chars: int, tail: bool = False, default: str = "
     return ("…(truncated)…\n" + text[-max_chars:]) if tail else (text[:max_chars] + "\n…(truncated)…")
 
 
+def numbered(items) -> str:
+    return "\n".join(f"{n}. {i}" for n, i in enumerate([str(i) for i in (items or []) if str(i).strip()], 1))
+
+
+REVIEW_LIST = ("## Findings of the last review (check these first)\n{list}\n\n"
+               "For each number report `{{\"n\": 1, \"status\": \"fixed | open\"}}` in `listed`. A NEW defect goes in `findings` "
+               "(it fails the task) only when it breaks an acceptance criterion: name the criterion. Any other new defect goes in "
+               "`followups` and does not fail the task. The task merges when every listed number is fixed and `findings` is empty.\n")
+
+
 def bullets(items, empty: str = "(none)") -> str:
     items = [str(i) for i in (items or []) if str(i).strip()]
     return "\n".join(f"- {i}" for i in items) if items else empty
@@ -129,14 +139,15 @@ class ContextBuilder:
                       acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
                       decisions=self.decisions(), error=(error or "(none)")[-6000:])
 
-    def review_prompt(self, task, diff: str) -> str:
+    def review_prompt(self, task, diff: str, listed: list[str] | None = None) -> str:
         phase = self.plan.phase_of(task)
         if len(diff) > 30000:
             diff = diff[:30000] + "\n... (diff cut; read the rest with `git show HEAD`)"
         fence = "`" * max(5, 1 + max((len(m) for m in re.findall(r"`+", diff)), default=0))  # the diff cannot close it
         return render("review.md", task_id=task.id, task_title=task.title, description=task.description or task.title,
                       acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
-                      decisions=self.decisions(), fence=fence, diff=diff or "(empty)")
+                      decisions=self.decisions(), fence=fence, diff=diff or "(empty)",
+                      review_list=REVIEW_LIST.format(list=numbered(listed)) if listed else "")
 
     def decide_prompt(self, task) -> str:
         phase = self.plan.phase_of(task)
