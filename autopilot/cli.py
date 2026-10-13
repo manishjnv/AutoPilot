@@ -859,8 +859,10 @@ def _open_state(root: Path):
 def cmd_status(args):
     from .report import build_report, run_journal, status_line
     cfg, plan, state = _open_state(Path(args.path).resolve())
-    print(status_line(cfg, plan, state, run_journal(cfg.root),
-                      shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None) + "\n")
+    from .plain import colors_on
+    print(dead_red(status_line(cfg, plan, state, run_journal(cfg.root),
+                               shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None),
+                   colors_on(sys.stdout)) + "\n")
     if state.get_meta("outcome"):  # W3: the one word of the last run end
         print(f"outcome: {state.get_meta('outcome')}\n")
     print(build_report(cfg, plan, state))
@@ -874,14 +876,33 @@ def cmd_stats(args):
     print(proof_stats(cfg, plan, state))
 
 
+def run_over(run: dict) -> bool:
+    """The run is finished, or W37 dead (run.json says running and its process is gone)."""
+    from .report import run_alive
+    return run.get("status") == "finished" or (run.get("status") == "running" and not run_alive(run)[0])
+
+
+def dead_red(text: str, color: bool) -> str:
+    """W37: the words `DEAD since HH:MM` in red, where colour is on."""
+    import re
+
+    from .plain import paint
+    return re.sub(r"DEAD since [\d:]*", lambda m: paint(m.group().rstrip(), "red", color), text) if color else text
+
+
 def watch_end(root: Path, run: dict, color: bool, hold: bool):
     """J8: the end of the simple view and of the dashboard: the end line, the status in short, the next steps.
     A window that the build opened (`hold`) stays until the person closes it."""
     from .plain import ending, paint, tint
-    print("\n" + paint(ending(run.get("outcome")), "bold", color))
+    from .report import run_alive
+    live, since = run_alive(run)
+    if run.get("status") == "running" and not live:  # W37: the process is gone, nothing wrote "finished"
+        print("\n" + paint(f"DEAD since {since}. The run stopped without an end. Type ap start.", "red", color))
+    else:
+        print("\n" + paint(ending(run.get("outcome")), "bold", color))
     try:
         for row in status_reader(root, words="panel")().split("\n"):
-            print(tint(row, color))
+            print(dead_red(tint(row, color), color))
     except Exception:  # noqa: BLE001 — no plan: the end line is enough
         pass
     print(hints(root, False, color))
@@ -956,7 +977,7 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
             except Exception:  # noqa: BLE001 — e.g. the plan is being rewritten right now: keep the last picture
                 pass
             out.flush()
-            done = done + 1 if run_journal(root).get("status") == "finished" else 0
+            done = done + 1 if run_over(run_journal(root)) else 0
             if done >= 3 and restarting(root):
                 done = 0
             if done >= 3:
@@ -985,9 +1006,9 @@ def cmd_watch(args):
     import time
 
     from .plain import SimpleView, colors_on, paint
-    from .report import next_steps_text, run_journal
+    from .report import next_steps_text, run_alive, run_journal
     root = Path(args.path).resolve()
-    log = root / AGENT_DIR / "logs" / "autopilot.log"
+    log =root / AGENT_DIR / "logs" / "autopilot.log"
     # J1: plain words on a terminal; the technical lines with --detail, and when the output is not a terminal
     simple = bool(getattr(args, "simple", False)) or (sys.stdout.isatty() and not getattr(args, "detail", False))
     color = colors_on(sys.stdout)
@@ -1087,13 +1108,14 @@ def cmd_watch(args):
             if run.get("status") == "finished" and quiet >= 3 and restarting(root):
                 quiet = 0
                 continue
-            if run.get("status") == "finished" and quiet >= 3:
+            if run_over(run) and quiet >= 3:
                 if simple:
                     show("", final=True)
                     bar.stop()  # J8: the panel goes; its facts stay on the screen as normal lines
                     watch_end(root, run, color, bool(getattr(args, "hold", False)))
                 else:
-                    print(f"\nrun finished: {run.get('outcome', '?')}")
+                    print(f"\nrun finished: {run.get('outcome', '?')}" if run.get("status") == "finished"
+                          else f"\nrun DEAD since {run_alive(run)[1]}")
                     print(next_steps_text(root, running=False))
                 return 0
     except KeyboardInterrupt:

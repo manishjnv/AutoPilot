@@ -50,6 +50,17 @@ def window_line(state) -> str:
     return text + (f" · {round(100 * week['pct'])}% of the weekly limit" if "pct" in week else "")
 
 
+def run_alive(run: dict) -> tuple[bool, str]:
+    """W37: (live, dead_since) of a run.json dict, the one reader of every view. `running` with a pid that is gone
+    is a dead run: (False, 'HH:MM' of beat_at, else updated_at). Any other state, or no pid, counts as it says."""
+    from .proc import pid_alive
+    if run.get("status") != "running":
+        return False, ""
+    if pid_alive(run.get("pid")):
+        return True, ""
+    return False, str(run.get("beat_at") or run.get("updated_at") or "")[11:16]
+
+
 def _run_file(cfg) -> dict:
     try:
         return json.loads((cfg.agent_dir / "run.json").read_text(encoding="utf-8"))
@@ -130,8 +141,11 @@ def status_panel(cfg, plan, state, run: dict, width: int | None = None) -> list[
     status, tasks = state.status_map(), plan.all_tasks()
     done = sum(1 for t in tasks if status.get(t.id) == "done")
     blocked = sum(1 for t in tasks if status.get(t.id) == "blocked")
-    live, ids = run.get("status") == "running", [t.id for t in tasks]
-    if not live:
+    live, dead_since = run_alive(run)
+    ids = [t.id for t in tasks]
+    if run.get("status") == "running" and not live:
+        build = [f"DEAD since {dead_since}".rstrip()]
+    elif not live:
         build = ["No build active" if run.get("status") != "finished" else "Complete" if done == len(tasks) else "Stopped"]
     else:
         build = []
@@ -185,7 +199,10 @@ def status_words(cfg, plan, state, run: dict) -> str:
     blocked = sum(1 for t in tasks if status.get(t.id) == "blocked")
     tail = f"{done} of {len(tasks)} tasks complete. " + (
         "No problems." if not blocked else "1 task is blocked." if blocked == 1 else f"{blocked} tasks are blocked.")
-    if run.get("status") != "running":
+    live, dead_since = run_alive(run)
+    if run.get("status") == "running" and not live:
+        return f"The run is DEAD since {dead_since}. Type ap start. " + tail
+    if not live:
         return ("No build is active. " if run.get("status") != "finished" else
                 "Build complete. " if done == len(tasks) else "The build stopped. ") + tail
     head = STATE_WORDS.get(str(run.get("state") or ""), "Works.")
@@ -203,13 +220,15 @@ def status_line(cfg, plan, state, run: dict, width: int | None = None) -> str:
     blocked always stay. `run` is .agent/run.json."""
     status, tasks = state.status_map(), plan.all_tasks()
     done = sum(1 for t in tasks if status.get(t.id) == "done")
-    live = run.get("status") == "running"
+    live, dead_since = run_alive(run)
+    dead = run.get("status") == "running" and not live
     total, models, _, _ = _shares(state, 0)
     top = sorted(((m, v["total"]) for m, v in models if v["total"]), key=lambda x: -x[1])[:2]
     short = lambda m: next((s for k, s in MODEL_SHORT.items() if k in str(m).lower()), str(m)[:4])  # noqa: E731
     five = open_window(state)
     parts = {
-        "head": "ON" if live else ("Done" + (f" {run['word']}" if run.get("word") else ""))  # W3: the outcome word
+        "head": "ON" if live else f"DEAD since {dead_since}".rstrip() if dead else
+                ("Done" + (f" {run['word']}" if run.get("word") else ""))  # W3: the outcome word
                 if run.get("status") == "finished" else "Idle",
         "runtime": _runtime(run.get("started_at")) if live else "",
         "state": str(run.get("state") or "") if live else "",
@@ -464,7 +483,7 @@ def next_steps(root, running: bool | None = None) -> list[str]:
         return ["autopilot quickstart            set up this folder; asks what to build if there is no PLAN.md",
                 "autopilot quickstart --idea \"...\"   or describe it in one go"]
     if running is None:
-        running = run_journal(root).get("status") == "running"
+        running = run_alive(run_journal(root))[0]
     tips = []
     try:
         from .config import Config

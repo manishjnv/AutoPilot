@@ -10,8 +10,8 @@ import time
 
 from .decisions import problems
 from .plain import SimpleView, ending
-from .report import (MODEL_NAMES, STATE_WORDS, _n, _runtime, _shares, next_steps, open_window, status_line,
-                     warned_tasks)
+from .report import (MODEL_NAMES, STATE_WORDS, _n, _runtime, _shares, next_steps, open_window, run_alive,
+                     status_line, warned_tasks)
 
 CODE = {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".kt", ".swift", ".c", ".h", ".cpp", ".hpp", ".cs",
         ".rb", ".php", ".html", ".css", ".scss", ".vue", ".svelte", ".sh", ".ps1", ".sql"}
@@ -205,7 +205,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
     status, tasks = state.status_map(), plan.all_tasks()
     done = sum(1 for t in tasks if status.get(t.id) == "done")
     blocked = sum(1 for t in tasks if status.get(t.id) == "blocked")
-    live = run.get("status") == "running"
+    live, dead_since = run_alive(run)
     finished = run.get("status") == "finished"
     rows = {r["id"]: r for r in state.tasks()}
     now = dt.datetime.now().isoformat(timespec="seconds")
@@ -337,7 +337,8 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
     return {
         # the age of the data; a run that is not live shows when it stopped
         "asof": {"age": data_age(root, run), "live": live, "mtime": data_mtime(root, run),
-                 "stopped": "" if live else str(run.get("updated_at") or "")[11:16]},
+                 "stopped": "" if live else dead_since or str(run.get("updated_at") or "")[11:16],
+                 "dead_since": dead_since},
         "project": {
             "name": str(cfg.get("name", root.name)), "branch": main, "commit": facts["commit"],
             "last_commit": _first(facts["subject"], 60),
