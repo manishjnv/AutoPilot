@@ -181,6 +181,7 @@ No session needs a long chat history. After a crash or a restart, the run contin
 | `orchestrator.py` | The main loop |
 | `plan.py` | Loads the plan and selects the next task |
 | `gate.py` | The checks |
+| `kill_guard.py` | Finds a kill by name (`taskkill /IM`, `pkill`, `killall`, `Stop-Process -Name`) in a session log, for the gate |
 | `gitops.py` | All git commands |
 | `context.py` | Makes the prompt of each session from the files |
 | `state.py` | The SQLite state |
