@@ -11,23 +11,36 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [0.7.0] - 2026-10-13
 
-- W3: a run ended with Ctrl+C now stores the outcome word BUDGET_STOP, and the `ap watch` bottom bar shows the word after `Stopped`.
-- W12: `vscode/` has a thin VS Code extension: commands Autopilot Start, Answer and Stop run `ap` in a terminal named Autopilot, and an Explorer view shows the status page (port from `.agent/status.port`). Not published.
-- W13: `agent.backend: openai_compat` sends each session to an OpenAI-compatible `/chat/completions` endpoint (`agent.base_url`, default Ollama `http://localhost:11434/v1`; `agent.model_map`; optional `agent.api_key_env` for a Bearer token) and writes the fenced `path:` file blocks of the answer into the worktree. A path outside the worktree is refused and nothing is written.
-- W13: `ap doctor` and `ap preflight` print an `endpoint` row for `openai_compat` (OK when the endpoint answers, WARN when it does not, never FAIL).
-- W11: `sandbox.mode: docker` runs each Claude Code session in `docker run --rm -i` from `sandbox.image`, with only the worktree at `/work`, its git folders (the shared one read-only) and a temp copy of `~/.claude/.credentials.json` mounted; secrets pass by name only, and the container and the temp folder are removed after the session. `sandbox.enabled` alone still means the allowlist.
-- W11: `ap doctor` prints the docker row in docker mode, the gate and doctor read `sandbox.mode: allowlist` as `sandbox.enabled: true`, and REFERENCE and SECURITY document the mode.
-- W10: HOWTO `Run with the laptop off (Claude Code Routines)` and `examples/routine/prompt.md`, a Routine prompt that installs `ap`, runs `ap run --no-prod` with `scheduling.max_sessions_per_run: 3`, pushes the `autopilot/` branches and ends with `ap status`. Not run live yet (2026-10-13); tests/test_routine.py checks the commands exist.
-- W5: the Claude Code plugin has a Stop hook (`plugin/hooks/hooks.json`, `plugin/scripts/seal.py`) that blocks "done" when the project tests fail or a test file lost lines, at most 5 times per session.
-- W1: the README opens with the position line, lists what every run proves with links to REFERENCE, and has a `## Safety` list; the feature detail moved to REFERENCE `Proof features`. README is under 1200 words (tests/test_opening.py).
-- W8: `ap audit --history [--days N] [--home PATH]` reads the local Claude Code history and prints, per project, the cost of commands that failed three or more times in one session; offline, no project needed, nothing written.
-- W9: closing a phase writes `proof.svg` (a 600x200 card with the merged count, verified features, cost and date) and `BADGE.md` (the README image line) next to PHASE.md; the receipt signs them.
-- W6: under `git.mode: pr`, a task with gate warnings or a criterion without a test opens a draft PR with a `## Not proven` list in the body; a clean task opens a ready PR.
-- W7: closing a phase writes a signed `receipt.json` (commit, sha256 of PROOF.md, PHASE.md and the task files, HMAC key in `~/.autopilot/receipt.key`); `ap verify [phase]` checks it offline and exits 1 on a changed file or a bad signature.
-- W4: `review.scope: all` (new projects) gives every task above low risk one read-only review of its diff before the merge; the review sees only the task, its criteria, the diff and the test output, and a finding fails the attempt. A missing key or `critical` reviews only critical tasks, as before.
-- W2: `ap tour [--speed N] [--once]` replays a recorded run in the watch window with no login, no key and no network, then prints the proof and the install line.
-- W3: every `PROOF.md` has a `## Not proven` section: criteria that no test file changed by the task mentions, tasks with no verify and no test command, features not checked and scope added. When nothing is open it says so in one sentence.
-- W3: each run ends with one word (`VERIFIED`, `BLOCKED`, `BUDGET_STOP`, `STALLED`, `FAILED`) in the state meta key `outcome`, a `run_end` event, the log, the first word of the end alert, the window title (`Done VERIFIED`) and an `outcome:` line in `ap status`.
+**In plain words:** this version shows you what a build proved and what it did not. Every run ends with one word.
+Every phase gets a signed record and a proof card. You can watch a recorded run before you install anything. Claude
+Code gets a safety hook, and other AI tools and local models can run the build. Autopilot built all of this on its own
+code: 22 tasks, no task blocked, in one overnight run.
+
+- **One word at the end.** A run ends with VERIFIED, BLOCKED, BUDGET_STOP, STALLED or FAILED. The word is in the
+  status, the watch window and the message you get. A run you stop with Ctrl+C says BUDGET_STOP.
+- **What is not proven.** Every proof file lists the acceptance lines no test covers, the tasks with no test
+  command, the features not checked and the files added outside the plan. "Nothing" means everything was checked.
+- **Watch a run before you install.** `ap tour` replays a recorded build in the watch window. No login, no key, no
+  cost.
+- **A review on every task.** A fresh session reads the task, the change and the test output, and can send the
+  task back before it merges. Before, only critical tasks got this.
+- **A signed record per phase.** `receipt.json` holds the file hashes and a signature with a key that stays on your
+  PC. `ap verify` checks it offline and says CHANGED when a record was edited.
+- **A proof card.** Each phase gets `proof.svg`, a small card with the merged count, the cost and the date, and a
+  line you can paste into a README.
+- **Draft pull requests.** In PR mode, a task with open items opens a draft pull request with the list in its text.
+  A clean task opens a ready one.
+- **What your retries cost.** `ap audit --history` reads your Claude Code history and prints the money spent on
+  repeated failing commands. It works without a project.
+- **A safety hook for Claude Code.** The plugin blocks "done" while your tests fail or a test file shrank. Install
+  it with `/plugin marketplace add manishjnv/AutoPilot`.
+- **Run with the laptop off.** HOWTO has the steps for a Claude Code Routine, with a ready prompt.
+- **Run inside a container.** `sandbox.mode: docker` runs each session in a plain Docker container with only the
+  project folder mounted. Linux, WSL and macOS for now.
+- **Local models.** `agent.backend: openai_compat` sends a session to Ollama, LM Studio or any OpenAI-compatible
+  endpoint. `ap doctor` checks that the endpoint answers.
+- **A thin VS Code extension.** Three commands and a status panel. Not published yet.
+- **README** opens with what Autopilot is and lists what protects you under "Safety".
 
 ## [0.6.0] - 2026-10-13
 
