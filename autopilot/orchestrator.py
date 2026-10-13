@@ -210,6 +210,7 @@ class Orchestrator:
         self.tracker = outage.Tracker()  # Q22: outage and repeated-error counters of this run (monotonic clock)
         self.outage_waits = 0  # Q22.1: 15-minute waits taken for a vendor outage in this run (outage.OUTAGE_WAITS at most)
         self.last_gate = ""  # N11
+        self.last_main_gate = None  # W30a: the last gate run on main; end-phase sessions read it instead of testing again
         self.last_log = ""  # W37: the log of the last session, read by the task gate
         self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
         self.env_repair_tried = False  # self-healing: one environment repair session per run
@@ -801,10 +802,26 @@ class Orchestrator:
         self.notify.send("rate_limit", f"rate limited — waiting {wait}s (streak {self.rate_limit_streak})")
         self.sleep(wait)
 
+    def _main_gate(self, phase: bool = False):
+        self.last_main_gate = main_gate(self.cfg, phase=phase)
+        return self.last_main_gate
+
+    def audit_timeout(self) -> int:
+        return int(self.cfg.get("audit.timeout_sec", 1200))
+
+    def gate_output(self) -> str:
+        """W30a: the last main gate for the audit, verify and docs prompts (at most 6000 characters)."""
+        g = self.last_main_gate
+        if g is None:
+            return "(no gate run yet)"
+        lines = [ln for r in g.results for ln in r.output.splitlines() if "passed" in ln or "failed" in ln]
+        return (review_tests(g) + (f"Counts: {lines[-1].strip()}\n" if lines else ""))[:6000]
+
     # ------------------------------------------------------------------ sessions
     def session(self, kind: str, prompt: str, model: str, *, task_id=None, phase=None, attempt=1,
                 read_only=False, label: str = "", resume: SessionResult | None = None, effort: str = "",
-                web_only: bool = False, mcp_config: str = "", no_tools: bool = False) -> SessionResult:
+                web_only: bool = False, mcp_config: str = "", no_tools: bool = False,
+                timeout_sec: int | None = None) -> SessionResult:
         self.check_stop()
         self.window_gate(kind, model)
         effort = effort or self.cfg.get(f"models.effort.{kind}", "")  # U5: role effort; agent.effort is the fallback
@@ -823,7 +840,7 @@ class Orchestrator:
         seen = [0]  # J5: the context size, written to the journal with the token count
         req = SessionRequest(prompt=prompt, model=model, cwd=str(self.root),
                              label=f"{who} [{model}{f', try {attempt}' if attempt > 1 else ''}]",
-                             timeout_sec=int(self.cfg.get("agent.session_timeout_sec", 3600)),
+                             timeout_sec=timeout_sec or int(self.cfg.get("agent.session_timeout_sec", 3600)),
                              budget_usd=budget, system_append=self.ctx.system_append(),
                              read_only=read_only, log_path=str(log_path), schema=REPORTS.get(kind), effort=effort,
                              web_only=web_only, mcp_config=mcp_config, no_tools=no_tools,
@@ -1500,7 +1517,7 @@ class Orchestrator:
         if head == self.main_checked:
             return
         self.main_checked = head
-        if main_gate(self.cfg).ok:
+        if self._main_gate().ok:
             self.main_red = False
             self.main_results[head] = None
             self.notify.send("main_fixed", "checks on main pass again")
@@ -1744,7 +1761,7 @@ class Orchestrator:
         """O8: while the checks on main fail, take the last task of the batch off main (main goes back to before its
         merge), put it back in the queue with the failing output, and check again. True = main is green."""
         while True:
-            gate = main_gate(self.cfg)
+            gate = self._main_gate()
             if gate.ok:
                 return True
             if not self.landed:
@@ -1952,7 +1969,7 @@ class Orchestrator:
             if problems:
                 err = "\n".join(problems)
             else:
-                gate = main_gate(self.cfg, phase=phase_checks)
+                gate = self._main_gate(phase=phase_checks)
                 if gate.ok:
                     summary = str(res.report.get("summary", ""))
                     if kind == "fixer":
@@ -2032,7 +2049,7 @@ class Orchestrator:
             problems += scan_secrets(self.git.staged_added_lines()) + test_tamper(self.cfg, self.git)
             ok, why = (False, "\n".join(problems)) if problems else self.run_setup()
             if ok:  # the check output that started this is agent-written: the full checks must pass too
-                gate = main_gate(self.cfg)
+                gate = self._main_gate()
                 ok, why = gate.ok, gate.report()
         if ok and self.git.staged_files():
             rca = res.report.get("rca") if isinstance(res.report.get("rca"), dict) else {}
@@ -2050,15 +2067,15 @@ class Orchestrator:
         return False
 
     def ensure_main_green(self, phase_checks: bool = False) -> bool:
-        gate = main_gate(self.cfg, phase=phase_checks)
+        gate = self._main_gate(phase=phase_checks)
         if gate.ok:
             self.main_results[self.git.head()] = None
             return True
         if self.env_problem(gate.report()):  # G6: a missing tool is not broken code; fixer sessions can't install it
             self.run_setup()
-            gate = main_gate(self.cfg, phase=phase_checks)
+            gate = self._main_gate(phase=phase_checks)
             if not gate.ok and self.env_problem(gate.report()) and self.repair_env(gate.report()):
-                gate = main_gate(self.cfg, phase=phase_checks)
+                gate = self._main_gate(phase=phase_checks)
             if gate.ok:
                 return True
         errors = gate.report()
@@ -2094,7 +2111,7 @@ class Orchestrator:
 
     def close_phase(self, phase, status: str):
         log.info("closing phase %s (%s)", phase.id, status)
-        gate = main_gate(self.cfg, phase=True)
+        gate = self._main_gate(phase=True)
         if not gate.ok:
             err = gate.report()
             if not phase.priority and self.add_corrective_phase([{  # corrective phases never spawn more of them
@@ -2159,8 +2176,9 @@ class Orchestrator:
             return
         allowed = ["README.md", self.cfg.get("docs.rca", "docs/RCA.md"),
                    self.cfg.get("docs.developing", "docs/DEVELOPING.md"), "HOWTO.md", "docs/*", "docs/**"]
-        res = self.session("docs", self.ctx.docs_prompt(phase, self.state), self.cfg.get("models.docs", "sonnet"),
-                           phase=phase.id, label=f"docs {phase.id}")
+        res = self.session("docs", self.ctx.docs_prompt(phase, self.state, self.gate_output()),
+                           self.cfg.get("models.docs", "sonnet"), phase=phase.id, label=f"docs {phase.id}",
+                           timeout_sec=self.audit_timeout())
         files = self.git.staged_files()
         bad = [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
         for f in files:  # prose about secrets (an RCA of a scanner) can look like one: redact the line, keep the docs
@@ -2198,8 +2216,8 @@ class Orchestrator:
         fix = self.plan.phase_by_id.get(self.state.get_meta(f"featfix:{phase.id}") or "")
         if fix and any(self.state.status_map().get(t.id) in ("pending", "running") for t in fix.tasks):
             return True  # its corrective phase is still being built: don't pay for another check yet
-        res = self._isolated("verify", self.ctx.verify_prompt(phase, phase.features),
-                             self.cfg.get("models.verifier", "sonnet"), phase=phase.id,
+        res = self._isolated("verify", self.ctx.verify_prompt(phase, phase.features, self.gate_output()),
+                             self.cfg.get("models.verifier", "sonnet"), phase=phase.id, timeout_sec=self.audit_timeout(),
                              effort=self.cfg.get("functional.effort", "medium"),
                              mcp_config=self.cfg.get("functional.mcp_config", ""), label=f"functional check {phase.id}")
         got = {str(f.get("id")): f for f in (res.report.get("features") or [])
@@ -2354,12 +2372,20 @@ class Orchestrator:
         max_new = int(self.cfg.get("audit.max_new_tasks", 15))
         self.git.start_branch("autopilot/audit", self.main)
         try:
-            res = self.session("audit", self.ctx.auditor_prompt(kind, max_new), self.cfg.get("models.auditor", "opus"),
-                               phase=phase_id, read_only=True, label=f"audit {kind}")
+            res = self.session("audit", self.ctx.auditor_prompt(kind, max_new, self.gate_output()),
+                               self.cfg.get("models.auditor", "opus"), phase=phase_id, read_only=True,
+                               label=f"audit {kind}", timeout_sec=self.audit_timeout())
         finally:  # read-only: drop anything it touched
             self.git.discard()
             self.git.checkout_main(self.main)
             self.git.delete_branch("autopilot/audit")
+        if res.timed_out and res.text.strip():  # W30b: keep what it wrote; the notes go to the owner, the run goes on
+            n = self.audit_timeout()
+            notes = res.text.strip()[:2000]
+            self.state.event("audit", f"audit: partial after {n} s")
+            self.needs_you("audit", f"The {kind} audit stopped early",
+                           f"The {kind} audit stopped after {n} s; its notes so far: {notes}")
+            res.ok, res.report = True, {"partial": True, "complete": False, "summary": notes, "gaps": []}
         if not res.ok or not res.report:
             log.warning("audit produced no usable report: %s", res.error[:300])
             return None

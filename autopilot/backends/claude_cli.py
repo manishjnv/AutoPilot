@@ -112,6 +112,17 @@ def _events(raw: str):
             yield ev
 
 
+def partial_text(raw: str) -> str:
+    """W30b: the assistant text seen so far in a killed session's stream."""
+    out = []
+    for ev in _events(raw):
+        msg = ev.get("message") if ev.get("type") == "assistant" else None
+        for b in (msg.get("content") or []) if isinstance(msg, dict) and isinstance(msg.get("content"), list) else []:
+            if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
+                out.append(str(b["text"]))
+    return "\n".join(out)
+
+
 def result_event(raw: str) -> dict:
     """The final `result` event of a stream-json run (or a plain JSON result); {} when there is none."""
     for ev in reversed(list(_events(raw))):
@@ -349,7 +360,8 @@ class ClaudeCLIBackend:
                           cost=round(sum(u["cost"] for u in usage.values()), 6), window=window_info(p.stdout),
                           config=config_load(p.stdout))
             if p.timed_out:
-                return SessionResult(error=f"session timed out after {req.timeout_sec}s", timed_out=True, **killed)
+                return SessionResult(error=f"session timed out after {req.timeout_sec}s", timed_out=True,
+                                     text=partial_text(p.stdout), **killed)
             return SessionResult(error=p.stopped, stuck=True, **killed)
 
         raw = p.stdout.strip()

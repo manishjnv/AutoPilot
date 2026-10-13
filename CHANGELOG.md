@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W30: the completion audit, the functional check and the phase docs session get the last gate output and do not run the test suite again. They stop after `audit.timeout_sec` (1200 seconds). A stopped completion audit keeps its notes so far, sends them to "Questions for you", and the run goes on.
 - W25: a task that fails only on its scope or on its tests keeps its diff for the retry. The next session adds the missing scope reasons or fixes the tests; it does not rebuild the files.
 - W26: high-risk tasks no longer get an extra Opus planning session before the work; only critical tasks and tasks with `needs_decision: true` do (`decide.risks: [critical]`). Re-planning runs on Sonnet, and on Opus only when a waiting task touches a load-bearing path. Set `decide.risks: [high, critical]` for the old behaviour.
 - W34: a run that you stop by hand (Ctrl+C, `ap stop`) now ends with the word STOPPED. BUDGET_STOP is only for a cost, session or usage limit.

@@ -238,6 +238,7 @@ audit:                    # reviews overall implementation vs plan -> corrective
   every_n_phases: 0       # periodic audits off; one completion audit when the plan is done
   completion_audit: true  # when the plan is exhausted: is the app actually complete? gaps -> new tasks
   max_completion_rounds: 2
+  timeout_sec: 1200       # W30b: an audit, verify or docs session stops here (a partial audit report is kept)
   max_new_tasks: 15       # per audit, keeps self-correction bounded
   consolidate: false      # O9: at each phase close, a rise in duplicate blocks, files over budget or layer violations adds one [consolidate] task to the next phase
 

@@ -7,6 +7,10 @@ tests; do not commit. Python runs the project test command on your result: a red
 
 Write in short, plain sentences: active voice, one instruction per sentence, simple words.
 
+## Last gate output
+The last gate output is below. Do not run the test suite.
+{{gate_output}}
+
 ## Output 1: the RCA log `{{rca}}`
 Append one entry for each task below that needed a retry or a repair. Use the heading form the file already uses
 (`## <date> · <task id> <title>`) with four lines: Symptom, Root cause, Fix (file and line), Prevention. Read the task's

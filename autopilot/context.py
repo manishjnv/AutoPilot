@@ -34,6 +34,9 @@ RESET = {False: ("The orchestrator reset the code to the pre-task state. Avoid r
 TAMPER_COUNT_RX = re.compile(r"test count dropped in (\S+): (\d+) -> \d+")
 
 
+NO_GATE = "(no gate run yet)"  # W30a
+
+
 def render(name: str, **vars) -> str:
     text = (PROMPTS / name).read_text(encoding="utf-8")
     for k, v in vars.items():
@@ -142,14 +145,14 @@ class ContextBuilder:
                       acceptance=bullets(task.acceptance_criteria), scope=bullets(task.files_in_scope, "(not restricted)"),
                       decisions=self.decisions(), research_block=self.research_block(task))
 
-    def verify_prompt(self, phase, features: list[dict]) -> str:
+    def verify_prompt(self, phase, features: list[dict], gate_output: str = NO_GATE) -> str:
         init = self.cfg.get("functional.init", "")
         return render("verify.md", phase_id=phase.id, phase_title=phase.title,
                       features="\n".join(f"- `{f['id']}` {f['title']}: {f['journey']}" for f in features),
                       init=f"Run `{init}`." if init else "Work it out from the project brain, the README and the files.",
-                      once="" if self.cfg.lean else ", then one variation", variation=VARIATION_STEP[self.cfg.lean])
+                      once="" if self.cfg.lean else ", then one variation", variation=VARIATION_STEP[self.cfg.lean], gate_output=gate_output)
 
-    def docs_prompt(self, phase, state) -> str:
+    def docs_prompt(self, phase, state, gate_output: str = NO_GATE) -> str:
         """O11: one documentation session per phase: RCA entries for retried or repaired tasks, a README section per
         feature, and DEVELOPING.md for a person."""
         root, hist = self.cfg.root, self.cfg.get("docs.history_dir", ".agent/history")
@@ -175,7 +178,8 @@ class ContextBuilder:
                       brain=read_capped(self.ad / "BRAIN.md", 4000),
                       readme_headings=", ".join(l[3:].strip() for l in readme_text.splitlines() if l.startswith("## ")) or "(no README)",
                       rca_ids=", ".join(re.findall(r"^## \S+ · (\S+)", rca_text, re.M)) or "(none)",
-                      developing_state="exists; update it" if (root / dev).exists() else "missing; create it")
+                      developing_state="exists; update it" if (root / dev).exists() else "missing; create it",
+                      gate_output=gate_output)
 
     def research_prompt(self, task, topic: str) -> str:
         return render("research.md", topic=topic, task_id=task.id, task_title=task.title,
@@ -235,12 +239,13 @@ class ContextBuilder:
         return render("fixer.md", decisions=self.decisions(), git_log=git_log,
                       errors=errors[-8000:], verify_cmds=self.verify_cmds())
 
-    def auditor_prompt(self, kind: str, max_new: int) -> str:
+    def auditor_prompt(self, kind: str, max_new: int, gate_output: str = NO_GATE) -> str:
         completion = ("Completion: is the product described in the goal actually complete and usable end to end? "
                       "Set complete=true ONLY if nothing important is missing." if kind == "completion"
                       else "Set complete=false unless the entire goal is already met.")
         return render("auditor.md", audit_kind=kind, plan_status=plan_status(self.plan, self.state),
-                      decisions=self.decisions(), followups=self.followups(), completion_check=completion, max_new=max_new)
+                      decisions=self.decisions(), followups=self.followups(), completion_check=completion, max_new=max_new,
+                      gate_output=gate_output)
 
     def replanner_prompt(self, backlog: list[str] | None = None, source_diff: str = "") -> str:
         blocked = [f"{r['id']}: {(r['last_error'] or '')[:500]}" for r in self.state.tasks("blocked")]

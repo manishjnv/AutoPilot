@@ -154,6 +154,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `profile` | How much checking each task gets | `lean` (new projects) or `full` (a missing key) |
 | `retries` | Attempts | `max_attempts_per_task` (3), `resume` (true) |
 | `unstick` | The diagnosis of a blocked task | `enabled` (true), `after_attempts` (2) |
+| `audit` | The completion audit and the end-phase sessions | `timeout_sec` (1200: the audit, functional check and phase docs sessions stop after this; a stopped completion audit keeps its notes as a partial report, sends them to NEEDS-YOU with the event `audit: partial after <n> s`, and the run goes on), `max_new_tasks` (15) |
 | `decide` | Design choices before risky tasks | `enabled` (true), `risks` (critical; a task with `needs_decision: true` always gets one; add `high` to decide for every high-risk task) |
 | `review` | A read-only review of the diff before the merge | `enabled` (true), `scope` (critical; all = every task above low risk; new projects get all), `effort` (high) |
 | `research` | Web research for a task | `enabled` (true), `dir` (docs/research) |
@@ -511,5 +512,5 @@ shows the same ring, paused when the data is stale. No other part of the window 
 | Blocked task | A task that failed all its attempts. The run continues with the other tasks |
 | Fix task | A task that Autopilot adds to repair a failure, a gap, or a bug |
 | Question | An entry in `docs/NEEDS-YOU.md` that only a person can answer |
-| Completion audit | One session at the end of the plan that asks: is the app complete? |
+| Completion audit | One session at the end of the plan that asks: is the app complete? It gets the last gate output on main (at most 6000 characters and the test counts) and does not run the suite again. The functional check and the phase docs session get the same block |
 | Usage window | The 5-hour usage limit of a Claude subscription |

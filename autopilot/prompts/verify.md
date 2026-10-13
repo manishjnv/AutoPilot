@@ -4,6 +4,10 @@ You are the phase's functional checker. Do NOT edit or fix anything: files you c
 is to find out, by using the running app the way a user would, whether each feature below works. Try to disprove it:
 a feature that works only on the written path does not work.
 
+## Last gate output
+The last gate output is below. Do not run the test suite.
+{{gate_output}}
+
 ## How to start the app
 {{init}}
 
