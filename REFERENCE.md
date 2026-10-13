@@ -410,6 +410,8 @@ task spec (with the acceptance criteria), the diff and the gate's test output. I
 
 **Review list (W40).** The findings of a failed review are kept for the task as a numbered list, and the retry prompt shows them under `Fix exactly these review findings, nothing else:`. The next review gets the same list and reports `fixed` or `open` for each number (`listed`). The task fails only when a listed finding is still open or a new defect breaks an acceptance criterion; any other new defect goes in `followups`, is appended to `.agent/FOLLOWUPS.md` as `review: ...`, and the task merges. When a medium task's change passes 8 files or 250 lines (tests and `gate.scope_always` files excluded), the failed review adds a `split signal` line and the retry stays on the same model.
 
+**Feature contracts (W36).** A page in `features/` (committed, at the repository root) is the contract of a matured feature. It has five sections: `## What it does`, `## Rules`, `## Files`, `## Tests that guard it` (exact test names) and `## Changes` (dated lines). When a task's `files_in_scope` names a file of a page's `## Files` list (a glob in the scope matches too), the task prompt gets the page under `## Feature contracts (keep them, or say why in the report)`, capped at 8000 characters. Today: `features/watch-screen.md` (`ap watch`) and `features/gate.md` (the gate guards and the kept diff).
+
 ### Signed receipt
 
 When a phase closes, Autopilot writes `history/<phase>/receipt.json` next to `PROOF.md`. The receipt holds a hash of

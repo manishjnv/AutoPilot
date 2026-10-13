@@ -12,6 +12,7 @@ import yaml
 from . import proc
 from .config import scope_always
 from .scope_files import scoped_files_block
+from .contracts import contracts_block
 from .gate import CODE_EXT, TEST_GLOBS, _count_lines, _match, growth_limit, verify_commands
 from .repomap import helper_index
 
@@ -236,7 +237,8 @@ class ContextBuilder:
             progress=progress_line(self.plan, self.state.status_map()), retry_block=retry,
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
             git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
-            adr_block="\n\n".join(b for b in (self.adr_block(task), scoped_files_block(
+            adr_block="\n\n".join(b for b in (self.adr_block(task), contracts_block(self.cfg.root, task.files_in_scope),
+                                              scoped_files_block(
                 self.cfg.root, task.files_in_scope, int(self.cfg.get("context.scope_chars", 60000)), scope_always(self.cfg))) if b),
             research_block=self.research_block(task),
             helper_index=helper_index(self.cfg.root) or "(none)", test_rule=TEST_RULE[self.cfg.lean],

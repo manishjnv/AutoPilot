@@ -169,4 +169,5 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 > [Run Autopilot on a server](HOWTO.md#run-autopilot-on-a-server).
 
 - Version 0.4.0, an early release. [MIT license](LICENSE).
+- Feature contracts: [features/](features/).
 - One CLI agent per session. See [limits and runners](HOWTO.md#limits-and-supported-agent-clis).
