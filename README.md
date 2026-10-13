@@ -141,6 +141,16 @@ The model cannot run tools. It writes each file as a fenced block and Autopilot 
 A path outside the worktree is refused. The gate then runs the tests and the checks, so a weak model fails the gate.
 See [Use a local model](HOWTO.md#use-a-local-model).
 
+## VS Code extension
+
+A thin side panel for VS Code. It lives in `vscode/`. It has no chat participant.
+
+1. Run `Autopilot: Start`, `Autopilot: Answer` or `Autopilot: Stop` from the command palette. Each one sends `ap start`, `ap answer` or `ap stop` to a terminal named Autopilot. The terminal is reused when it is open.
+2. Open the Autopilot view in the Explorer side bar. It shows the status page of the run.
+3. The view reads the port from `.agent/status.port`. `ap start` writes that file with the port the status page uses, and new projects ignore it in git. When nothing answers, the view says to run `ap` first.
+
+Build it with `cd vscode`, `npm install` and `npx tsc --noEmit`. See [vscode/README.md](vscode/README.md). This repository does not publish the extension.
+
 ## Example output
 
 Shortened real output:
