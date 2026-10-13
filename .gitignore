@@ -29,3 +29,7 @@ vid/
 
 # IDE settings
 .vscode/
+
+# VS Code extension build
+vscode/node_modules/
+vscode/out/

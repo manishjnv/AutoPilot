@@ -411,6 +411,10 @@ markdown image line, `![Built by Autopilot](proof.svg)`, and the repo-relative p
 `.agent/history/<phase>/proof.svg`. Paste that path into your README to show the badge. The signed receipt covers both
 files.
 
+## VS Code extension
+
+`vscode/` holds a thin extension (not published yet). Commands `autopilot.start`, `autopilot.answer` and `autopilot.stop` send `ap start`, `ap answer` and `ap stop` to a terminal named Autopilot. The `autopilotStatus` view in the Explorer shows the status page of the run; it reads the port from `.agent/status.port` (default 8765) and says to run `ap` first when nothing answers. See `vscode/README.md`.
+
 ## Self-healing
 
 A run stops only for a problem that needs a person. Each repair sends a `heal` alert.
