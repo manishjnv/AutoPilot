@@ -15,7 +15,7 @@ setting, use the [reference](REFERENCE.md). The guides use `ap`, the short name 
 | Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [What the script does](#what-the-script-does) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) · [Merge each task through a pull request](#merge-each-task-through-a-pull-request) |
-| Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
+| Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Run with the laptop off](#run-with-the-laptop-off-claude-code-routines) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
 | Accounts and agents | [Limit the usage and the cost](#limit-the-usage-and-the-cost-of-a-run) · [Use an API key](#use-an-api-key-instead-of-a-subscription) · [Use a different agent CLI](#use-a-different-agent-cli) · [Share Autopilot](#share-autopilot-with-a-different-person) |
 | Autopilot itself | [Run the smoke test](#run-the-smoke-test) · [Test a change to a prompt](#test-a-change-to-a-prompt) · [Run the tests of Autopilot](#run-the-tests-of-autopilot) |
 
@@ -286,6 +286,34 @@ This path has not run on a real server yet.
 
 > [!CAUTION]
 > Do not give production secrets to the agent. Your deploy commands must read them from CI or from the server.
+
+## Run with the laptop off (Claude Code Routines)
+
+This path has not been run live yet (written 2026-10-13). The prompt is tested for its commands only.
+
+A Claude Code Routine is a scheduled cloud run. Anthropic's cloud starts a Claude Code session on a schedule. The session
+clones your repository, runs one Autopilot build, pushes the branches it made, and stops. Your laptop can be off.
+
+1. Connect the repository in your Claude Code Routines settings. Use the repository that holds `.agent/`.
+2. Open `examples/routine/prompt.md` in this repository. Paste its whole text as the prompt of the routine.
+3. Set the schedule, for example once each night. Each run starts a new build from the plan in the repository.
+4. Set the budget in `.agent/project.yaml` before the first run:
+   - `budget_usd.per_session` and `budget_usd.total` cap the cost. A run stops when a cap is spent.
+   - `scheduling.max_sessions_per_run` caps the number of sessions. The prompt sets it to 3 for its run.
+5. Start the routine once by hand. Wait for it to end.
+6. Read the result in the next `ap status`. The line `outcome: <word>` shows how the run ended, for example
+   `VERIFIED` or `BUDGET_STOP`. The branches are on the remote for you to review.
+
+> [!CAUTION]
+> The routine has no one to answer a question. A task that needs you parks and waits for your next run.
+> Do not give production secrets to the routine. Keep deploy keys out of the cloud run.
+
+Check these first when you run it for the first time:
+
+- Does `uv` exist in the routine's environment? The prompt installs `ap` with `uv tool install dev-autopilot`.
+- Can the routine's session log in to Claude Code? Without a login, no task can run.
+- Can the routine push to the remote? Without push rights, the branches stay in the cloud copy only.
+- Does `ap status` show an `outcome:` line after the run? If not, read the log in the routine's output.
 
 ## Open the status page from a different computer
 
