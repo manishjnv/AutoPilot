@@ -94,6 +94,12 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 - `ap run --no-prod` keeps production untouched.
 - `ap verify` checks the signed record.
 
+## Docs always in scope, and tests run once
+
+A task may change `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md` and `README.md` without a scope addition. Add more paths to `gate.scope_always` in `project.yaml` to free other files. A code file outside the task scope still fails the gate.
+
+The task gate runs only the tests of the changed modules (`gate.tests: changed`, the default). The phase close always runs the full test command. Set `gate.tests: full` to run the full command for every task. A bad `gate.scope_always` or `gate.tests` value is an error with a plain message. See `REFERENCE.md` for the settings.
+
 ## Install
 
 Three steps, no administrator prompt.
