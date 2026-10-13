@@ -467,6 +467,14 @@ A run stops only for a problem that needs a person. Each repair sends a `heal` a
 | `state.db` is damaged | Restores the backup. Autopilot makes a backup at each run start |
 | Autopilot stops with an error | Writes a crash report, then starts again from the saved state. It restarts 10 times at most. The same crash three times on one task parks that task |
 
+**Unknown session errors (W29):** a failed task session whose error text matches no detector (usage limit, login,
+network) and no line of the install error catalogue adds one JSON line to `unknown.jsonl` in `~/.autopilot`
+(`AUTOPILOT_HOME` moves it). Fields: `date`, `cause` (`scope`, `tests`, `environment`, `limit`, `infra` or
+`unknown`), `text` (secret values and token shapes replaced by `***REDACTED[...]***`, at most 2000 characters),
+`count`, `runner`, `version` (the `ap` version), `project` (the folder name only, never a path) and `action`
+(`retried`, `parked` or `healed`). The same wording (the first 200 characters) on the same day raises `count` on
+that day's line. A known wording writes nothing. The file stays on your computer.
+
 **These problems still need you:**
 
 - Your Claude login. Run `claude auth login`. Before the first session, `quickstart` and `run` stop when the login

@@ -20,7 +20,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from . import AGENT_DIR, decisions, outage
+from . import AGENT_DIR, decisions, outage, signals
 from .backends import SessionRequest, SessionResult, get_backend
 from .config import RISKS, Config, load_yaml
 from .context import ContextBuilder, progress_line
@@ -1087,6 +1087,8 @@ class Orchestrator:
                     self.state.set_task(task.id, status="pending", attempts=attempts - 1)
                     lines = outage.checklist(same, res.error)
                     raise Stop("\n".join(lines), fatal=True, word="STALLED")  # the run end sends the one fatal notification
+                signals.record_unknown(res.error, self.cfg.get("agent.preset") or self.cfg.get("agent.backend", "claude_cli"),
+                                       self.root.name, "parked" if attempts >= max_attempts else "retried")  # W29
             elif str(res.report.get("status", "done")).lower() == "blocked":
                 agent_blocked = True
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
