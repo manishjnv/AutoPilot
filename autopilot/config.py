@@ -117,8 +117,11 @@ class Config:
             if not ladder.get(r):
                 errs.append(f"models.ladder.{r} is empty")
         backend = self.get("agent.backend")
-        if backend not in ("claude_cli", "command"):
-            errs.append(f"agent.backend must be claude_cli or command, got {backend!r}")
+        if backend not in ("claude_cli", "command", "openai_compat"):
+            errs.append(f"agent.backend must be claude_cli, command or openai_compat, got {backend!r}")
+        base = self.get("agent.base_url")  # P12-T01 (W13)
+        if backend == "openai_compat" and base and not str(base).startswith(("http://", "https://")):
+            errs.append("agent.base_url must start with http:// or https://")
         if backend == "command":
             from .backends.command import PRESETS, SAFE_MODEL
             preset = self.get("agent.preset")
