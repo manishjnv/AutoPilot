@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W29: a failed session whose error no catalogue line knows is written to `~/.autopilot/unknown.jsonl` (scrubbed, the folder name only, never a path); the same wording on one day raises its `count`.
 - W30: the completion audit, the functional check and the phase docs session get the last gate output and do not run the test suite again. They stop after `audit.timeout_sec` (1200 seconds). A stopped completion audit keeps its notes so far, sends them to "Questions for you", and the run goes on.
 - W25: a task that fails only on its scope or on its tests keeps its diff for the retry. The next session adds the missing scope reasons or fixes the tests; it does not rebuild the files.
 - W26: high-risk tasks no longer get an extra Opus planning session before the work; only critical tasks and tasks with `needs_decision: true` do (`decide.risks: [critical]`). Re-planning runs on Sonnet, and on Opus only when a waiting task touches a load-bearing path. Set `decide.risks: [high, critical]` for the old behaviour.
@@ -218,3 +219,4 @@ to run. A short outage at the AI service no longer ends your build. Login works 
 - 2026-10-13 **P01-T01d** W37c A session's child processes end with it on Windows too — On Windows run_proc and stream_proc now put each process in a kill-on-close job object via ctypes; _kill_tree calls TerminateJobObject before taskkill /T, and the handle is closed when the call return
 - 2026-10-13 **P01-T02** W21 Red main is detected, not deselected — Each new commit on main (run start, `_commit_main`, a pull) is now tested once before the next task. The result is cached by sha, and a red main sends a `main_red` event naming the failing test. If ma
 - 2026-10-13 **P01-T02b** W21 failing_before is checked against main — Added optional `failing_before` to the task report schema and task.md. Added `Orchestrator.failing_before(phase, report, base)`, called in `execute_task` after `_fix_problem` and in `_finish_parallel`
+- 2026-10-13 **P01-T01** W29a Unknown session errors are written to unknown.jsonl — Added autopilot/signals.py: record_unknown(text, runner, project, action, home=None) classifies a failed session's text by cause (limit, infra, environment from detect_limit, detect_infra and install_
