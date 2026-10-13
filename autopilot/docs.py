@@ -5,6 +5,7 @@ import datetime as dt
 import re
 from pathlib import Path
 
+from . import card
 from .context import bullets
 from .gate import TEST_GLOBS, _match, scan_secrets, verify_commands
 
@@ -310,6 +311,17 @@ class Documenter:
         path = self.root / self.cfg.get("docs.history_dir", ".agent/history") / phase.id / "PHASE.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self.proof_card(phase, state, path.parent)
+
+    def proof_card(self, phase, state, folder: Path):
+        """W9: proof.svg and BADGE.md next to PHASE.md. Only folder names and counts go in, never a path."""
+        feats = state.get_meta("features", {}) or {}
+        merged = sum(1 for t in phase.tasks if (state.task(t.id) or {"status": "pending"})["status"] == "done")
+        verified = sum(1 for f in phase.features if (feats.get(f["id"]) or {}).get("passes") is True)
+        svg = card.svg(self.root.name, phase.id, phase.title, merged, len(phase.tasks), verified,
+                       state.cost(phase=phase.id), today())
+        (folder / card.IMG).write_text(svg, encoding="utf-8")
+        (folder / "BADGE.md").write_text(card.badge(phase.id), encoding="utf-8")
 
     def proof_path(self, phase_id: str) -> Path:
         return self.root / self.cfg.get("docs.history_dir", ".agent/history") / phase_id / "PROOF.md"

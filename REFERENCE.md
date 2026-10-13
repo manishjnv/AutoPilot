@@ -109,6 +109,8 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `FOLLOWUPS.md` | Problems that sessions found outside their task | Yes |
 | `history/` | One file for each finished task and phase | Yes |
 | `history/<phase>/PROOF.md` | The full evidence of the feature check of the phase, and a `## Not proven` list (criteria that no changed test mentions, tasks with no check command, features not checked, scope added) | Yes |
+| `history/<phase>/proof.svg` | W9: the proof card of a closed phase, a 600x200 SVG with the project name, the phase, tasks merged of total, features verified, the cost and the date. No outcome word: the run has not ended when a phase closes | Yes |
+| `history/<phase>/BADGE.md` | W9: the markdown image line `![Built by Autopilot](proof.svg)` for the phase folder and the repo-relative path `.agent/history/<phase>/proof.svg` to paste into the README | Yes |
 | `audits/` | The audit reports | Yes |
 | `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
 | `run.json` | The journal of the active run. At the end it has `word`, the outcome word | No |
