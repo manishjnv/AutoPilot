@@ -49,3 +49,16 @@ def test_help_and_page_title_open_in_plain_words():
     assert OPENING.split(".")[0] in cli.DESCRIPTION
     assert OPENING.split(".")[0] in dash_web.PAGE_TITLE
     assert TECH.search(cli.DESCRIPTION.split(".")[0]) is None
+
+
+POSITION = ("Python decides when a task is done, not the model. Every step is recorded. Works on Windows. "
+            "Runs any coding agent CLI.")
+
+
+def test_readme_states_the_position_and_the_safety_block():  # W1: position line, Safety block, word cap
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert POSITION in text
+    assert len(text.split()) <= 1200, len(text.split())
+    body = text.split("## Safety\n", 1)[1].split("\n## ", 1)[0]
+    items = [line for line in body.splitlines() if line.startswith("- ")]
+    assert len(items) >= 7, items

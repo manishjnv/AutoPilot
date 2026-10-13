@@ -3,6 +3,8 @@
 Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
 It is for one developer, or for a person with an idea and a developer friend.
 
+Python decides when a task is done, not the model. Every step is recorded. Works on Windows. Runs any coding agent CLI.
+
 **Give it a plan tonight. Wake up to a working app, and proof that it works.** Claude Code (the coding agent) writes the code; Python code decides when a task is complete.
 
 [![CI](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml)
@@ -69,39 +71,27 @@ Two real projects built from a plan:
 
 Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot fixed all. envguard is private; numbers come from the run log.
 
-## Outcome word at the end of every run
+## What every run proves
 
-Every run ends with one word: `VERIFIED` (the plan is complete), `BLOCKED` (a task is parked), `BUDGET_STOP` (a limit you set ended the run), `STALLED` or `FAILED`. Autopilot stores the word in the state, the log and `run.json`. The run notification starts with it. Type `ap status` to see the line `outcome: <word>`. The line shows only after a run has ended. See [Run outcome](REFERENCE.md#run-outcome).
+- [Outcome word](REFERENCE.md#run-outcome): every run ends with VERIFIED, BLOCKED, BUDGET_STOP, STALLED or FAILED.
+- [Not proven list](REFERENCE.md#not-proven-list): each phase lists the criteria that no changed test mentions.
+- [Replay](REFERENCE.md#commands): `ap tour` replays a recorded run offline, with no login and no network.
+- [Fresh review](REFERENCE.md#fresh-context-review): a fresh session reviews each task before it merges.
+- [Signed receipt](REFERENCE.md#signed-receipt): `ap verify` checks each closed phase against its signature.
+- [Draft PR](REFERENCE.md#draft-pull-request): a task with a warning or an untested criterion opens as a draft.
+- [Proof card](REFERENCE.md#proof-card-and-badge): each closed phase writes `proof.svg` and a badge line.
+- [Retry cost](REFERENCE.md#commands): `ap audit --history` prices your past retries in Claude Code.
 
-## Not proven section in PROOF.md
+## Safety
 
-Each phase writes `history/<phase>/PROOF.md`. It has a `## Not proven` section. The section lists each acceptance criterion that no changed test mentions, with its task id. When every criterion has a test, the section holds one sentence that says so. Read this list to see what a green build did not check.
-
-## Replay a recorded run with ap tour
-
-Type `ap tour` to watch a recorded run in the watch window. It needs no login, no key, no network and no agent CLI. It writes no file, not in `.agent/` and not in your home folder. The replay runs at 10 times real time; use `--speed N` to change it. At the end it prints the proof (the outcome word `VERIFIED` and the Not proven list) and the lines `Install: uv tool install dev-autopilot` and `Start: ap`. Use `ap tour --once` to draw only the last frame and exit 0, for CI. The recording is `examples/tour/events.jsonl`: more than 40 events, with no user path, mail address or secret. `scripts/make_tour.py` builds it again from `examples/self-build`. See [REFERENCE.md](REFERENCE.md).
-
-## Fresh-context review on every task
-
-A fresh session reviews each finished task before it merges. Set `review.scope` in `project.yaml`. With `scope: all`, every task above low risk gets a review, and a finding blocks the merge. With `scope: critical`, or no key, only critical tasks get one. This is the code default, so old projects keep today's behavior. `ap init` writes `scope: all`. Any other value is an error with a plain message. The reviewer sees only the task spec (with the acceptance criteria), the diff and the gate's test output. It sees nothing from the build session. See [REFERENCE.md](REFERENCE.md).
-
-## Signed receipt and ap verify
-
-When a phase closes, Autopilot writes `history/<phase>/receipt.json` next to `PROOF.md`. The receipt holds a hash of each phase file and a signature. The key is `~/.autopilot/receipt.key`. Autopilot makes it on first use. It lives in your home folder (`AUTOPILOT_HOME` moves it), so it is never in the repository and never committed.
-
-Type `ap verify` to check every closed phase. It works offline. Use `ap verify <phase>` for one phase. An untouched phase prints `<phase> ok` and the command exits 0. If someone edits `PROOF.md`, it prints `<phase> CHANGED: ...` and exits 1. A different key gives a bad signature report. With no receipt, it prints `no receipt found` and exits 1.
-
-## Draft PR for an unverified task
-
-Set `git.mode: pr` in `project.yaml` and each task opens a pull request. If the gate gave a warning, or an acceptance criterion has no test, the PR opens as a draft. Its body lists each item under `## Not proven`. A clean task opens a ready PR, and the list says "Nothing". When CI is green, Autopilot marks a draft ready and merges it; the list stays in the body. `git.mode: direct` works as before. See [REFERENCE.md](REFERENCE.md).
-
-## Proof card and README badge per phase
-
-When a phase closes, Autopilot writes two files next to `PHASE.md` in `.agent/history/<phase>/`. `proof.svg` is a 600x200 card. It shows the project name, the phase, the tasks merged of the total, the verified features, the cost and the date. It holds no absolute path, and it stays valid XML when a phase title has `<` or `&`. `BADGE.md` holds one markdown image line, `![Built by Autopilot](proof.svg)`, and the repo-relative path `.agent/history/<phase>/proof.svg`. Paste that path into your README to show the badge. The signed receipt covers both files. See [REFERENCE.md](REFERENCE.md).
-
-## ap audit --history
-
-Run `ap audit --history` to see what retries cost you in Claude Code, before you use Autopilot. It reads the session files in `~/.claude/projects/` on your machine. It prints one row per project: sessions, tokens, tool calls and repeats. A repeat is the same Bash command that fails three or more times in one session. The last line says how much those retries cost at public API rates, for example `Retries cost about $X of $Y.` Use `--days N` to change the 30-day window and `--home PATH` to read another folder. If the folder does not exist, it prints `No Claude Code history found.` and exits 0. The command works outside a project folder, needs no network, writes no file, and never prints a prompt or a command. Plain `ap audit` still runs the completion audit. See [REFERENCE.md](REFERENCE.md).
+- The gate runs your build, lint and test commands before each merge.
+- The plan cannot change during a run.
+- Budget caps apply per task, phase, day and run ([settings](REFERENCE.md#settings)).
+- A network allowlist applies when `sandbox.enabled` is true.
+- Every task runs in its own git worktree.
+- Secrets are scrubbed from logs.
+- `ap run --no-prod` keeps production untouched.
+- `ap verify` checks the signed record.
 
 ## Install
 
