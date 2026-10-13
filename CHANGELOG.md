@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- A session that fails with "Can't reach the API server" (a DNS or connection outage) is an infrastructure fault again: the run waits and retries, no try is spent, no task is parked.
+
 ## [0.7.0] - 2026-10-13
 
 **In plain words:** this version shows you what a build proved and what it did not. Every run ends with one word.

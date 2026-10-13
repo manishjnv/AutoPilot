@@ -251,6 +251,8 @@ def test_infra_is_read_from_the_cli_messages_only():
     assert detect_infra("API Error: Connection error.") == "network"
     assert detect_infra("request to https://api.anthropic.com failed, reason: getaddrinfo ENOTFOUND") == "network"
     assert detect_infra("API Error: 503 upstream unavailable") == "network"
+    # Claude Code 2.1.29x wording during an internet outage (2026-10-10: four tasks were parked instead of a wait)
+    assert detect_infra("API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)") == "network"
     assert detect_infra("I added retry logic for ECONNRESET and an Invalid API key message") == ""  # prose
     assert detect_infra("tests failed") == ""
 

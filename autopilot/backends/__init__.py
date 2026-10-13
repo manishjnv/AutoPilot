@@ -71,7 +71,10 @@ _AUTH_RX = re.compile(r"^\s*(?:Invalid API key|Please run /login|OAuth token (?:
 # Node's own error shapes ("reason: getaddrinfo ENOTFOUND", "Error: connect ECONNREFUSED"), not a bare code in prose
 _NET_RX = re.compile(r"^\s*API Error: (?:Connection error|Request timed out|50[0234]\b)|"
                      r"(?:reason:|Error:)\s+(?:getaddrinfo |connect |read |write )?"
-                     r"(?:ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN)\b", re.I | re.M)
+                     r"(?:ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN)\b|"
+                     # Claude Code 2.1.29x wording for a DNS or connection failure; four tasks were parked on it 2026-10-10
+                     r"Can't reach the API server|\((?:ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN)\)",
+                     re.I | re.M)
 
 
 def detect_infra(text: str) -> str:
