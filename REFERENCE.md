@@ -203,6 +203,18 @@ Python setup: preflight never runs a bare `pip install` on the system Python. Wh
 environment, preflight runs `python -m venv .venv`, then installs with the `.venv` Python. An active environment
 (`VIRTUAL_ENV`) or a project environment (`.venv`, `venv`, `env`) is used as is. `commands.setup` stores these commands.
 
+### Local model (`openai_compat`)
+
+`agent.backend: openai_compat` sends each session to an OpenAI-compatible `/chat/completions` endpoint, such as Ollama or LM Studio. One non-streaming request per session. The model cannot run tools, so it writes each file as a fenced block and Autopilot writes the files into the worktree; the gate then runs the tests and the checks.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `agent.base_url` | `http://localhost:11434/v1` (Ollama) | The endpoint. `/chat/completions` is added to it. Loopback addresses skip the environment proxies. |
+| `agent.model_map` | none | Maps the ladder names (`haiku`, `sonnet`, `opus`) to the model names of the server. A name not in the map is sent as is. |
+| `agent.api_key_env` | none | The name of an environment variable with a Bearer token. Only the name is stored; the key is never logged. |
+
+File block format: the info line of the fence is `path: <relative path>` (for example ```` ```path: src/app.py ````). Use forward slashes. A path that is absolute, has `..` or `.git`, or resolves outside the worktree refuses the whole answer, and nothing is written. A file that contains three backticks gets a block of four. The report is a ```` ```json ```` block after the files. `ap doctor` and `ap preflight` print an `endpoint` row: OK when the endpoint answers, WARN when it does not (never FAIL, so a run is not stopped).
+
 Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
 `agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor`, `aider` and `copilot` presets). The `copilot` preset maps `haiku` to `claude-haiku-4.5` by itself; `sonnet` and `opus` use Copilot's default model until you map them.
 

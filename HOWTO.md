@@ -363,6 +363,28 @@ Shell commands in a session can then connect only to these domains. Other effect
 When the run reaches the reserve, it pauses until the window resets. When it reaches the `daily` limit, it sleeps
 until the next day. When it reaches the `total` limit, it stops. The `usage` keys apply to a subscription only.
 
+## Use a local model
+
+Use a model on your own computer (Ollama or LM Studio) for low-risk tasks. Nothing leaves the machine and it costs nothing.
+
+1. Start the server, for example `ollama serve`, and pull a coding model: `ollama pull qwen2.5-coder:7b`.
+2. In `.agent/project.yaml`, set:
+
+   ```yaml
+   agent:
+     backend: openai_compat
+     base_url: http://localhost:11434/v1
+     model_map:
+       haiku: qwen2.5-coder:7b
+   ```
+
+3. Send only low-risk tasks to it. The `low` tier of `models.ladder` is `[haiku, sonnet, opus]`, so the first attempt of a low-risk task uses `haiku`, which the map sends to the local model. Higher tiers keep the Claude models.
+4. Run `ap doctor`. The `endpoint` row says whether the server answers.
+
+> [!NOTE]
+> The local model cannot run tools or tests. It writes files and a report only. The gate runs the tests and the checks
+> after each task, so a weak model fails the gate instead of passing it. Keep it on small tasks.
+
 ## Use an API key instead of a subscription
 
 Not needed on your PC. For a server only.

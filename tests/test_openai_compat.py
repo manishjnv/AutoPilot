@@ -154,3 +154,52 @@ def test_config_validation_accepts_openai_compat(tmp_path):
     assert "agent.base_url must start with http:// or https://" in bad
     r = OpenAICompatBackend(cfg_for(tmp_path, 1, base_url="file:///etc")).run(req(tmp_path))
     assert not r.ok and "http://" in r.error
+
+
+# P12-T02: the doctor row of the endpoint (WARN only, never raises)
+def test_endpoint_row_is_ok_with_the_local_server(tmp_path, server):
+    from autopilot.doctor import check_endpoint
+    assert check_endpoint(cfg_for(tmp_path, server["port"])) == \
+        ("ok", "endpoint", f"http://127.0.0.1:{server['port']}/v1 answers")
+
+
+def test_endpoint_row_is_warn_with_a_closed_port(tmp_path):
+    from autopilot.doctor import WARN, check_endpoint
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    level, name, detail = check_endpoint(cfg_for(tmp_path, port), timeout=1)
+    assert (level, name) == (WARN, "endpoint")
+    assert detail == f"http://127.0.0.1:{port}/v1 does not answer (start Ollama or LM Studio)"
+
+
+def test_endpoint_default_url_is_the_backend_constant(tmp_path, server, monkeypatch):
+    from autopilot import doctor
+    import autopilot.backends.openai_compat as backend
+    monkeypatch.setattr(backend, "DEFAULT_BASE_URL", f"http://127.0.0.1:{server['port']}/v1")
+    cfg = Config(tmp_path, deep_merge(defaults(), {"agent": {"backend": "openai_compat"}}))
+    assert doctor.check_endpoint(cfg)[0] == "ok"  # no agent.base_url: the constant is read at call time
+
+
+def test_runner_login_gives_the_endpoint_row(tmp_path, server):
+    from autopilot.doctor import check_endpoint, check_runner_login
+    cfg = cfg_for(tmp_path, server["port"])
+    assert check_runner_login(cfg) == check_endpoint(cfg)
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    cfg = cfg_for(tmp_path, port)
+    assert check_runner_login(cfg) == check_endpoint(cfg, timeout=2)
+    assert check_runner_login(cfg)[0] == "WARN"  # never FAIL: preflight does not stop a local-model run
+
+
+def test_checks_has_the_endpoint_row_and_never_raises(tmp_path):
+    from autopilot.doctor import WARN, checks
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    (tmp_path / ".agent").mkdir()  # the runner row needs a chosen backend in project.yaml, as in a real project
+    (tmp_path / ".agent" / "project.yaml").write_text(
+        f"agent:\n  backend: openai_compat\n  base_url: http://127.0.0.1:{port}/v1\n", encoding="utf-8")
+    rows = checks(cfg_for(tmp_path, port))
+    assert (WARN, "endpoint", f"http://127.0.0.1:{port}/v1 does not answer (start Ollama or LM Studio)") in rows
