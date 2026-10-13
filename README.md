@@ -93,6 +93,19 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 - `ap run --no-prod` keeps production untouched.
 - `ap verify` checks the signed record.
 
+## Stop hook in the plugin
+
+The Claude Code plugin adds a Stop hook. Claude cannot say "done" while the tests fail.
+
+- The hook runs your test command: `commands.test` in `.agent/project.yaml`, else `python -m pytest -q` or `npm test`.
+- If the tests fail, the hook blocks the stop and gives Claude a plain reason.
+- If a test file has fewer lines than at HEAD, the hook blocks the stop too.
+- On a clean repository the hook prints nothing and exits 0.
+- One session gets at most five blocks. The sixth stop goes through.
+
+Install the plugin from `.claude-plugin/marketplace.json`. The hook is `plugin/hooks/hooks.json`; the script is
+`plugin/scripts/seal.py`.
+
 ## Install
 
 Three steps, no administrator prompt.
