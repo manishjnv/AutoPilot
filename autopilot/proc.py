@@ -26,6 +26,37 @@ SAFE_ENV = {
 SAFE_PREFIXES = ("LC_", "XDG_", "ANTHROPIC_", "CLAUDE_")
 
 
+def pid_alive(pid) -> bool:
+    """W37: is the process `pid` running? A missing or non-integer pid counts as alive (an old run.json has none)."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return True
+    if pid <= 0:
+        return True
+    if WINDOWS:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.OpenProcess.restype = ctypes.c_void_p
+        handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5 or k32.GetLastError() == 5  # access denied = it exists
+        try:
+            code = ctypes.c_ulong()
+            if not k32.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code)):
+                return True
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(ctypes.c_void_p(handle))
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 @dataclass
 class Proc:
     rc: int

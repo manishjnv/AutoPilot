@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -40,6 +41,7 @@ from .state import State, now
 log = logging.getLogger("autopilot")
 
 
+HEARTBEAT = 30  # W37: seconds between two `beat_at` writes in run.json
 MODEL_ORDER = ("haiku", "sonnet", "opus")
 
 
@@ -212,6 +214,9 @@ class Orchestrator:
         self.env_repair_tried = False  # self-healing: one environment repair session per run
         self.git_offline = ""   # self-healing: why this run neither pulls nor pushes ('' = it does)
         self.run_info: dict = {}
+        self._journal_lock = threading.Lock()
+        self._beat_stop = threading.Event()
+        self.beat_interval: float | None = None  # W37: a test sets a short one; None = HEARTBEAT
         self.first_session = 0
         self.plan: Plan | None = None
         self.ctx: ContextBuilder | None = None
@@ -362,18 +367,35 @@ class Orchestrator:
                 return self._run()
         except BlockingIOError:
             raise SystemExit("another autopilot run is active for this project")
+        finally:
+            self._beat_stop.set()  # also on the early returns of _run
 
     def _journal(self, **kw):
-        """.agent/run.json: what this run is doing right now. A write failure never breaks the run."""
+        """.agent/run.json: what this run is doing right now. A write failure never breaks the run. A beat
+        (`beat_at` only) leaves `updated_at` alone: that stays the time of the last real change."""
         try:
-            self.run_info.update(kw, sessions=self.sessions_this_run, updated_at=now(),
-                                 git="Off" if self.git_offline else "Push!" if self.push_failing else "OK",
-                                 build="Red" if self.main_red else "OK")
-            tmp = self.ad / "run.json.tmp"
-            tmp.write_text(json.dumps(self.run_info, indent=1), encoding="utf-8")
-            os.replace(tmp, self.ad / "run.json")
+            with self._journal_lock:
+                self.run_info.update(kw, sessions=self.sessions_this_run,
+                                     git="Off" if self.git_offline else "Push!" if self.push_failing else "OK",
+                                     build="Red" if self.main_red else "OK")
+                if set(kw) - {"beat_at"}:
+                    self.run_info["updated_at"] = now()
+                tmp = self.ad / "run.json.tmp"
+                tmp.write_text(json.dumps(self.run_info, indent=1), encoding="utf-8")
+                os.replace(tmp, self.ad / "run.json")
         except Exception as exc:  # noqa: BLE001
             log.warning("run journal failed: %s", exc)
+
+    def heartbeat(self, stop: threading.Event | None = None, interval: float | None = None):
+        """W37: write `beat_at` every `interval` seconds (HEARTBEAT) until `stop` is set, so a long session still beats."""
+        stop = stop or self._beat_stop
+        while not stop.wait(HEARTBEAT if interval is None else interval):
+            self._journal(beat_at=now())
+
+    def _start_heartbeat(self):
+        self._beat_stop = threading.Event()
+        threading.Thread(target=self.heartbeat, args=(self._beat_stop, self.beat_interval), daemon=True,
+                         name="autopilot-heartbeat").start()
 
     def _end_word(self, outcome: str, stop: Stop | None = None) -> str:
         """W3: the one writer of the outcome word: state meta `outcome`, a `run_end` event, the log and run.json."""
@@ -419,7 +441,9 @@ class Orchestrator:
                 log.warning("config: %s", e)
         self.first_session = self.state.next_session_id()
         self._journal(run_id=f"{dt.datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}", pid=os.getpid(), started_at=now(),
-                      status="running", outcome="", word="", current="starting", first_session=self.first_session)
+                      status="running", outcome="", word="", current="starting", first_session=self.first_session,
+                      beat_at=now())
+        self._start_heartbeat()
         self._prepare_repo()
         try:
             self.reload_plan()
@@ -469,6 +493,7 @@ class Orchestrator:
         finally:
             if outcome == "interrupted" and not self.run_info.get("word"):  # P14: Ctrl+C is the owner ending the run
                 self._end_word(outcome, Stop(outcome, word="BUDGET_STOP"))
+            self._beat_stop.set()
             self._journal(status="finished", outcome=outcome, current="", state="Done", task="", live_tokens=0)
             self.write_report()
         self.notify.send("run_done", f"{word} {outcome} — {progress_line(self.plan, self.state.status_map())}, "

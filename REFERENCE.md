@@ -114,7 +114,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `history/<phase>/BADGE.md` | W9: the markdown image line `![Built by Autopilot](proof.svg)` for the phase folder and the repo-relative path `.agent/history/<phase>/proof.svg` to paste into the README | Yes |
 | `audits/` | The audit reports | Yes |
 | `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
-| `run.json` | The journal of the active run. At the end it has `word`, the outcome word | No |
+| `run.json` | The journal of the active run. At the end it has `word`, the outcome word. `pid` is the process of the run; `beat_at` is written every 30 seconds while the run lives, also during a long session. `status: running` with a `pid` that is gone shows as `DEAD since HH:MM` (time of `beat_at`, else `updated_at`) in `ap status`, `ap watch`, the end screen and the status page; the next command is `ap start`. A run.json without `pid` still shows ON | No |
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports | No |
 | `STOP` | The stop flag from `autopilot stop` | No |
