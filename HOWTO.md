@@ -469,7 +469,7 @@ Install Autopilot and start a build for me. Show me each command before you run 
 ```
 
 Then type `/autopilot` and your idea. `/autopilot status`, `/autopilot answer` and `/autopilot stop` control the
-run. If a different command has the same name, use the full name `/autopilot:autopilot`. The plugin has no hooks. It only runs `autopilot` commands, and it asks before it installs Autopilot.
+run. If a different command has the same name, use the full name `/autopilot:autopilot`. The plugin adds a Stop hook. When Claude Code tries to stop, the hook runs the project test command. It blocks the stop if the tests fail or a test file lost lines (at most 5 times in one session). Turn it off with `/plugin disable autopilot`. Autopilot's own sessions do not load plugins (`--setting-sources`), so the hook never runs inside a build. The slash command only runs `autopilot` commands, and it asks before it installs Autopilot.
 
 Both options start the build with `--detach`. The build is a separate process, so it continues after you close the
 chat. Stop it with `ap stop -C "<folder>"`.

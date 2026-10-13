@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W5: the Claude Code plugin has a Stop hook (`plugin/hooks/hooks.json`, `plugin/scripts/seal.py`) that blocks "done" when the project tests fail or a test file lost lines, at most 5 times per session.
 - W1: the README opens with the position line, lists what every run proves with links to REFERENCE, and has a `## Safety` list; the feature detail moved to REFERENCE `Proof features`. README is under 1200 words (tests/test_opening.py).
 - W8: `ap audit --history [--days N] [--home PATH]` reads the local Claude Code history and prints, per project, the cost of commands that failed three or more times in one session; offline, no project needed, nothing written.
 - W9: closing a phase writes `proof.svg` (a 600x200 card with the merged count, verified features, cost and date) and `BADGE.md` (the README image line) next to PHASE.md; the receipt signs them.
@@ -135,3 +136,4 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - 2026-10-13 **P06-T01** proof.svg per phase and the badge markdown — Added autopilot/card.py (stdlib): svg() builds a 600x200 light card with every text value escaped, and badge() returns the BADGE.md text with one markdown image line for proof.svg plus the repo-relati
 - 2026-10-13 **P07-T01** ap audit --history — Added `ap audit --history [--days N] [--home PATH]` in the new autopilot/commands/audit.py, routed in cli.main before the project lookup so it needs no project and writes nothing. It counts sessions, 
 - 2026-10-13 **P08-T01** README position line, Safety block and a shorter feature list — README.md now opens with the position line, lists what every run proves with links to REFERENCE.md anchors, and has a Safety block of eight items; it is 1050 words. The W feature detail moved to a new
+- 2026-10-13 **P09-T01** Stop hook script and hooks.json — Added a Stop hook to the plugin: `plugin/hooks/hooks.json` runs `plugin/scripts/seal.py` (python3, falling back to python). seal.py blocks "done" when the project test command fails or a changed test 
