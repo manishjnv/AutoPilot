@@ -145,3 +145,131 @@ def cmd_signals(args) -> int:
         for name, n in sorted(t[key].items(), key=lambda x: (-x[1], x[0])) or [("(none)", 0)]:
             print(f"{n:>5}  {name}")
     return 0
+
+
+SAME_COST = 0.10  # W23: costs within 10 percent of each other count as the same cost per task
+LADDER_MIN = 2  # finished tasks a tier needs before it is compared
+
+
+def _median(xs: list[float]) -> float:
+    s = sorted(xs)
+    n = len(s)
+    return 0.0 if not n else s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+
+def _minutes(row) -> float:
+    ms, a, b = row
+    if ms:
+        return ms / 60000
+    try:
+        from datetime import datetime
+        return max((datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds(), 0) / 60
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def read_ladder(db: Path, risks: dict[str, str]) -> list[dict] | None:
+    """W23: one row per finished task: its first model (the ladder start), risk, minutes (the sum of its session
+    durations), attempts and cost, from state.db opened read-only; None when the database cannot be read."""
+    import sqlite3
+    if not db.is_file():
+        return None
+    try:
+        con = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)")}
+            ms = "duration_ms" if "duration_ms" in cols else "0"
+            done = con.execute("SELECT id, attempts FROM tasks WHERE status = 'done'").fetchall()
+            sess = con.execute(f"SELECT task_id, kind, model, {ms}, started_at, ended_at, cost FROM sessions "
+                               "WHERE task_id IS NOT NULL ORDER BY id").fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    rows = []
+    for tid, attempts in done:
+        mine = [s for s in sess if s[0] == tid]
+        first = next((s[2] for s in mine if s[1] == "task"), None)
+        if not first:
+            continue
+        rows.append({"model": str(first), "risk": risks.get(tid, "medium"), "attempts": int(attempts or 1),
+                     "minutes": sum(_minutes(s[3:6]) for s in mine), "cost": sum(float(s[6] or 0) for s in mine)})
+    return rows
+
+
+def ladder_table(rows: list[dict]) -> dict[tuple[str, str], dict]:
+    """(model, risk) -> tasks, median minutes, median attempts, retry share and cost per task (mean)."""
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for r in rows:
+        groups.setdefault((r["model"], r["risk"]), []).append(r)
+    return {k: {"tasks": len(g), "minutes": _median([r["minutes"] for r in g]),
+                "attempts": _median([r["attempts"] for r in g]),
+                "retry": sum(r["attempts"] > 1 for r in g) / len(g), "cost": sum(r["cost"] for r in g) / len(g)}
+            for k, g in groups.items()}
+
+
+def propose(table: dict[tuple[str, str], dict], ladder: dict) -> list[str]:
+    """W23, pure: for each risk tier whose ladder starts on a model that is slower than the next model up and not
+    cheaper per task, one line that starts the tier on the model up. The model up is compared on the same risk,
+    else on all its tasks."""
+    from ..orchestrator import model_rank
+    out = []
+    for risk, steps in (ladder or {}).items():
+        if not steps:
+            continue
+        start = str(steps[0])
+        up = min({m for m, _ in table if model_rank(m) > model_rank(start)}, key=model_rank, default=None)
+        a = table.get((start, risk))
+        b = table.get((up, risk)) if up else None
+        if up and b is None:
+            g = [v for (m, _), v in table.items() if m == up]
+            n = sum(v["tasks"] for v in g)
+            b = n and {"tasks": n, "minutes": sum(v["minutes"] * v["tasks"] for v in g) / n,
+                       "cost": sum(v["cost"] * v["tasks"] for v in g) / n}
+        if not a or not b or min(a["tasks"], b["tasks"]) < LADDER_MIN:
+            continue
+        if a["minutes"] > b["minutes"] and a["cost"] >= b["cost"] * (1 - SAME_COST):
+            same = abs(a["cost"] - b["cost"]) <= SAME_COST * max(a["cost"], b["cost"])
+            cost = "same cost" if same else f"${a['cost']:.2f} vs ${b['cost']:.2f} per task"
+            new = ", ".join([up] + [str(s) for s in steps[1:]])
+            out.append(f"propose: models.ladder.{risk}: [{new}] ({start} {a['minutes']:.0f} min vs {up} "
+                       f"{b['minutes']:.0f} min, {cost})")
+    return out
+
+
+def cmd_ladder(args) -> int:
+    """W23: per model and risk of this project, how fast and how costly finished tasks were, and the ladder change
+    the data supports. Read-only."""
+    from ..config import Config
+    root = Path(getattr(args, "path", None) or ".").resolve()
+    cfg = Config.load(root)
+    rows = read_ladder(root / ".agent" / "state.db", plan_risks(root / ".agent" / "plan.yaml"))
+    if not rows:
+        print("No finished tasks in .agent/state.db yet: nothing to measure.")
+        return 0
+    table = ladder_table(rows)
+    print(f"{'Model':<10} {'Risk':<9} {'Tasks':>5} {'Min/task':>8} {'Attempts':>8} {'Retried':>7} {'$/task':>7}")
+    order = ("low", "medium", "high", "critical")
+    for (m, risk), v in sorted(table.items(), key=lambda kv: (order.index(kv[0][1]) if kv[0][1] in order else 9,
+                                                              kv[0][0])):
+        print(f"{m[:10]:<10} {risk:<9} {v['tasks']:>5} {v['minutes']:>8.0f} {v['attempts']:>8.1f} "
+              f"{v['retry']:>7.0%} {v['cost']:>7.2f}")
+    for line in propose(table, cfg.get("models.ladder", {})):
+        print(line)
+    return 0
+
+
+def plan_risks(path: Path) -> dict[str, str]:
+    """Task id -> risk from plan.yaml, without validation (a broken plan still has measurable tasks)."""
+    import yaml
+
+    from ..config import load_yaml
+    try:
+        data = load_yaml(path) if path.is_file() else {}
+    except (OSError, yaml.YAMLError):
+        data = {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(t.get("id")): str(t.get("risk", "medium")).lower()
+            for p in (data.get("phases") or []) if isinstance(p, dict)
+            for t in (p.get("tasks") or []) if isinstance(t, dict)}

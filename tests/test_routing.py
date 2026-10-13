@@ -9,6 +9,7 @@ from test_autopilot import FakeBackend, make_project, phases_basic
 
 NO_AUDIT = {"audit": {"completion_audit": False}}
 NO_DECIDE = {"decide": {"enabled": False}}
+OLD_LADDER = {"models": {"ladder": {"low": ["haiku", "sonnet", "opus"], "high": ["opus", "opus", "opus"]}}}  # pre-W23
 
 
 class Recorder(FakeBackend):
@@ -35,7 +36,7 @@ def run(tmp_path, phases, fake=None, cfg=None):
 
 # ---------------------------------------------------------------- U5
 def test_task_effort_follows_risk_and_audit_runs_high(tmp_path):
-    orch, outcome, fake = run(tmp_path, one_phase("low", "medium", "high", "critical"))
+    orch, outcome, fake = run(tmp_path, one_phase("low", "medium", "high", "critical"), cfg=OLD_LADDER)
     assert outcome == "app complete"
     tasks = [(r.model, r.effort) for r in fake.reqs if "implement task" in r.prompt]
     assert tasks == [("haiku", "low"), ("sonnet", "medium"), ("opus", "medium"), ("opus", "high")]
@@ -157,12 +158,13 @@ def test_escalation_can_be_turned_off(tmp_path):
 def test_load_bearing_scope_uses_the_high_ladder(tmp_path):
     phases = [{"id": "P01", "title": "One", "tasks": [
         {"id": "P01-T01", "title": "auth", "risk": "low", "files_in_scope": ["src/auth/**", "src/**"]}]}]  # O1: the fake writes src/
-    _, _, fake = run(tmp_path, phases, Behave(["ok"]), {**NO_AUDIT, "escalate": {"load_bearing": ["src/auth/**"]}})
+    _, _, fake = run(tmp_path, phases, Behave(["ok"]), {**NO_AUDIT, **OLD_LADDER,
+                                                         "escalate": {"load_bearing": ["src/auth/**"]}})
     assert models_used(fake) == ["opus"] and fake.reqs[0].effort == "medium"  # high ladder + high-risk effort
 
 
 def test_never_route_down_after_failing_higher(tmp_path):
-    root = make_project(tmp_path, one_phase("low"), {**NO_DECIDE, **NO_AUDIT})
+    root = make_project(tmp_path, one_phase("low"), {**NO_DECIDE, **NO_AUDIT, **OLD_LADDER})
     orch = Orchestrator(root, backend=Recorder(), sleep=lambda s: None)
     assert orch.model_for("low", 0) == "haiku"
     assert orch.model_for("low", 0, floor=model_rank("opus")) == "opus"

@@ -1759,6 +1759,7 @@ def main(argv=None):
     p.set_defaults(kind="completion")
     p.add_argument("--history", action="store_true", help="W8: price repeated failing commands in the local Claude Code history (offline, no project)")
     p.add_argument("--signals", action="store_true", help="W29b: unknown errors, parked reasons, gate failures and retries of every known project (offline)")
+    p.add_argument("--ladder", action="store_true", help="W23: minutes, attempts and cost per model and risk of this project, and the ladder change they support")
     p.add_argument("--days", type=int, default=30, help="with --history or --signals: look back N days")
     p.add_argument("--home", default="~/.claude", help="with --history: the Claude Code folder")
     p = add("review", cmd_review, "run an audit / completion audit / replan now")
@@ -1792,6 +1793,9 @@ def main(argv=None):
             return 1
         args.path = found
     remember(Path(args.path).resolve())
+    if args.cmd == "audit" and args.ladder:  # W23: read-only, this project's state.db
+        from .commands.audit import cmd_ladder
+        return cmd_ladder(args)
     if getattr(args, "detach", False):
         return start_detached(Path(args.path).resolve(), [a for a in (argv or sys.argv[1:]) if a != "--detach"])
     rc = args.fn(args) or 0

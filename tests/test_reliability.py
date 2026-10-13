@@ -74,7 +74,7 @@ def test_retry_resumes_failed_session_on_same_model(tmp_path):
 
 def test_retry_on_a_new_model_starts_fresh(tmp_path):
     phases = [{"id": "P01", "title": "One", "tasks": [{"id": "P01-T01", "title": "a", "risk": "low"}]}]  # haiku->sonnet
-    root = make_project(tmp_path, phases, NO_AUDIT)
+    root = make_project(tmp_path, phases, {**NO_AUDIT, "models": {"ladder": {"low": ["haiku", "sonnet", "opus"]}}})
     fake = Resumable({"P01-T01": ["break", "ok"]})
     assert Orchestrator(root, backend=fake, sleep=lambda s: None).run() == "plan complete"
     assert [r.resume for r in fake.reqs] == ["", ""] and fake.reqs[1].model == "sonnet"

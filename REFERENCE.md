@@ -60,6 +60,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot review --kind periodic\|completion\|replan` | Starts an audit or a replan now |
 | `autopilot audit` | Starts the completion audit now |
 | `ap audit --history [--days N] [--home PATH]` | Reads `<home>/projects/*/*.jsonl` of Claude Code (default `~/.claude`, last 30 days) and prints one row per project: sessions, tokens, tool calls, repeats (the same Bash command failing 3 or more times in one session) and the cost of those retries at public API rates (unknown model = Sonnet), then `Retries cost about $X of $Y.` Prints `No Claude Code history found.` when the folder is missing. Needs no project and no network, writes no file, and never prints a prompt or a command |
+| `ap audit --ladder` | W23: reads this project's `.agent/state.db` (read-only) and prints one row per model and risk: finished tasks, median minutes per task (the sum of the task's session durations), median attempts, retry share and cost per task. The model of a row is the model of the task's first attempt; the risk comes from `plan.yaml`. Then one `propose: models.ladder.<risk>: [...]` line for each risk whose ladder starts on a model that is slower than the next model up and not cheaper per task (within 10 percent counts as the same cost; each side needs 2 finished tasks; the model up is compared on the same risk, else on all its tasks). It changes nothing: copy the line into `project.yaml` yourself |
 | `ap audit --signals [--days N]` | W29b: reads `unknown.jsonl` (see Unknown session errors) and the `quality` and `task_blocked` events of each project in the recent list (`~/.autopilot/recent`; each `.agent/state.db` opened read-only), last 30 days by default, and prints one plain table: the top 10 unknown wordings (count, cause, first 80 characters), parked tasks by cause, gate failures of parked tasks by kind (`no_change`, `protected`, `secret`, `kill`, `scope`, `reasons`, `growth`, `review`, `tests`, `other`) and retries by cause (the extra attempts of a parked task count under its cause; those of a finished task count as `recovered`; each project is counted on its own, then summed). A missing file or project database gives one `skipped:` line. With no data at all it prints one line and exits 0. Needs no network and writes no file |
 | `autopilot report --tokens` | Shows the tokens and the cost of each step type |
 
@@ -316,9 +317,15 @@ When a phase closes, one docs session may edit `README.md`, the RCA log, `docs/D
 
 | Task risk | Attempt 1 | Attempt 2 | Attempt 3 |
 |---|---|---|---|
-| low | haiku | sonnet | opus |
+| low | sonnet | sonnet | opus |
 | medium | sonnet | sonnet | opus |
-| high, critical | opus | opus | opus |
+| high | sonnet | opus | opus |
+| critical | opus | opus | opus |
+
+This is the template ladder of a new project (`models.ladder`; `critical` lists two steps and the last one repeats).
+It follows the run of 2026-10-13: Haiku took 20 to 28 minutes per task and Sonnet 5 to 7 at the same cost with no
+retry; Opus took 25 to 47 minutes and 2 of 5 tasks were retried. The review of every task is the guard. A project
+whose `project.yaml` has no `models.ladder` keeps these values too. `ap audit --ladder` measures your own runs.
 
 A retry on the same model continues the failed session. A retry on a different model starts a new session.
 

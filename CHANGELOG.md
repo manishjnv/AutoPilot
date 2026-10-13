@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W23: `ap audit --ladder` prints minutes, attempts, retries and cost per model and risk of the project, and a `propose:` line when a tier's first model is slower than the next model up and not cheaper. New projects start low-risk tasks on Sonnet (`low: [sonnet, sonnet, opus]`) and high-risk tasks on Sonnet (`high: [sonnet, opus, opus]`), from the measured run of 2026-10-13.
 - W24: `ap validate` prints how many phases can run side by side and the shared file of each dependent pair; the plan writer, replanner and onboard prompts ask for `depends_on: []` on a phase that shares no file with the phases before it. A phase without the key still depends on the previous phase.
 
 - W29: `ap audit --signals` prints one table of the top unknown session errors, parked tasks by cause, gate failures by kind and retries by cause of every project on this computer (last 30 days, `--days N`). It reads only, offline.
@@ -225,3 +226,4 @@ to run. A short outage at the AI service no longer ends your build. Login works 
 - 2026-10-13 **P01-T01** W29a Unknown session errors are written to unknown.jsonl — Added autopilot/signals.py: record_unknown(text, runner, project, action, home=None) classifies a failed session's text by cause (limit, infra, environment from detect_limit, detect_infra and install_
 - 2026-10-13 **P01-T02** W29b ap audit --signals prints the signals table — Added `ap audit --signals` (commands/audit.py cmd_signals, wired in cli.py next to --history, reusing --days). It reads unknown.jsonl and the quality/task_blocked events of every recent project's stat
 - 2026-10-13 **P01-T03** W24 Dependencies come from the files, not from the order — Added plan.independent_groups(plan) and shared_files in plan.py; ap validate prints 'N phases can run side by side' and each pair of phases that shares a file with the shared path. The plan writer, re
+- 2026-10-14 **P01-T04** W23 The model ladder is measured, not assumed — Added `ap audit --ladder` in commands/audit.py, wired in cli.py. It reads the project's state.db read-only and prints, per model and risk, finished tasks, median minutes per task (the sum of the task'
