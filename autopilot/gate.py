@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import allowlist_on
+from .config import allowlist_on, scope_always
 from .proc import agent_env, run_proc, with_tool_dirs
 
 SECRET_PATTERNS = [
@@ -365,7 +365,7 @@ def task_gate(cfg, git, task, report=None, attempt: int = 1) -> GateResult:
         from .layers import layers_problems  # local: layers.py imports gate.py
         gate.problems += layers_problems(cfg, git)
     extra, added, bad = scope_additions(report, attempt, files)
-    outside = out_of_scope(files, task.files_in_scope, extra)
+    outside = out_of_scope(files, task.files_in_scope, extra + scope_always(cfg))  # W19: docs are always in scope
     if (outside or bad) and cfg.get("gate.scope_fail", True):  # O1: a hard gate; `gate.scope_fail: false` = old warning
         gate.problems += bad + ([f"outside files_in_scope: {outside}. {SCOPE_HINT}"] if outside else [])
     else:
