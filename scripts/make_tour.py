@@ -5,23 +5,20 @@ Run from the repository root: python scripts/make_tour.py [source_dir] [out_file
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from autopilot.log_scrub import scrub_secrets  # noqa: E402
 
 PATHS = re.compile(r"[A-Za-z]:[\/]+Users[\/][^\s`'\"]*|/(?:home|Users|mnt)/[^\s`'\"]*")
 MAIL = re.compile(r"\S*@\S*")
 
 
 def clean(text: str) -> str:
-    """Scrub known local values (home, user, email), then any path or address shape; the file holds no '@'."""
-    local = {"HOME": str(Path.home()), "USER": os.environ.get("USERNAME") or os.environ.get("USER") or ""}
-    text = scrub_secrets(text, {k: v for k, v in local.items() if len(v) > 3})
+    """Scrub any path or address shape; the file holds no '@'. Nothing here depends on the host that runs the script,
+    so a regenerated file is byte-equal on every machine (the test compares it with the committed copy)."""
     return MAIL.sub("(address)", PATHS.sub("(path)", text)).replace("@", "")
 
 

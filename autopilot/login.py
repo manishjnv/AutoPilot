@@ -46,6 +46,8 @@ def login_argv(row: Runner, exe: str, headless: bool) -> list[str]:
 def _run(argv: list[str], env: dict, headless: bool, on_line, wait: float) -> int:
     """Run the command, hand every output line (stdout and stderr together) to `on_line` as it arrives."""
     group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS else {"start_new_session": True}
+    if WINDOWS and str(argv[0]).lower().endswith((".cmd", ".bat")):  # a script needs cmd.exe (Python 3.10 does not add it)
+        argv = ["cmd", "/c", *argv]
     p = subprocess.Popen(argv, env=env, text=True, encoding="utf-8", errors="replace",
                          stdin=subprocess.DEVNULL if headless else None,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **group)
