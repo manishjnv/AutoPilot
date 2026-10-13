@@ -46,5 +46,5 @@ def test_mostly_failing_first_tries_suggest_a_stronger_start(tmp_path):
 
 
 def test_too_few_tasks_or_cheapest_model_gives_no_tip(tmp_path):
-    orch = run(tmp_path, five("low"), FakeBackend())  # low starts on haiku: nothing cheaper to suggest
+    orch = run(tmp_path, five("low"), FakeBackend(), {"models": {"ladder": {"low": ["haiku", "sonnet", "opus"]}}})  # low starts on haiku: nothing cheaper to suggest
     assert quality_tips(orch.cfg, orch.plan, orch.state) == []

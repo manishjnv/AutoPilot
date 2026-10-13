@@ -103,9 +103,9 @@ sandbox:
 # Risk tier -> model ladder. Attempt N uses ladder[N] (last entry repeats).
 models:
   ladder:
-    low: [haiku, sonnet, opus]
+    low: [sonnet, sonnet, opus]  # W23: measured 2026-10-13: haiku 20-28 min, sonnet 5-7 min, same cost
     medium: [sonnet, sonnet, opus]
-    high: [opus, opus, opus]
+    high: [sonnet, opus, opus]   # W23: opus 25-47 min, 2 of 5 retried; the review guards every task
     critical: [opus, opus]
   fallback: ""            # passed as --fallback-model when set
   effort:                 # --effort per role (empty = agent.effort, then the CLI default); tasks use their risk tier

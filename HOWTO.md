@@ -399,9 +399,12 @@ Use a model on your own computer (Ollama or LM Studio) for low-risk tasks. Nothi
      base_url: http://localhost:11434/v1
      model_map:
        haiku: qwen2.5-coder:7b
+   models:
+     ladder:
+       low: [haiku, sonnet, opus]
    ```
 
-3. Send only low-risk tasks to it. The `low` tier of `models.ladder` is `[haiku, sonnet, opus]`, so the first attempt of a low-risk task uses `haiku`, which the map sends to the local model. Higher tiers keep the Claude models.
+3. Send only low-risk tasks to it. The template starts the `low` tier on `sonnet`; the `ladder` line above makes it `[haiku, sonnet, opus]`, so the first attempt of a low-risk task uses `haiku`, which the map sends to the local model. Higher tiers keep the Claude models.
 4. Run `ap doctor`. The `endpoint` row says whether the server answers.
 
 > [!NOTE]
