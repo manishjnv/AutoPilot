@@ -32,7 +32,7 @@ from .growth import consolidate
 from .handoff import MIN_WAIT, fallback_backend, write_handoff
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
-from .proc import exclusive_lock, run_proc
+from .proc import agent_env, exclusive_lock, run_proc
 from .report import digest, open_window, token_footer, window_line
 from .schemas import REPORTS
 from .state import State, now
@@ -155,6 +155,16 @@ def _scopes_collide(a: list, b: list, tracked: list) -> bool:
     hit = lambda pats: {f for f in tracked if any(fnmatch.fnmatch(f, g) for g in pats)}  # noqa: E731
     return bool(set(a) & set(b) or hit(a) & hit(b)
                 or any(fnmatch.fnmatch(x, g) for x in a for g in b) or any(fnmatch.fnmatch(x, g) for x in b for g in a))
+
+
+def fail_line(r) -> str:
+    """W20: the line of a failed command's output that names the failure (first FAILED/ERROR/TIMEOUT, else first
+    fail/error line, else the last line)."""
+    lines = [ln.strip() for ln in (r.output or "").splitlines() if ln.strip()]
+    pick = (next((ln for ln in lines if ln.startswith(("FAILED", "ERROR", "TIMEOUT"))), None)
+            or next((ln for ln in lines if re.search("fail|error", ln, re.I)), None)
+            or (lines[-1] if lines else f"{r.cmd} exit {r.rc}"))
+    return pick[:200]
 
 
 class Stop(Exception):
@@ -2021,7 +2031,7 @@ class Orchestrator:
                 self.state.task(t.id)["status"] == "done" for t in phase.tasks):
             return
         allowed = ["README.md", self.cfg.get("docs.rca", "docs/RCA.md"),
-                   self.cfg.get("docs.developing", "docs/DEVELOPING.md"), "docs/*", "docs/**"]
+                   self.cfg.get("docs.developing", "docs/DEVELOPING.md"), "HOWTO.md", "docs/*", "docs/**"]
         res = self.session("docs", self.ctx.docs_prompt(phase, self.state), self.cfg.get("models.docs", "sonnet"),
                            phase=phase.id, label=f"docs {phase.id}")
         files = self.git.staged_files()
@@ -2041,6 +2051,16 @@ class Orchestrator:
             why = "; ".join(map(str, bad))[:300] or (res.error or "")[:300]
             log.warning("docs session for %s dropped: %s", phase.id, why)
             self.state.event("docs", f"{phase.id}: result dropped ({why})")
+            self.git.discard()
+            return
+        tests = self.cfg.commands("test")
+        # W20: the project test command runs on the staged tree; a red result drops the docs result like a bad scope
+        if files and tests and (red := next((r for r in run_commands(
+                tests, self.root, int(self.cfg.get("verify_timeout_sec", 1200)), base_env=agent_env(self.cfg))
+                if r.rc != 0), None)):
+            why = fail_line(red)
+            log.warning("docs session for %s dropped: tests: %s", phase.id, why)
+            self.state.event("docs", f"{phase.id}: result dropped (tests: {why})")
             self.git.discard()
             return
         log.info("docs session for %s wrote %s", phase.id, files)

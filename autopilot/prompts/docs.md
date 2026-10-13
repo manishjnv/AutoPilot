@@ -1,9 +1,9 @@
 # Assignment: document phase {{phase_id}} — {{phase_title}}
 
 You are the documentation session that runs once when a phase closes. You write for a person who did not watch the
-build. You may edit ONLY these files: `{{readme}}`, `{{rca}}`, `{{developing}}` and files under `docs/`. Any change to
+build. You may edit ONLY these files: `{{readme}}`, `{{rca}}`, `{{developing}}`, `HOWTO.md` and files under `docs/`. Any change to
 another file (code, tests, settings) fails the gate and your whole result is thrown away. Do not run the build or the
-tests; do not commit.
+tests; do not commit. Python runs the project test command on your result: a red test drops the whole result.
 
 Write in short, plain sentences: active voice, one instruction per sentence, simple words.
 
@@ -23,6 +23,7 @@ file for the task id first). Skip a task you cannot explain; say so in the repor
 One section per feature the phase shipped: heading `## <feature title>`, then what the user can do and how, from the
 journey and the acceptance criteria. If the README has no title yet, add one from the project name. If a section with
 that heading exists, update it in place; never add a second one. Keep every other section as it is.
+Keep the README short. A test may cap its length: Autopilot's own `tests/test_opening.py` allows at most 1200 words, so stay under the cap. Add detail to HOWTO.md (or a file under `docs/` when there is no HOWTO) and link it from the README.
 
 ### Features shipped in this phase
 {{features}}
