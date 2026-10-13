@@ -736,3 +736,15 @@ The install script runs these commands. Use them when the script fails, or when 
 - **Escalation on hard work.** Test files and `scope_always` docs do not count toward `escalate.max_diff_files` or `escalate.max_diff_lines`. A failure with only mechanical problems retries on the same model. The task prompt names the lines left for a scoped file near its growth budget.
 - **Review findings drive the retry.** After a failed review, the retry prompt lists that review's findings. The next review checks the listed findings first. A new defect that breaks no acceptance criterion goes to `FOLLOWUPS.md`, and the task merges.
 - **Scoped files in the prompt.** A task with scoped files gets each file's content in its prompt. A file over the cap gives its first lines and its function list. The whole block respects `context.scope_chars`.
+
+## Contracts, budget, task time
+
+**Feature contracts.** A page in `features/` lists the files and tests of one feature (`features/watch-screen.md`, `features/gate.md`). A task whose `files_in_scope` match a page gets that page in its prompt, capped at 8000 characters. A task that touches no contract file gets no block.
+
+The gate guards the tests a page names. A diff that deletes one, or shrinks a named test file, fails the gate. To change a contract on purpose, put a `contracts` entry with `changed` and a reason in the report. An edited page also needs a new dated line under `## Changes`. A page that lists a file or test must give it as the first `code` span of a bullet line.
+
+A docs session that adds a duplicate `#` or `##` heading to a file is dropped, and the event says why. Edit the existing section instead.
+
+**Budget forecast.** When the projected cost passes `budget_usd.total`, the run sends one `budget_forecast` event. With `billing: api` the cap stops the run. With `billing: subscription` the cap asks a question instead. Answer `stop` to end the run as `BUDGET_STOP`, or answer a number to raise the cap. Run `ap budget <usd>` to change `budget_usd.total`; a live run uses the new value.
+
+**Task time.** `took` counts the time sessions worked, not the wall clock since the first session. A task with a 2-hour gap between two 10-minute sessions shows `took 20m`. The `This run` label names the number of tasks merged in the run.

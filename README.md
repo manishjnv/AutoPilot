@@ -104,6 +104,10 @@ The task gate runs only the tests of the changed modules (`gate.tests: changed`,
 
 A retry fixes the review's findings. Scoped files enter the task prompt. See `HOWTO.md`.
 
+## Contracts, budget, task time
+
+See `HOWTO.md`.
+
 ## Learn from runs
 
 See `HOWTO.md`: `ap audit --signals`, `ap audit --ladder`, `ap validate`.
@@ -169,5 +173,4 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 > [Run Autopilot on a server](HOWTO.md#run-autopilot-on-a-server).
 
 - Version 0.4.0, an early release. [MIT license](LICENSE).
-- Feature contracts: [features/](features/).
 - One CLI agent per session. See [limits and runners](HOWTO.md#limits-and-supported-agent-clis).
