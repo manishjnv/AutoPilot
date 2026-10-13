@@ -82,6 +82,14 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 - [Proof card](REFERENCE.md#proof-card-and-badge): each closed phase writes `proof.svg` and a badge line.
 - [Retry cost](REFERENCE.md#commands): `ap audit --history` prices your past retries in Claude Code.
 
+## Stop a run and still get a word
+
+Press Ctrl+C during `ap start`. The run stops and stores the outcome word BUDGET_STOP, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped". See [Run outcome](REFERENCE.md#run-outcome).
+
+## Plugin Stop hook and Routine page
+
+The Claude Code plugin has a Stop hook. It runs your test command and blocks the stop when a test fails. Its timeout and block limit are in [REFERENCE.md](REFERENCE.md). To run Autopilot as a Claude Code cloud Routine, follow the Routine section in [HOWTO.md](HOWTO.md) and use `examples/routine/prompt.md`.
+
 ## Safety
 
 - The gate runs your build, lint and test commands before each merge.
