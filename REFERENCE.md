@@ -514,7 +514,7 @@ that day's line. A known wording writes nothing. The file stays on your computer
 
 | Colour | Meaning | Where it appears |
 |---|---|---|
-| Green | Done or OK | Login `Pro` or `Max`, Status `Complete`, progress bar fill, Files added, lines added, Git and Checks `OK`, Size `This run +N`, Phase ✓, Live `The task is complete` |
+| Green | Done or OK | Login `Pro` or `Max`, Status `Complete`, progress bar fill, Files added, lines added, Git and Checks `OK`, Size `This run (N tasks)` +N lines, Phase ✓, Live `The task is complete` |
 | Cyan | Running now | Status `In progress`, Phase ▶, Live test run, the state word in the title and the bar, the spinner while it turns |
 | Yellow | Warning | Login `not checked`, Time over 2x the median task time, Risk `high`, Tries 2 or more, Try on the last try, Questions, Warnings, Retries, Last commit age over 10 minutes with a running task, usage bar over 75 percent, `stale`, `⏸ no change 45s`, Live note, Live wait over 60 s (dim) |
 | Red | Blocked or failed | Login check failed, Status `Blocked`, Risk `crit`, Error text, Blocked count, Files deleted, lines deleted, Git and Checks failure text, usage bar over 90 percent, Phase ✗, Live error line, `✗ stopped 12:50` |
@@ -546,3 +546,5 @@ shows the same ring, paused when the data is stale. No other part of the window 
 | Question | An entry in `docs/NEEDS-YOU.md` that only a person can answer |
 | Completion audit | One session at the end of the plan that asks: is the app complete? It gets the last gate output on main (at most 6000 characters and the test counts) and does not run the suite again. The functional check and the phase docs session get the same block |
 | Usage window | The 5-hour usage limit of a Claude subscription |
+
+**Task time (W42).** The Time column of the dashboard is the sum of the task's session durations (a running session counts to now), not the wall clock from its first session to the merge. When the wall span is more than 2x that work, the row's data carries `took 24m (3 tries, first 15:12)` (hover text in the web view). The Size panel label `This run (N tasks)` counts the tasks merged since the run start.

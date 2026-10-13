@@ -126,9 +126,10 @@ def _tasks(tasks, other: str = "") -> str:
         model, sep, rest = str(t.get("detail", "")).partition(" · ")
         if not sep and model.endswith(" tries"):
             model, rest = "", model
+        hint = f' title="{e(str(t["took"]))}"' if t.get("took") else ""
         rows.append(f'<tr{cur}><td>{e(str(t.get("n", "")))}</td><td>{e(str(t.get("title", "")))}</td>'
                     f'<td class="st {e(st if st in WORDS else "pending")}">{sym} {word}</td>'
-                    f'<td class="{"w" if t.get("slow") else ""}">{e(str(t.get("time", "")))}</td>'
+                    f'<td class="{"w" if t.get("slow") else ""}"{hint}>{e(str(t.get("time", "")))}</td>'
                     f'<td class="{RISK.get(risk, "")}">{e(risk)}</td>'
                     f'<td class="{"w" if _i(tries) >= 2 else ""}">{e(str(tries))}</td>'
                     f'<td><span class="bl">{e(model)}</span>{" · " if sep else ""}{e(rest)}</td></tr>')
@@ -245,7 +246,7 @@ def _project(p: dict, total: int, sz, asof=None, spin=None) -> str:
                 ("Tests", f'{_i(sz.get("tests")):,} lines, {_i(sz.get("test_count")):,} tests'),
                 ("Docs", f'{_i(sz.get("docs")):,} lines')]
         if sz.get("run_lines") is not None:
-            rows.append(("This run", f'+{_i(sz["run_lines"]):,} lines', "good"))
+            rows.append((f'This run ({_i(sz.get("run_tasks"))} tasks)', f'+{_i(sz["run_lines"]):,} lines', "good"))
             rows.append(("", f'{_i(sz.get("run_files")):,} files'))
         out += _group("Size", _dl(rows))
     if p.get("last_commit"):
