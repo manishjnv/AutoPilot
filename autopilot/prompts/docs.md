@@ -7,6 +7,10 @@ tests; do not commit. Python runs the project test command on your result: a red
 
 Write in short, plain sentences: active voice, one instruction per sentence, simple words.
 
+Edit sections in place. Before you write, find the section that already covers the change and edit it there. Add a
+section only when no section covers it. Never add a second section on the same topic: a result that adds a heading that
+already exists in the same file (a second `## Safety`) is dropped whole.
+
 ## Last gate output
 The last gate output is below. Do not run the test suite.
 {{gate_output}}

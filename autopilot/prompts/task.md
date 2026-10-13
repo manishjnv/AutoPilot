@@ -60,6 +60,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
 ## Final report (required, last thing in your reply)
 `rca` is only for corrective tasks; leave it out otherwise.
 `new_files` lists each new non-test file with its reason; leave it out when you added none.
+`contracts` names each feature contract shown above: `kept`, or `changed` with a `why`. The gate fails a removed test, fewer tests in a file, or a deleted page of a contract unless its entry says `changed` with a reason. An edited `features/<id>.md` needs a new dated line under `## Changes`.
 ```json
 {
   "status": "done | blocked",
@@ -73,6 +74,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
   "scope_additions": {"src/other.py": "why this file outside the task scope had to change (omit when none)"},
   "new_deps": [{"name": "package", "reason": "why no installed dependency does this (omit when none)"}],
   "failing_before": ["path::test_name (omit when none)"],
+  "contracts": [{"id": "gate", "status": "kept | changed", "why": "only for changed: why the contract had to change (omit the field when no contract was shown)"}],
   "rca": {"symptom": "...", "root_cause": "...", "fix": "file:line — what changed", "prevention": "the test or check that stops a repeat"},
   "blocker": "only when status is blocked"
 }
