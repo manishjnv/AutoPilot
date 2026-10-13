@@ -151,3 +151,16 @@ def test_page_text_is_escaped(serve, tmp_path):
     body = get(serve(refresh=7))[1]
     assert "<script>alert" not in body and "&lt;script&gt;alert" in body
     assert "<p id=off hidden>" in body and "},7000)" in body and "innerHTML" not in body  # J8: the last status stays
+
+
+def test_start_status_page_writes_the_port_file(tmp_path):
+    import socket
+
+    from autopilot.cli import start_status_page
+    root = make_project(tmp_path, phases_basic())
+    with socket.socket() as s:  # W11-port: a free port, so the test never depends on 8765
+        s.bind(("127.0.0.1", 0))
+        free = s.getsockname()[1]
+    url = start_status_page(root, free)
+    assert url == f"http://127.0.0.1:{free}/"
+    assert (root / ".agent" / "status.port").read_text(encoding="utf-8") == f"{free}\n"

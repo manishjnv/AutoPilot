@@ -160,4 +160,7 @@ def get_backend(cfg):
     if kind == "command":
         from .command import CommandBackend
         return CommandBackend(cfg)
+    if kind == "openai_compat":  # P12-T01 (W13): a local model through an OpenAI-compatible HTTP endpoint
+        from .openai_compat import OpenAICompatBackend
+        return OpenAICompatBackend(cfg)
     raise ValueError(f"unknown backend {kind}")

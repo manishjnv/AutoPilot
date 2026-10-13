@@ -3,6 +3,8 @@
 Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
 It is for one developer, or for a person with an idea and a developer friend.
 
+Python decides when a task is done, not the model. Every step is recorded. Works on Windows. Runs any coding agent CLI.
+
 **Give it a plan tonight. Wake up to a working app, and proof that it works.** Claude Code (the coding agent) writes the code; Python code decides when a task is complete.
 
 [![CI](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/manishjnv/AutoPilot/actions/workflows/ci.yml)
@@ -69,6 +71,37 @@ Two real projects built from a plan:
 
 Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot fixed all. envguard is private; numbers come from the run log.
 
+## What every run proves
+
+- [Outcome word](REFERENCE.md#run-outcome): every run ends with VERIFIED, BLOCKED, BUDGET_STOP, STALLED or FAILED.
+- [Not proven list](REFERENCE.md#not-proven-list): each phase lists the criteria that no changed test mentions.
+- [Replay](REFERENCE.md#commands): `ap tour` replays a recorded run offline, with no login and no network.
+- [Fresh review](REFERENCE.md#fresh-context-review): a fresh session reviews each task before it merges.
+- [Signed receipt](REFERENCE.md#signed-receipt): `ap verify` checks each closed phase against its signature.
+- [Draft PR](REFERENCE.md#draft-pull-request): a task with a warning or an untested criterion opens as a draft.
+- [Proof card](REFERENCE.md#proof-card-and-badge): each closed phase writes `proof.svg` and a badge line.
+- [Retry cost](REFERENCE.md#commands): `ap audit --history` prices your past retries in Claude Code.
+
+## Stop a run and still get a word
+
+Press Ctrl+C during `ap start`. The run stops and stores the outcome word BUDGET_STOP, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped". See [Run outcome](REFERENCE.md#run-outcome).
+
+## Plugin Stop hook and Routine page
+
+The Claude Code plugin has a Stop hook. It runs your test command and blocks the stop when a test fails. Its timeout and block limit are in [REFERENCE.md](REFERENCE.md). To run Autopilot as a Claude Code cloud Routine, follow the Routine section in [HOWTO.md](HOWTO.md) and use `examples/routine/prompt.md`.
+
+## Safety
+
+- The gate runs your build, lint and test commands before each merge.
+- The plan cannot change during a run.
+- Budget caps apply per task, phase, day and run ([settings](REFERENCE.md#settings)).
+- A network allowlist applies when `sandbox.enabled` is true or `sandbox.mode` is `allowlist`.
+- `sandbox.mode: docker` runs each Claude Code session in a plain container. Only the worktree is mounted, never your home folder ([settings](REFERENCE.md#settings)).
+- Every task runs in its own git worktree.
+- Secrets are scrubbed from logs.
+- `ap run --no-prod` keeps production untouched.
+- `ap verify` checks the signed record.
+
 ## Install
 
 Three steps, no administrator prompt.
@@ -102,6 +135,29 @@ Three steps, no administrator prompt.
 
 See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot updates itself once a day; `ap uninstall --all`
 removes it. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
+
+## Local models
+
+Run low-risk tasks on a model on your own computer (Ollama or LM Studio). Nothing leaves the machine and it costs nothing.
+
+1. Start the server and pull a coding model, for example `ollama pull qwen2.5-coder:7b`.
+2. In `.agent/project.yaml`, set `agent.backend: openai_compat`. Optionally set `agent.base_url` (default
+   `http://localhost:11434/v1`) and `agent.model_map` (for example `haiku: qwen2.5-coder:7b`).
+3. Run `ap doctor`. The `endpoint` row says whether the server answers. It warns and never fails when the server is down.
+
+The model cannot run tools. It writes each file as a fenced block and Autopilot writes the files into the worktree.
+A path outside the worktree is refused. The gate then runs the tests and the checks, so a weak model fails the gate.
+See [Use a local model](HOWTO.md#use-a-local-model).
+
+## VS Code extension
+
+A thin side panel for VS Code. It lives in `vscode/`. It has no chat participant.
+
+1. Run `Autopilot: Start`, `Autopilot: Answer` or `Autopilot: Stop` from the command palette. Each one sends `ap start`, `ap answer` or `ap stop` to a terminal named Autopilot. The terminal is reused when it is open.
+2. Open the Autopilot view in the Explorer side bar. It shows the status page of the run.
+3. The view reads the port from `.agent/status.port`. `ap start` writes that file with the port the status page uses, and new projects ignore it in git. When nothing answers, the view says to run `ap` first.
+
+Build it with `cd vscode`, `npm install` and `npx tsc --noEmit`. See [vscode/README.md](vscode/README.md). This repository does not publish the extension.
 
 ## Example output
 

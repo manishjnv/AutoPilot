@@ -861,6 +861,8 @@ def cmd_status(args):
     cfg, plan, state = _open_state(Path(args.path).resolve())
     print(status_line(cfg, plan, state, run_journal(cfg.root),
                       shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None) + "\n")
+    if state.get_meta("outcome"):  # W3: the one word of the last run end
+        print(f"outcome: {state.get_meta('outcome')}\n")
     print(build_report(cfg, plan, state))
     from .plain import colors_on
     print(hints(Path(args.path).resolve(), None, colors_on(sys.stdout)))
@@ -971,6 +973,11 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
     if ended:
         watch_end(root, run_journal(root), color, hold)
     return 0
+
+
+def cmd_tour(args):
+    from .commands.tour import cmd_tour as run_tour
+    return run_tour(args)
 
 
 def cmd_watch(args):
@@ -1173,6 +1180,10 @@ def start_status_page(root: Path, port: int = 8765) -> str:
         except OSError:
             continue
         threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:  # W11-port: the VS Code extension reads the port from this file
+            (root / ".agent" / "status.port").write_text(f"{p}\n", encoding="utf-8")
+        except OSError:
+            pass
         if p != port:  # Q21.8: say which port was taken
             print(f"status page: port {port} is in use, so it runs on port {p}", flush=True)
         return f"http://127.0.0.1:{p}/"
@@ -1533,6 +1544,22 @@ def cmd_report(args):
     print(tokens_report(state) if args.tokens else build_report(cfg, plan, state))
 
 
+def cmd_verify(args):
+    """W7: check the signed receipt of each closed phase, offline. One line per phase; exit 1 on any problem."""
+    from . import receipt
+    root = Path(args.path).resolve()
+    hist = root / Config.load(root).get("docs.history_dir", ".agent/history")
+    found = [hist / args.phase / receipt.NAME] if args.phase else sorted(hist.glob(f"*/{receipt.NAME}"))
+    if not found:
+        print("no receipt found"); return 1
+    bad = False
+    for p in found:
+        probs = receipt.check(root, p) if p.exists() else [f"{receipt.NAME} missing"]
+        bad |= bool(probs)
+        print(f"{p.parent.name} " + (f"CHANGED: {', '.join(probs)}" if probs else "ok"))
+    return 1 if bad else 0
+
+
 NEW_PROJECT = ("init", "onboard", "quickstart", "mcp")  # these make a project: with no -C they use this folder
 
 
@@ -1657,6 +1684,9 @@ def main(argv=None):
     p.add_argument("--simple", action="store_true", help="plain words, also when the output is not a terminal")
     p.add_argument("--hold", action="store_true", help="at the end of the build, wait for Enter (a window of its own)")
     p.add_argument("--scroll", action="store_true", help="the scrolling view in plain words, not the dashboard")
+    p = add("tour", cmd_tour, "replay a recorded run offline: no login, no key, no cost")
+    p.add_argument("--speed", type=float, default=10, help="times real time (default 10)")
+    p.add_argument("--once", action="store_true", help="draw the last frame only and exit (for CI)")
     p = add("serve", cmd_serve, "live read-only status page in the browser")
     p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8765)
     p.add_argument("--refresh", type=int, default=30, help="seconds between page reloads")
@@ -1697,8 +1727,13 @@ def main(argv=None):
     add("resume", cmd_resume, "clear the stop flag")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
     p.add_argument("--tokens", action="store_true", help="tokens and cost per step: build, retry, review, verify, audit, ...")
+    p = add("verify", cmd_verify, "check the signed receipt of each closed phase, offline")
+    p.add_argument("phase", nargs="?", help="one phase id (default: all)")
     p = add("audit", cmd_review, "run the completion audit now (the lean profile never runs it by itself)")
     p.set_defaults(kind="completion")
+    p.add_argument("--history", action="store_true", help="W8: price repeated failing commands in the local Claude Code history (offline, no project)")
+    p.add_argument("--days", type=int, default=30, help="with --history: look back N days")
+    p.add_argument("--home", default="~/.claude", help="with --history: the Claude Code folder")
     p = add("review", cmd_review, "run an audit / completion audit / replan now")
     p.add_argument("--kind", choices=["periodic", "completion", "replan"], default="periodic")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -1716,7 +1751,10 @@ def main(argv=None):
         print(f"autopilot {__version__}: {DESCRIPTION.split('. ')[0]}.")
         print(next_steps_text(Path.cwd()))
         return 0
-    if args.cmd in ("upgrade", "install", "setup", "uninstall"):  # no project needed: nothing to find or remember
+    if args.cmd == "audit" and args.history:  # W8: offline, reads the Claude Code folder only
+        from .commands.audit import cmd_history
+        return cmd_history(args)
+    if args.cmd in ("upgrade", "install", "setup", "uninstall", "tour"):  # no project needed: nothing to find or remember
         return args.fn(args) or 0
     if args.path is None:  # J2: no -C
         found = "." if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists() else pick_project()

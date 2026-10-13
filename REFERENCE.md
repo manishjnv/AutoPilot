@@ -7,7 +7,7 @@ Words on this page: Claude Code (the coding agent that writes the code), the gat
 [how-to guides](HOWTO.md). To learn why Autopilot works this way, read the [architecture](ARCHITECTURE.md).
 
 **On this page:** [Commands](#commands) · [Environment variables](#environment-variables) · [Files](#files) ·
-[Settings](#settings) · [Gate guards](#gate-guards) · [Models](#models) · [Usage and budget](#usage-and-budget) · [Self-healing](#self-healing) ·
+[Settings](#settings) · [Proof features](#proof-features) · [Gate guards](#gate-guards) · [Models](#models) · [Usage and budget](#usage-and-budget) · [Self-healing](#self-healing) ·
 [Dashboard colours](#dashboard-colours) · [Glossary](#glossary)
 
 ## Commands
@@ -33,6 +33,8 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot watch --scroll` | Shows the scrolling view in plain words, also in a large window |
 | `autopilot watch --detail` | Shows each technical log line as it is |
 | `autopilot mcp` | Runs an MCP server on `stdin` and `stdout`. Its tools are `ap_status`, `ap_next`, `ap_start`, `ap_stop` and `ap_answer`. Each tool runs the `ap` command of the same name and returns its text. `init` adds the server to `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kilocode/mcp.json` and `.junie/mcp/mcp.json` when they exist |
+| `ap verify [PHASE]` | Checks the signed receipt (`.agent/history/<phase>/receipt.json`) of each closed phase, offline. One line per phase: `P01 ok` or `P01 CHANGED: PROOF.md` (also `bad signature`, `<file> missing`). Exit 1 on any problem. The receipt holds the commit, a sha256 per phase file and an HMAC-SHA256 signature; the key is `~/.autopilot/receipt.key` (`AUTOPILOT_HOME` moves it), created once with mode 0600, never inside the project. The run writes the receipt when it closes a phase |
+| `ap tour [--speed N] [--once]` | Replays a recorded run (`autopilot/templates/tour/events.jsonl`, shipped with the package) in the watch window at N times real time (default 10), then prints the proof (`PROOF.md`: outcome word and Not proven list) and the lines `Install: uv tool install dev-autopilot` and `Start: ap`. It needs no login, no key and no network, and writes no file. `--once` draws the last frame only and exits 0, for CI |
 | `ap upgrade [--check] [--ref vX.Y.Z]` | Gets the newest release. Autopilot also does this by itself once a day after a short command, in the background, unless a build is active, `CI` is set, `upgrade.auto: false` is set or `AUTOPILOT_NO_AUTO_UPGRADE=1`; a git checkout only gets a hint. It checks the wheel against `SHA256SUMS` before it installs. `--check` only prints. A git checkout gets `git pull --ff-only`, and only when it has no changes |
 | `ap install [--rights]` | Installs or repairs Autopilot for this user: `uv`, then the newest release. `--rights` shows the rights step, or the command that takes them. At the end it runs `ap setup` |
 | `ap setup [--dry-run] [--runner NAME] [--yes] [--skip-login] [--skip-probe]` | Finds the AI you pay for and sets it up. The scan is read-only. It lists the runners on PATH with their logins, the token variables (names only), footprints such as `~/.claude`, `gh auth status`, uv, Python, Node, and git. It prints `found`, `will install` and `skipped` lines. A logged-in runner wins and nothing installs. An installed runner without a login stays, and its login command is printed. Otherwise it asks one question, "Which AI do you pay for?" The one clear signal is the default. `--runner`, `AUTOPILOT_RUNNER` or `--yes` answer it in advance. Then it installs that one CLI with the command of the runner table and checks the login. It writes `agent.backend` or `agent.preset` into `.agent/project.yaml` (in a project) and `~/.autopilot/runner`. A footprint never installs by itself. Exit codes: 0 OK, 1 a step failed, 2 bad usage, 3 a choice is needed. Code 3 means no terminal and no answer; it prints the line to run again. Each tool's output goes to `~/.autopilot/install.log`. The screen gets one sentence and one command when a step fails. The catalogue matches an exit code or error code first, a vendor error id second, and English keywords third. After the login check, setup sends the prompt `Reply with the single word ready.` through the runner in an empty temporary folder. The word `ready` within 60 seconds passes. A pass writes `verified: <date>` into `~/.autopilot/machine.json` and `agent.verified` in `project.yaml`. `--skip-probe` skips the prompt. `ap doctor --runner` sends it alone. With a terminal, setup runs the login of the runner. WSL, SSH, a container, a snap desktop, or a Linux machine with no display or `BROWSER` gets the headless login form. Setup prints each address and code as text in every case. The login stops at the vendor's own timeout, 15 minutes at most. Setup also checks git ownership, line endings, API keys (names only), clock skew over 3 minutes, free disk under 1 GB, git older than 2.30, a non-UTF-8 console, and a busy status-page port. |
@@ -42,7 +44,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `ap move [TARGET] [--yes]` | Moves a project out of a folder that hurts: OneDrive, a redirected Documents folder, a network share, or `/mnt/<drive>` in WSL. It runs `git clone --local` to the target, copies `.agent/`, keeps the remotes, and adds the new path to the recent projects. The old folder stays, with a `MOVED.md` note that names the new path. The default target is `%LOCALAPPDATA%\dev\NAME` on Windows and `~/dev/NAME` elsewhere. `--yes` moves at once. With no terminal and no `--yes`, it only prints the command. `ap doctor --project` says if the folder is a bad place |
 | `ap uninstall [--rights] [--all] [--dry-run]` | `--rights` removes the scheduled task or the `sudoers` file the installer created. `--all` also deletes `~/.autopilot` and then the package (uv tool or pip), after the command has ended; it keeps uv, Python, git, the AI CLI and each project's `.agent/`. `--dry-run` lists the steps |
 | `ap` | The short name of `autopilot`. `ap status` is the same as `autopilot status` |
-| `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals |
+| `autopilot status` | Shows the progress, the cost, the blocked tasks, and the approvals. After a run ends it also shows `outcome: <word>` (see [Run outcome](#run-outcome)) |
 | `autopilot stats` | Shows the numbers of a run as a Markdown table |
 | `autopilot serve [--port 8765]` | Starts the status page without a run. The page shows the same dashboard as the terminal, and the full report below it |
 | `autopilot answer` | Lists the open questions with their suggestions. In a terminal, it asks for a choice for each one. Type `1` or press Enter to use the suggested fix. Type `2` to skip the task. Type `3` to write your own words. With no terminal, it prints the usage and exits with a non-zero code |
@@ -56,6 +58,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot resume` | Removes the stop flag. It does not start a run |
 | `autopilot review --kind periodic\|completion\|replan` | Starts an audit or a replan now |
 | `autopilot audit` | Starts the completion audit now |
+| `ap audit --history [--days N] [--home PATH]` | Reads `<home>/projects/*/*.jsonl` of Claude Code (default `~/.claude`, last 30 days) and prints one row per project: sessions, tokens, tool calls, repeats (the same Bash command failing 3 or more times in one session) and the cost of those retries at public API rates (unknown model = Sonnet), then `Retries cost about $X of $Y.` Prints `No Claude Code history found.` when the folder is missing. Needs no project and no network, writes no file, and never prints a prompt or a command |
 | `autopilot report --tokens` | Shows the tokens and the cost of each step type |
 
 **Options of `autopilot run`:**
@@ -67,7 +70,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `--clear-stop` | Removes the stop flag before the run starts |
 | `--no-browser` | Starts the status page, but does not open the browser |
 | `--no-prod` | Runs everything, staging included, except the deploy to the production host. The phase then waits with `prod skipped (--no-prod)`; run `autopilot approve <phase>` later |
-| `--no-page` | Does not start the status page |
+| `--no-page` | Does not start the status page. Otherwise the port it uses is written to `.agent/status.port` (digits and a newline), so an editor can find the page |
 | `-v` | Shows more log lines |
 
 ## Versions and releases
@@ -106,10 +109,12 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `HANDOFF.md` | What the last session did, and what is next | Yes |
 | `FOLLOWUPS.md` | Problems that sessions found outside their task | Yes |
 | `history/` | One file for each finished task and phase | Yes |
-| `history/<phase>/PROOF.md` | The full evidence of the feature check of the phase | Yes |
+| `history/<phase>/PROOF.md` | The full evidence of the feature check of the phase, and a `## Not proven` list (criteria that no changed test mentions, tasks with no check command, features not checked, scope added) | Yes |
+| `history/<phase>/proof.svg` | W9: the proof card of a closed phase, a 600x200 SVG with the project name, the phase, tasks merged of total, features verified, the cost and the date. No outcome word: the run has not ended when a phase closes | Yes |
+| `history/<phase>/BADGE.md` | W9: the markdown image line `![Built by Autopilot](proof.svg)` for the phase folder and the repo-relative path `.agent/history/<phase>/proof.svg` to paste into the README | Yes |
 | `audits/` | The audit reports | Yes |
 | `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
-| `run.json` | The journal of the active run | No |
+| `run.json` | The journal of the active run. At the end it has `word`, the outcome word | No |
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports | No |
 | `STOP` | The stop flag from `autopilot stop` | No |
@@ -141,7 +146,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing) |
 | `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
 | `onboard` | The discovery pack of the `onboard` session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
-| `sandbox` | The network allowlist | `enabled` (false), `allowed_domains` |
+| `sandbox` | Where the agent runs: `mode` `off`, `allowlist` (Claude Code's own sandbox with the network allowlist) or `docker` (each session in `docker run --rm` with only the worktree at `/work`, its git folders (the shared one read-only) and a temp login folder mounted; never the home folder; secret variables pass by name only). A missing `mode` follows `enabled` | `mode`, `enabled` (false), `allowed_domains`, `image` (needed for `docker`; the image must have `claude` on PATH), `network` (`bridge`) |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `unstick` (sonnet), `review` (opus) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
 | `budget_usd` | Cost limits | `per_session` (8), `per_task` (20), `per_phase` (150), `daily` (200), `total` (5000) |
@@ -149,12 +154,12 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `retries` | Attempts | `max_attempts_per_task` (3), `resume` (true) |
 | `unstick` | The diagnosis of a blocked task | `enabled` (true), `after_attempts` (2) |
 | `decide` | Design choices before risky tasks | `enabled` (true), `risks` (high, critical) |
-| `review` | A read-only review of a `critical` task before the merge | `enabled` (true), `effort` (high) |
+| `review` | A read-only review of the diff before the merge | `enabled` (true), `scope` (critical; all = every task above low risk; new projects get all), `effort` (high) |
 | `research` | Web research for a task | `enabled` (true), `dir` (docs/research) |
 | `functional` | The feature check at the end of each phase | `enabled` (true), `init` |
 | `escalate` | An early move to a stronger model | `on_timeout`, `max_diff_lines` (300), `load_bearing` |
 | `scheduling` | The order and parallel work | `phase_dependency` (soft), `parallel` (the template sets 1; unset = 3 with a test command in direct mode, else 1). Only `low` and `medium` first attempts join a batch. Two tasks that share a file never run together. A task with an empty `files_in_scope` runs alone. |
-| `git` | Push and pull | `push` (false), `pull` (true), `mode` (direct or pr) |
+| `git` | Push and pull | `push` (false), `pull` (true), `mode` (direct or pr). With `mode: pr`, a task with gate warnings or a criterion without a test opens a draft pull request. The body lists them under `## Not proven` ("Nothing" for a clean task, which opens a ready PR). Autopilot marks the draft ready when CI is green, then merges. |
 | `intake` | Fix tasks from GitHub | `enabled` (false), `label` (autopilot), `poll_minutes` (30) |
 | `deploy` | Staging and production | `cmd`, `health_url`, `rollback_cmd` |
 | `notify`, `chat` | Alerts and Telegram commands | `events`, `chat.enabled` (false) |
@@ -198,6 +203,18 @@ Python setup: preflight never runs a bare `pip install` on the system Python. Wh
 environment, preflight runs `python -m venv .venv`, then installs with the `.venv` Python. An active environment
 (`VIRTUAL_ENV`) or a project environment (`.venv`, `venv`, `env`) is used as is. `commands.setup` stores these commands.
 
+### Local model (`openai_compat`)
+
+`agent.backend: openai_compat` sends each session to an OpenAI-compatible `/chat/completions` endpoint, such as Ollama or LM Studio. One non-streaming request per session. The model cannot run tools, so it writes each file as a fenced block and Autopilot writes the files into the worktree; the gate then runs the tests and the checks.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `agent.base_url` | `http://localhost:11434/v1` (Ollama) | The endpoint. `/chat/completions` is added to it. Loopback addresses skip the environment proxies. |
+| `agent.model_map` | none | Maps the ladder names (`haiku`, `sonnet`, `opus`) to the model names of the server. A name not in the map is sent as is. |
+| `agent.api_key_env` | none | The name of an environment variable with a Bearer token. Only the name is stored; the key is never logged. |
+
+File block format: the info line of the fence is `path: <relative path>` (for example ```` ```path: src/app.py ````). Use forward slashes. A path that is absolute, has `..` or `.git`, or resolves outside the worktree refuses the whole answer, and nothing is written. A file that contains three backticks gets a block of four. The report is a ```` ```json ```` block after the files. `ap doctor` and `ap preflight` print an `endpoint` row: OK when the endpoint answers, WARN when it does not (never FAIL, so a run is not stopped).
+
 Agent presets: with `agent.backend: command` and no `agent.command`, `agent.preset` selects a ready-made command.
 `agent.model_map` gives the model option (`-m`, or `--model` for the `kiro`, `cursor`, `aider` and `copilot` presets). The `copilot` preset maps `haiku` to `claude-haiku-4.5` by itself; `sonnet` and `opus` use Copilot's default model until you map them.
 
@@ -225,6 +242,29 @@ committer. Your git settings do not change.
 
 Autopilot supports these stacks: python, node, go, rust, java, docker, static, and generic. Each project type works
 when you put its build and test commands in `commands`.
+
+### Docker mode
+
+`sandbox.mode: docker` runs each Claude Code session in a plain container, not in Claude Code's own sandbox. Build the
+image once from the repository root, then name it in the project:
+
+```
+docker build -t autopilot -f deploy/Dockerfile .
+```
+
+```yaml
+sandbox:
+  mode: docker
+  image: autopilot       # needs `claude` on PATH (deploy/Dockerfile has it)
+  network: bridge        # the default; the API host must be reachable
+```
+
+- `sandbox.mode`: `off`, `allowlist` (the same as `sandbox.enabled: true`) or `docker`. A missing mode follows `enabled`.
+- `sandbox.image`: the image name. Required for `docker`; the config check refuses a missing name.
+- `sandbox.network`: `bridge` (the default) gives the container open egress unless `sandbox.enabled: true` also turns on the allowlist.
+- `ap doctor` prints `docker: found <version>` in this mode, or `FAIL` when the `docker` command is missing.
+- Docker mode needs the `claude_cli` backend and does not run on native Windows: use WSL2.
+- On macOS the login sits in the Keychain, not in `~/.claude/.credentials.json`, so set `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` for docker mode there.
 
 ### Lean profile
 
@@ -293,6 +333,107 @@ A retry on the same model continues the failed session. A retry on a different m
 - **Token report:** `autopilot status` and `.agent/REPORT.md` show the tokens and the cost for each model.
 - **Model suggestions:** after each 20 finished tasks, Autopilot suggests a less expensive model where the data
   shows that it is safe. You make the change.
+
+## Run outcome
+
+Each run ends with one word. Autopilot writes the word to the state (meta key `outcome`, empty while a run is
+active), to a `run_end` event (`<word> <outcome text>`), to the log (`outcome: <word>`) and to `run.json` (`word`).
+The word is the first word of the `run_done`, `fatal` and `budget` alert text. The window title and the live page
+show it after `Done`, for example `Done VERIFIED`. `ap status` shows `outcome: <word>`.
+
+| Word | Meaning |
+|---|---|
+| `VERIFIED` | The plan is complete and no task is parked |
+| `BLOCKED` | One or more tasks are parked, or a decision waits for your answer |
+| `BUDGET_STOP` | A limit that you set stopped the run: a budget cap, the session limit, the `.agent/STOP` file, or Ctrl+C. `ap watch` shows the word after `Stopped` |
+| `STALLED` | Work remains that cannot start, the service was down, or the same error came from three tasks |
+| `FAILED` | A fatal condition: a config error, a plan that does not load, an expired login, or a repeated crash |
+
+A stop with Ctrl+C sets no word.
+
+## Tour recording
+
+`examples/tour/events.jsonl` is a recorded run (`ap tour` plays the copy in `autopilot/templates/tour/`; keep the two equal): one JSON object per line, with `t` rising. `scripts/make_tour.py`
+builds it from `examples/self-build` (history files and `features.json`); run it again to get the same file.
+The script scrubs paths, addresses and `@`, so the file holds no local data. It has more than 40 events, with no user path, mail address or secret.
+
+| Key | Meaning |
+|---|---|
+| `t` | Seconds from the start of the run (number, rising) |
+| `kind` | `run_start`, `phase_start`, `task_start`, `session`, `criterion`, `files`, `gate`, `task_done`, `phase_done`, `feature`, `run_end` |
+| `message` | Plain text, up to 300 characters |
+| `task_id` | The task id, or an empty string |
+| `state` | `running`, `checking`, `done` or `failed` |
+| `usage` | Object with `cost_usd` on `task_done`, `phase_done` and `run_end`; empty otherwise |
+
+`examples/tour/PROOF.md` is the proof that goes with it: the outcome word and the Not proven list.
+
+## Proof features
+
+### Not proven list
+
+Each phase writes `history/<phase>/PROOF.md` with a `## Not proven` section. It lists each acceptance criterion that
+no changed test mentions, with its task id. A criterion is covered when a three-word window of its text
+appears in the task's changed test files. Those files come from the `## Files changed` list of the
+task's history file. Tasks with no verify are listed only when the project has no test command. When every criterion
+has a test, the section holds one sentence that says so. Read this list to see what a green build did not check.
+
+### Fresh-context review
+
+A fresh session reviews each finished task before it merges. Set `review.scope` in `project.yaml` (see
+[Settings](#settings)). With `scope: all`, every task above low risk gets a review, and a finding blocks the merge.
+With `scope: critical`, or no key, only critical tasks get one. That is the code default, so old projects keep today's
+behavior. `ap init` writes `scope: all`. Any other value is an error with a plain message. The reviewer sees only the
+task spec (with the acceptance criteria), the diff and the gate's test output. It sees nothing from the build session.
+
+### Signed receipt
+
+When a phase closes, Autopilot writes `history/<phase>/receipt.json` next to `PROOF.md`. The receipt holds a hash of
+each phase file and a signature. The key is `~/.autopilot/receipt.key`. Autopilot makes it on first use, with mode
+0600. It lives in your home folder (`AUTOPILOT_HOME` moves it), so it is never in the repository and never committed.
+`ap verify` checks every closed phase offline (see [Commands](#commands)). An untouched phase prints `<phase> ok` and
+exits 0. An edited file prints `<phase> CHANGED: ...` and exits 1. A different key gives `bad signature`. With no
+receipt, it prints `no receipt found` and exits 1.
+
+### Draft pull request
+
+Set `git.mode: pr` in `project.yaml` and each task opens a pull request. If the gate gave a warning, or an acceptance
+criterion has no test, the PR opens as a draft. Its body lists each item under `## Not proven`. A clean task opens a
+ready PR, and the list says "Nothing". When CI is green, Autopilot marks a draft ready and merges it; the list stays
+in the body. `git.mode: direct` works as before. See [Settings](#settings).
+
+### Proof card and badge
+
+When a phase closes, Autopilot writes two files next to `PHASE.md` in `.agent/history/<phase>/`. `proof.svg` is a
+600x200 card. It shows the project name, the phase, tasks merged of total, verified features, the cost and
+the date. It holds no absolute path, and it stays valid XML when a phase title has `<` or `&`. `BADGE.md` holds one
+markdown image line, `![Built by Autopilot](proof.svg)`, and the repo-relative path
+`.agent/history/<phase>/proof.svg`. Paste that path into your README to show the badge. The signed receipt covers both
+files.
+
+### Stop hook in the plugin
+
+The Claude Code plugin (`plugin/`) adds a Stop hook in `plugin/hooks/hooks.json`. When Claude tries to stop,
+`plugin/scripts/seal.py` runs two checks in the project folder. It runs the project test command (`commands.test` in
+`.agent/project.yaml`, else `python -m pytest -q` when there is a `tests/` folder, else `npm test` when `package.json`
+has a test script). It also checks each test file against HEAD: a test file with fewer lines than at HEAD fails. A
+failure prints `{"decision": "block", ...}` and Claude keeps working. The test command has a 300 s limit. The hook
+has a 330 s timeout in `hooks.json`, so the script's own timeout message prints first. The hook blocks at most 5 times
+in one session. The count is kept in `autopilot-seal-<session>.count` in the temp folder. Turn the hook off with
+`/plugin disable autopilot`. Autopilot's own sessions never load the plugin, so the hook never runs inside a build.
+See [HOWTO](HOWTO.md#stop-hook-in-the-plugin).
+
+### Routine
+
+`examples/routine/prompt.md` is the prompt of a Claude Code Routine, a scheduled cloud run that runs one Autopilot
+build with your laptop off. It sets `scheduling.max_sessions_per_run: 3` by a local edit of `.agent/project.yaml`, and
+it tells the run not to commit that edit. Follow the steps in
+[HOWTO](HOWTO.md#run-with-the-laptop-off-claude-code-routines). This path is not run live yet. Its commands are checked
+by `tests/test_routine.py`, not by a live run.
+
+## VS Code extension
+
+`vscode/` holds a thin extension (not published yet). Commands `autopilot.start`, `autopilot.answer` and `autopilot.stop` send `ap start`, `ap answer` and `ap stop` to a terminal named Autopilot. The `autopilotStatus` view in the Explorer shows the status page of the run; it reads the port from `.agent/status.port` (default 8765) and says to run `ap` first when nothing answers. See `vscode/README.md`.
 
 ## Self-healing
 
