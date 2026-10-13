@@ -1540,6 +1540,19 @@ def cmd_stop(args):
     print("the run will stop before its next session (remove with `autopilot resume`)")
 
 
+def cmd_budget(args):
+    """W43: set budget_usd.total in .agent/project.yaml (comments stay); a live run reads it before its next task."""
+    from .forecast import write_total
+    if args.usd <= 0:
+        print("FAIL  the cost cap must be more than 0")
+        return 1
+    if not write_total(Path(args.path).resolve() / AGENT_DIR / "project.yaml", args.usd):
+        print("FAIL  could not set budget_usd.total in .agent/project.yaml (see REFERENCE.md)")
+        return 1
+    print(f"cost cap budget_usd.total = ${args.usd:g}; a running run uses it before its next task")
+    return 0
+
+
 def cmd_resume(args):
     p = Path(args.path).resolve() / AGENT_DIR / "STOP"
     if p.exists():
@@ -1751,6 +1764,8 @@ def main(argv=None):
     p.add_argument("--reset", action="store_true", help="forget the finished steps and start over")
     add("stop", cmd_stop, "graceful stop before the next session")
     add("resume", cmd_resume, "clear the stop flag")
+    p = add("budget", cmd_budget, "set the total cost cap budget_usd.total; a live run uses it before its next task")
+    p.add_argument("usd", type=float, help="the new cap in US dollars")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
     p.add_argument("--tokens", action="store_true", help="tokens and cost per step: build, retry, review, verify, audit, ...")
     p = add("verify", cmd_verify, "check the signed receipt of each closed phase, offline")

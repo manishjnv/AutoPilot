@@ -57,6 +57,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot approve P05` | Sends a phase to production |
 | `autopilot stop` | Stops the run before its next session |
 | `autopilot resume` | Removes the stop flag. It does not start a run |
+| `ap budget <usd> [-C folder]` | W43: sets the cost cap `budget_usd.total` in `.agent/project.yaml` with a one-line edit; the comments stay. A running build reads the new cap before its next task. A value of 0 or less exits 1 |
 | `autopilot review --kind periodic\|completion\|replan` | Starts an audit or a replan now |
 | `autopilot audit` | Starts the completion audit now |
 | `ap audit --history [--days N] [--home PATH]` | Reads `<home>/projects/*/*.jsonl` of Claude Code (default `~/.claude`, last 30 days) and prints one row per project: sessions, tokens, tool calls, repeats (the same Bash command failing 3 or more times in one session) and the cost of those retries at public API rates (unknown model = Sonnet), then `Retries cost about $X of $Y.` Prints `No Claude Code history found.` when the folder is missing. Needs no project and no network, writes no file, and never prints a prompt or a command |
@@ -167,7 +168,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `git` | Push and pull | `push` (false), `pull` (true), `mode` (direct or pr). With `mode: pr`, a task with gate warnings or a criterion without a test opens a draft pull request. The body lists them under `## Not proven` ("Nothing" for a clean task, which opens a ready PR). Autopilot marks the draft ready when CI is green, then merges. |
 | `intake` | Fix tasks from GitHub | `enabled` (false), `label` (autopilot), `poll_minutes` (30) |
 | `deploy` | Staging and production | `cmd`, `health_url`, `rollback_cmd` |
-| `notify`, `chat` | Alerts and Telegram commands | `events`, `chat.enabled` (false) |
+| `notify`, `chat` | Alerts and Telegram commands | `events` (an event name such as `budget_forecast` turns its push on), `chat.enabled` (false) |
 | `needs_you` | The questions file | `path` (docs/NEEDS-YOU.md), `wait` (true) |
 | `quality` | Model suggestions | `every` (20) |
 | `replan` | Plan updates | `enabled` (true), `every_n_phases` (5) |
@@ -352,6 +353,16 @@ A retry on the same model continues the failed session. A retry on a different m
 - **Usage limit:** the run sleeps until the reset, and sends an alert. This does not count as a failed attempt.
 - **Cost limits:** the `budget_usd` limits apply to each session, task, phase and day, and to the total. When the
   daily limit is reached, the run sleeps until midnight.
+- **Budget forecast (W43):** after each task, Autopilot projects the end cost: the spend so far plus, for each
+  task still to run, the median cost of the finished tasks of the same risk (of all finished tasks when that risk
+  has none). When the projection passes `budget_usd.total`, one `budget_forecast` event per run says
+  `$18.40 spent, about $35 at the end, cap $20` (add `budget_forecast` to `notify.events` to get it on your phone).
+- **Total cap:** with `usage.billing: api` the run stops at `budget_usd.total` (word BUDGET_STOP). With a
+  subscription the cap is soft: the active task finishes, then one NEEDS-YOU question (kind `budget`) asks
+  "Raise the cost cap to $X (the forecast) or stop?" and the run waits like any open question (it ends BLOCKED when
+  `needs_you.wait` is false). Answer with a number to raise the cap, or with words and no number to stop
+  (BUDGET_STOP). `ap budget <usd>` also raises it and closes the question; when the spend passes the new cap, the
+  run asks again.
 - **Token report:** `autopilot status` and `.agent/REPORT.md` show the tokens and the cost for each model.
 - **Model suggestions:** after each 20 finished tasks, Autopilot suggests a less expensive model where the data
   shows that it is safe. You make the change.

@@ -13,6 +13,7 @@ import datetime as dt
 import fnmatch
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -21,7 +22,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
-from . import AGENT_DIR, decisions, outage, signals
+from . import AGENT_DIR, decisions, forecast, outage, signals
 from .backends import SessionRequest, SessionResult, get_backend
 from .config import RISKS, Config, load_yaml, scope_always
 from .context import ContextBuilder, numbered, progress_line
@@ -250,6 +251,7 @@ class Orchestrator:
         self.main_red, self.main_checked, self.main_error = False, None, ""
         self.main_results: dict[str, CmdResult | None] = {}  # W21: main's sha -> first red test result (None = green)
         self.main_due = True  # W21: main has a commit nobody tested yet
+        self.forecast_sent = False  # W43: one budget_forecast event per run
 
     # ------------------------------------------------------------------ plan
     def reload_plan(self):
@@ -554,6 +556,7 @@ class Orchestrator:
     def loop(self) -> str:
         stall_replanned = False
         while True:
+            self.forecast_budget()
             self.check_stop()
             self.chat()
             self.process_approvals()
@@ -561,6 +564,11 @@ class Orchestrator:
             self.intake_answers()
             self.apply_answers()
             self.import_backlog()
+            held = self.budget_hold()
+            if held:
+                return held
+            if held == "":
+                continue
             self.recheck_main()
             self.guard_main()
             status = self.state.status_map()
@@ -716,8 +724,11 @@ class Orchestrator:
             raise Stop("stopped by .agent/STOP file", word="STOPPED")
         if self.max_sessions and self.sessions_this_run >= self.max_sessions:
             raise Stop(f"session limit reached ({self.max_sessions})")
+        live = forecast.read_total(self.ad / "project.yaml")  # W43: `ap budget` changes this one key during a run
+        if live is not None:
+            self.cfg.data.setdefault("budget_usd", {})["total"] = live
         total_cap = float(self.cfg.get("budget_usd.total", 0) or 0)
-        if total_cap and self.state.cost() >= total_cap:
+        if total_cap and self.hard_cap() and self.state.cost() >= total_cap:
             raise Stop(f"total budget ${total_cap} reached")
         daily_cap = float(self.cfg.get("budget_usd.daily", 0) or 0)
         if daily_cap and self.state.cost(today=True) >= daily_cap:
@@ -728,6 +739,50 @@ class Orchestrator:
             self.notify.send("budget", f"daily budget ${daily_cap} reached — sleeping {secs / 3600:.1f}h")
             self.sleep(secs)
 
+    def hard_cap(self) -> bool:
+        """W43: budget_usd.total ends the run on api billing; on a subscription it is a soft cap (budget_hold)."""
+        return self.cfg.get("usage.billing", "subscription") != "subscription"
+
+    def budget_spend(self) -> tuple[float, float, float | None]:
+        """W43: (cap, spent, projected end cost) from the finished tasks' costs and the pending tasks' risks."""
+        ids, status = self.plan.task_by_id, self.state.status_map()
+        done = [(ids[r["id"]].risk if r["id"] in ids else "medium", c) for r in self.state.tasks("done")
+                if (c := self.state.cost(task_id=r["id"])) > 0]
+        pending = [t.risk for t in self.plan.all_tasks()
+                   if status.get(t.id) not in ("done", "skipped", "blocked") and not t.owner_only]
+        spent = self.state.cost()
+        return float(self.cfg.get("budget_usd.total", 0) or 0), spent, forecast.project(spent, done, pending)
+
+    def forecast_budget(self):
+        """W43: one budget_forecast event per run when the projected end cost passes budget_usd.total."""
+        if self.forecast_sent or not self.cfg.get("budget_usd.total"):
+            return
+        cap, spent, end = self.budget_spend()
+        if end is not None and cap > 0 and end > cap:
+            self.forecast_sent = True
+            self.notify.send("budget_forecast", forecast.line(spent, end, cap))
+
+    def budget_hold(self) -> str | None:
+        """W43: on a subscription at the cap, ask the owner (raise or stop) between tasks. None = go on; '' = waited,
+        look again; a text = end the run (needs_you.wait is off)."""
+        cap, spent, end = self.budget_spend()
+        if not cap or spent < cap or self.hard_cap():
+            cur = self.state.open_decision(kind="budget")
+            if cur and cap and spent < cap:  # raised by `ap budget`: closed here, so apply_answers never reads it
+                self.state.set_decision(cur["id"], status="APPLIED", answer=f"cap raised to ${cap:g}")
+                self._write_needs_you()
+            return None
+        if "pending" not in self.state.status_map().values():
+            return None  # nothing left to pay for: the run ends as it would
+        x = max(math.ceil(end or spent), math.ceil(cap * 1.25))
+        self.needs_you("budget", f"Cost cap ${cap:g} reached", f"Raise the cost cap to ${x} (the forecast) or stop?",
+                       why=forecast.line(spent, end or spent, cap), suggestion=f"ap budget {x}")
+        if not self.cfg.get("needs_you.wait", True):
+            return f"stalled: cost cap ${cap:g} reached, waiting on the owner"
+        self._journal(current="waiting for the cost cap", state="Block", task="")
+        self._wait(float(self.cfg.get("needs_you.poll_minutes", 15)) * 60)
+        return ""
+
     def session_budget(self, task_id: str | None = None) -> float:
         b = self.cfg.get
         caps = [float(b("budget_usd.per_session", 8) or 8)]
@@ -735,7 +790,7 @@ class Orchestrator:
             caps.append(float(b("budget_usd.per_task")) - self.state.cost(task_id=task_id))
         if b("budget_usd.daily"):
             caps.append(float(b("budget_usd.daily")) - self.state.cost(today=True))
-        if b("budget_usd.total"):
+        if b("budget_usd.total") and self.hard_cap():
             caps.append(float(b("budget_usd.total")) - self.state.cost())
         left = min(caps)
         if left < 0.01:
@@ -1508,6 +1563,7 @@ class Orchestrator:
                 self.state.answer_decision(did, text)
 
     def apply_answers(self):
+        stop = ""
         for d in reversed(self.state.decisions("ANSWERED")):
             self._record_decision(f"[{d['id']}] {' '.join((d['question'] or '').split())} → {d['answer']}")
             if d["kind"] == "task":
@@ -1522,9 +1578,18 @@ class Orchestrator:
                 self.main_checked = None
             elif d["kind"] == "ci" and d["phase_id"]:  # L6: the owner answered; corrective CI tasks may run again
                 self.state.set_meta(f"cifix_count:{d['phase_id']}", 0)
+            elif d["kind"] == "budget":  # W43: a number above the spend raises the cap; anything else ends the run
+                n = re.search(r"\d+(?:\.\d+)?", d["answer"] or "")
+                usd = float(n.group()) if n else 0.0
+                if usd > self.state.cost() and forecast.write_total(self.ad / "project.yaml", usd):
+                    self.cfg.data.setdefault("budget_usd", {})["total"] = usd
+                else:
+                    stop = f"total budget ${self.cfg.get('budget_usd.total')} reached; the owner chose to stop ({d['id']})"
             self.state.set_decision(d["id"], status="APPLIED")
             self._write_needs_you()
             self._commit_main(f"[autopilot] apply answer {d['id']}")
+        if stop:
+            raise Stop(stop, word="BUDGET_STOP")
 
     # ------------------------------------------------------------------ main branch red
     def start_main_red(self):

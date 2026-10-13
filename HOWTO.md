@@ -384,7 +384,15 @@ Shell commands in a session can then connect only to these domains. Other effect
 5. Keep `agent.user_config: false`. Your own plugins, hooks and MCP servers add cost and context to each session.
 
 When the run reaches the reserve, it pauses until the window resets. When it reaches the `daily` limit, it sleeps
-until the next day. When it reaches the `total` limit, it stops. The `usage` keys apply to a subscription only.
+until the next day. When it reaches the `total` limit, it stops on `usage.billing: api`; on a subscription it asks
+you first (see below). The `usage` keys apply to a subscription only.
+
+### Raise the cost cap
+
+Autopilot sends one `budget_forecast` event when the projected end cost passes `budget_usd.total`. To raise the
+cap, also during a run, type `ap budget 40`. The running build uses the new cap before its next task. On a
+subscription, a run at the cap asks "Raise the cost cap to $X (the forecast) or stop?" in `docs/NEEDS-YOU.md`:
+answer with a number to go on, or with `stop` to end the run.
 
 ## Use a local model
 
