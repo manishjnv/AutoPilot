@@ -78,3 +78,31 @@ def test_hooks_and_marketplace_parse():
     assert "${CLAUDE_PLUGIN_ROOT}/scripts/seal.py" in cmd and "python3" in cmd and "python " in cmd
     m = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
     assert m["plugins"][0]["source"] == "./plugin"
+
+
+def seal_timeout():
+    sys.path.insert(0, str(SEAL.parent))
+    try:
+        import seal as s
+    finally:
+        sys.path.remove(str(SEAL.parent))
+    return s.TIMEOUT
+
+
+def ref_section(title, nxt):
+    text = (ROOT / "REFERENCE.md").read_text(encoding="utf-8")
+    return text.split(f"### {title}", 1)[1].split(f"### {nxt}", 1)[0]
+
+
+def test_reference_stop_hook_matches_hooks_json():
+    h = json.loads((ROOT / "plugin" / "hooks" / "hooks.json").read_text())
+    timeout = h["hooks"]["Stop"][0]["hooks"][0]["timeout"]
+    sec = ref_section("Stop hook in the plugin", "Routine")
+    assert "plugin/scripts/seal.py" in sec and f"{timeout} s timeout" in sec
+    assert f"{seal_timeout()} s" in sec and "autopilot-seal-<session>.count" in sec
+
+
+def test_reference_routine_links_howto_and_prompt():
+    sec = (ROOT / "REFERENCE.md").read_text(encoding="utf-8").split("### Routine", 1)[1].split("## VS Code extension", 1)[0]
+    assert "examples/routine/prompt.md" in sec and "HOWTO.md#run-with-the-laptop-off-claude-code-routines" in sec
+    assert "max_sessions_per_run: 3" in sec and "not run live yet" in sec
