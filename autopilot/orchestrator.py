@@ -457,6 +457,8 @@ class Orchestrator:
                              f"{word} " + "\n".join(x for x in (s.reason, self._digest(), self._footer()) if x))
             return outcome
         finally:
+            if outcome == "interrupted" and not self.run_info.get("word"):  # P14: Ctrl+C is the owner ending the run
+                self._end_word(outcome, Stop(outcome, word="BUDGET_STOP"))
             self._journal(status="finished", outcome=outcome, current="", state="Done", task="", live_tokens=0)
             self.write_report()
         self.notify.send("run_done", f"{word} {outcome} — {progress_line(self.plan, self.state.status_map())}, "

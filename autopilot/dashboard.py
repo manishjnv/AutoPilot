@@ -348,7 +348,8 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "runner": runner, "login": str(login or "not checked"),  # J13/17: the plan is stored by no check yet: no call
             "resets": f"{dt.datetime.fromtimestamp(float(five['reset'])):%H:%M}" if five else "—",
             "last_error": _first(broken["last_error"], 70) if broken else "—",
-            "run_id": str(run.get("run_id") or ""), "started": str(run.get("started_at") or "").replace("T", " "),
+            "word": str(run.get("word") or ""),  # P14: the W3 outcome word of the last run
+            "run_id": str(run.get("run_id") or ""),"started": str(run.get("started_at") or "").replace("T", " "),
             "status": "running" if live else "finished" if finished else "idle",
             # how the status word looks: good, wait (it needs the person or a usage window), bad, or '' (neutral)
             "tone": ("wait" if live and run.get("state") in ("Wait", "Block") else "good" if live else
