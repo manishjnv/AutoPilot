@@ -398,3 +398,39 @@ def test_template_gate_block_has_both_keys_with_comments():
     assert "# " in scope and "# " in tests
     assert yaml.safe_load(scope.strip())["scope_always"] == ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]
     assert yaml.safe_load(tests.strip())["tests"] == "changed"
+
+
+def scope_task():
+    return SimpleNamespace(allow_no_changes=False, allow_test_changes=True, files_in_scope=["lib/**"], verify=[])
+
+
+def scope_cfg(repo):
+    cfg = Config.load(repo)
+    cfg.data["commands"]["test"] = [f'"{sys.executable}" -c "pass"']
+    return cfg
+
+
+def test_docs_files_are_always_in_scope(repo):  # W19
+    put(repo, "lib/mine.py", "y = 1\n")
+    put(repo, "REFERENCE.md", "ref\n")
+    put(repo, "HOWTO.md", "how\n")
+    g = task_gate(scope_scfg := scope_cfg(repo), Git(repo), scope_task(), report={})
+    assert g.ok and not g.warnings and not any("outside" in m for m in g.problems)
+    put(repo, "src/other.py", "x = 1\n")
+    g = task_gate(scope_scfg, Git(repo), scope_task(), report={})
+    assert not g.ok and any("outside files_in_scope: ['src/other.py']" in m for m in g.problems)
+
+
+def test_entry_added_to_scope_always_passes(repo):  # W19
+    put(repo, "lib/mine.py", "y = 1\n")
+    put(repo, "NOTES.md", "n\n")
+    cfg = scope_cfg(repo)
+    assert not task_gate(cfg, Git(repo), scope_task(), report={}).ok
+    cfg.data.setdefault("gate", {})["scope_always"] = ["NOTES.md"]
+    g = task_gate(cfg, Git(repo), scope_task(), report={})
+    assert g.ok and not g.warnings
+
+
+def test_howto_has_the_work_branch_recipe():  # W19
+    text = (Path(__file__).resolve().parent.parent / "HOWTO.md").read_text(encoding="utf-8")
+    assert "main_branch: autopilot/work" in text and "git.mode: direct" in text and "git.mode: pr" in text
