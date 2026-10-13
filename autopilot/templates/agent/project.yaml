@@ -89,6 +89,9 @@ agent:
 sandbox:
   enabled: false
   allowed_domains: []     # e.g. [pypi.org, files.pythonhosted.org, registry.npmjs.org, github.com]
+  # mode: off             # off | allowlist | docker. A missing mode = allowlist when enabled is true, else off.
+  # image: my-autopilot   # docker mode: the image you built from deploy/Dockerfile (no default)
+  # network: bridge       # docker mode: the container network
 
 # Risk tier -> model ladder. Attempt N uses ladder[N] (last entry repeats).
 models:
