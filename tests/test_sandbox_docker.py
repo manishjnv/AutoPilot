@@ -224,3 +224,57 @@ def test_run_in_docker_mode_calls_docker(tmp_path, monkeypatch):
     assert "/fake/claude" not in first and not any("example-fake-key" in a for a in first)
     assert runs[-1] == ["rm", "-f", first[4]]
     assert res.ok and res.text == "ok"
+
+
+def fake_docker(tmp_path, monkeypatch, text="Docker version 27.1.1, build abc"):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    if os.name == "nt":  # Windows runs only .exe files through Popen, and a copied python.exe cannot load its DLLs
+        monkeypatch.setattr("autopilot.doctor._run", lambda cmd, **k: (0, text) if cmd[:1] == ["docker"] else (0, ""))
+    else:
+        script = bindir / "docker"
+        script.write_text("#!/bin/sh\necho " + repr(text) + "\n", encoding="utf-8")
+        script.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bindir))
+    return bindir
+
+
+def docker_rows(tmp_path, data):
+    from autopilot import doctor
+    rows = doctor.checks(cfg_with(tmp_path, data))
+    return [r for r in rows if r[1] == "docker"]
+
+
+def test_doctor_docker_row_ok_when_docker_is_on_path(tmp_path, monkeypatch):
+    fake_docker(tmp_path, monkeypatch)
+    rows = docker_rows(tmp_path, {"sandbox": {"mode": "docker", "image": "my-autopilot"}})
+    assert rows == [("ok", "docker", "found 27.1.1")]
+
+
+def test_doctor_docker_row_fails_without_docker(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    rows = docker_rows(tmp_path, {"sandbox": {"mode": "docker", "image": "my-autopilot"}})
+    assert rows == [("FAIL", "docker", "not found (needed for sandbox.mode: docker)")]
+
+
+def test_doctor_has_no_docker_row_when_mode_is_off(tmp_path, monkeypatch):
+    fake_docker(tmp_path, monkeypatch)
+    assert docker_rows(tmp_path, {"sandbox": {"mode": "off"}}) == []
+    assert docker_rows(tmp_path, {"sandbox": {"mode": "allowlist"}}) == []
+
+
+def test_doctor_sandbox_row_follows_allowlist_on(tmp_path, monkeypatch):
+    from autopilot import doctor
+    monkeypatch.setattr("autopilot.doctor.sys.platform", "linux")
+    monkeypatch.setattr("autopilot.doctor.shutil.which", lambda b, **k: None)
+    for data in ({"sandbox": {"mode": "allowlist"}}, {"sandbox": {"enabled": True}}):
+        rows = [r for r in doctor.checks(cfg_with(tmp_path, data)) if r[1] == "sandbox"]
+        assert rows and rows[0][0] == "FAIL"
+
+
+def test_gate_protects_settings_when_allowlist_mode_is_on(tmp_path):
+    from autopilot.gate import protected_files
+    c = cfg_with(tmp_path, {"sandbox": {"mode": "allowlist"}})
+    assert ".mcp.json" in protected_files(c)
+    off = cfg_with(tmp_path, {"sandbox": {"mode": "docker", "image": "i"}})
+    assert ".mcp.json" not in protected_files(off)

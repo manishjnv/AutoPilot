@@ -231,6 +231,29 @@ committer. Your git settings do not change.
 Autopilot supports these stacks: python, node, go, rust, java, docker, static, and generic. Each project type works
 when you put its build and test commands in `commands`.
 
+### Docker mode
+
+`sandbox.mode: docker` runs each Claude Code session in a plain container, not in Claude Code's own sandbox. Build the
+image once from the repository root, then name it in the project:
+
+```
+docker build -t autopilot -f deploy/Dockerfile .
+```
+
+```yaml
+sandbox:
+  mode: docker
+  image: autopilot       # needs `claude` on PATH (deploy/Dockerfile has it)
+  network: bridge        # the default; the API host must be reachable
+```
+
+- `sandbox.mode`: `off`, `allowlist` (the same as `sandbox.enabled: true`) or `docker`. A missing mode follows `enabled`.
+- `sandbox.image`: the image name. Required for `docker`; the config check refuses a missing name.
+- `sandbox.network`: `bridge` (the default) gives the container open egress unless `sandbox.enabled: true` also turns on the allowlist.
+- `ap doctor` prints `docker: found <version>` in this mode, or `FAIL` when the `docker` command is missing.
+- Docker mode needs the `claude_cli` backend and does not run on native Windows: use WSL2.
+- On macOS the login sits in the Keychain, not in `~/.claude/.credentials.json`, so set `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` for docker mode there.
+
 ### Lean profile
 
 Set `profile` to `lean` or `full` in `.agent/project.yaml`; new projects start with `lean`.

@@ -10,7 +10,7 @@ import sysconfig
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import Config
+from .config import Config, allowlist_on, sandbox_mode
 from .proc import WINDOWS, run_proc
 
 OK, WARN, FAIL = "ok", "WARN", "FAIL"
@@ -584,10 +584,15 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
         out.append((OK if rc == 0 else FAIL, "gh", ("logged in" if rc == 0 else "not installed or not logged in "
                     "(`gh auth login`)") + f"; needed by {', '.join(needs_gh)}"))
 
-    if cfg.get("sandbox.enabled") and sys.platform.startswith("linux"):
+    if allowlist_on(cfg) and sys.platform.startswith("linux"):
         missing = [b for b in ("bwrap", "socat") if not shutil.which(b)]
         out.append((FAIL if missing else OK, "sandbox", f"missing {', '.join(missing)} (apt install bubblewrap socat)"
                     if missing else "bubblewrap and socat found"))
+    if sandbox_mode(cfg) == "docker":  # W11: the docker mode needs the docker CLI on PATH
+        rc, txt = _run(["docker", "--version"])
+        ver = re.search(r"version ([\w.+-]+)", txt)
+        out.append((OK, "docker", f"found {ver.group(1) if ver else txt.splitlines()[0]}") if rc == 0 and txt
+                   else (FAIL, "docker", "not found (needed for sandbox.mode: docker)"))
 
     channels = [cfg.get(f"notify.{k}") for k in NOTIFY_ENVS if _env(str(cfg.get(f"notify.{k}") or ""))]
     out.append((OK if channels else WARN, "notifications", f"via {', '.join(channels)}" if channels else
