@@ -411,6 +411,26 @@ markdown image line, `![Built by Autopilot](proof.svg)`, and the repo-relative p
 `.agent/history/<phase>/proof.svg`. Paste that path into your README to show the badge. The signed receipt covers both
 files.
 
+### Stop hook in the plugin
+
+The Claude Code plugin (`plugin/`) adds a Stop hook in `plugin/hooks/hooks.json`. When Claude tries to stop,
+`plugin/scripts/seal.py` runs two checks in the project folder. It runs the project test command (`commands.test` in
+`.agent/project.yaml`, else `python -m pytest -q` when there is a `tests/` folder, else `npm test` when `package.json`
+has a test script). It also checks each test file against HEAD: a test file with fewer lines than at HEAD fails. A
+failure prints `{"decision": "block", ...}` and Claude keeps working. The test command has a 300 s limit. The hook
+has a 330 s timeout in `hooks.json`, so the script's own timeout message prints first. The hook blocks at most 5 times
+in one session. The count is kept in `autopilot-seal-<session>.count` in the temp folder. Turn the hook off with
+`/plugin disable autopilot`. Autopilot's own sessions never load the plugin, so the hook never runs inside a build.
+See [HOWTO](HOWTO.md#stop-hook-in-the-plugin).
+
+### Routine
+
+`examples/routine/prompt.md` is the prompt of a Claude Code Routine, a scheduled cloud run that runs one Autopilot
+build with your laptop off. It sets `scheduling.max_sessions_per_run: 3` by a local edit of `.agent/project.yaml`, and
+it tells the run not to commit that edit. Follow the steps in
+[HOWTO](HOWTO.md#run-with-the-laptop-off-claude-code-routines). This path is not run live yet. Its commands are checked
+by `tests/test_routine.py`, not by a live run.
+
 ## VS Code extension
 
 `vscode/` holds a thin extension (not published yet). Commands `autopilot.start`, `autopilot.answer` and `autopilot.stop` send `ap start`, `ap answer` and `ap stop` to a terminal named Autopilot. The `autopilotStatus` view in the Explorer shows the status page of the run; it reads the port from `.agent/status.port` (default 8765) and says to run `ap` first when nothing answers. See `vscode/README.md`.
