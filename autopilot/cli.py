@@ -1727,6 +1727,9 @@ def main(argv=None):
     p.add_argument("phase", nargs="?", help="one phase id (default: all)")
     p = add("audit", cmd_review, "run the completion audit now (the lean profile never runs it by itself)")
     p.set_defaults(kind="completion")
+    p.add_argument("--history", action="store_true", help="W8: price repeated failing commands in the local Claude Code history (offline, no project)")
+    p.add_argument("--days", type=int, default=30, help="with --history: look back N days")
+    p.add_argument("--home", default="~/.claude", help="with --history: the Claude Code folder")
     p = add("review", cmd_review, "run an audit / completion audit / replan now")
     p.add_argument("--kind", choices=["periodic", "completion", "replan"], default="periodic")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -1744,6 +1747,9 @@ def main(argv=None):
         print(f"autopilot {__version__}: {DESCRIPTION.split('. ')[0]}.")
         print(next_steps_text(Path.cwd()))
         return 0
+    if args.cmd == "audit" and args.history:  # W8: offline, reads the Claude Code folder only
+        from .commands.audit import cmd_history
+        return cmd_history(args)
     if args.cmd in ("upgrade", "install", "setup", "uninstall", "tour"):  # no project needed: nothing to find or remember
         return args.fn(args) or 0
     if args.path is None:  # J2: no -C

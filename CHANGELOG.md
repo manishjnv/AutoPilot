@@ -9,6 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W8: `ap audit --history [--days N] [--home PATH]` reads the local Claude Code history and prints, per project, the cost of commands that failed three or more times in one session; offline, no project needed, nothing written.
 - W9: closing a phase writes `proof.svg` (a 600x200 card with the merged count, verified features, cost and date) and `BADGE.md` (the README image line) next to PHASE.md; the receipt signs them.
 - W6: under `git.mode: pr`, a task with gate warnings or a criterion without a test opens a draft PR with a `## Not proven` list in the body; a clean task opens a ready PR.
 - W7: closing a phase writes a signed `receipt.json` (commit, sha256 of PROOF.md, PHASE.md and the task files, HMAC key in `~/.autopilot/receipt.key`); `ap verify [phase]` checks it offline and exits 1 on a changed file or a bad signature.
@@ -131,3 +132,4 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - 2026-10-13 **P04-T01** receipt.py: sign the phase record — Added autopilot/receipt.py (HMAC-SHA256 signed receipt, key in ~/.autopilot/receipt.key, mode 0600, AUTOPILOT_HOME respected). close_phase now writes and commits receipt.json after the docs commit, an
 - 2026-10-13 **P05-T01** Draft flag and the Not proven body — Under git.mode: pr, a task with gate warnings or a criterion without a test now opens a draft PR with a `## Not proven` list in the body; a clean task opens a ready PR with 'Nothing'. The logic is tas
 - 2026-10-13 **P06-T01** proof.svg per phase and the badge markdown — Added autopilot/card.py (stdlib): svg() builds a 600x200 light card with every text value escaped, and badge() returns the BADGE.md text with one markdown image line for proof.svg plus the repo-relati
+- 2026-10-13 **P07-T01** ap audit --history — Added `ap audit --history [--days N] [--home PATH]` in the new autopilot/commands/audit.py, routed in cli.main before the project lookup so it needs no project and writes nothing. It counts sessions, 
