@@ -9,6 +9,12 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+- W25: a task that fails only on its scope or on its tests keeps its diff for the retry. The next session adds the missing scope reasons or fixes the tests; it does not rebuild the files.
+- W26: high-risk tasks no longer get an extra Opus planning session before the work; only critical tasks and tasks with `needs_decision: true` do (`decide.risks: [critical]`). Re-planning runs on Sonnet, and on Opus only when a waiting task touches a load-bearing path. Set `decide.risks: [high, critical]` for the old behaviour.
+- W34: a run that you stop by hand (Ctrl+C, `ap stop`) now ends with the word STOPPED. BUDGET_STOP is only for a cost, session or usage limit.
+- W31: `scripts/premerge.py` runs the suite on WSL and on the host before a merge (`--ci` also runs CI), and `tests/test_hygiene.py` finds three test traps that pass on WSL but fail in CI.
+- Fix: the kill-by-name guard also finds `sudo pkill`, `cmd /c taskkill /IM` and `powershell -c Stop-Process -Name`, and it no longer fails `taskkill /PID` or `Stop-Process -Id`.
+- Fix: when git fails during the check of a new main commit, the commit is checked again at the next loop; before, it counted as green.
 - W21: a red main is detected, not skipped: each new commit on main is tested once before the next task, the failing test is named in the `main_red` event, and a main that stays red after the repair ends the run with `main is red` (FAILED).
 - W21: a task report can list `failing_before` (tests that failed before the change); each name is checked against main, a name that passes on main fails the attempt, and a name that fails on main sends the task back, not counted, until main is repaired.
 - W37: on Windows a command that times out now ends with all its child processes, even one whose parent already exited (each command runs in a job object; if that cannot be set up, the old `taskkill /T` is used).

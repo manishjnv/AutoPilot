@@ -73,7 +73,7 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 
 ## What every run proves
 
-- [Outcome word](REFERENCE.md#run-outcome): every run ends with VERIFIED, BLOCKED, BUDGET_STOP, STALLED or FAILED.
+- [Outcome word](REFERENCE.md#run-outcome): every run ends with VERIFIED, BLOCKED, STOPPED, BUDGET_STOP, STALLED or FAILED.
 - [Not proven list](REFERENCE.md#not-proven-list): each phase lists the criteria that no changed test mentions.
 - [Replay](REFERENCE.md#commands): `ap tour` replays a recorded run offline, with no login and no network.
 - [Fresh review](REFERENCE.md#fresh-context-review): a fresh session reviews each task before it merges.

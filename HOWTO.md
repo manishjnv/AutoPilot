@@ -502,7 +502,7 @@ shows the effect of a prompt change.
 
 ## Stop a run and still get a word
 
-Press Ctrl+C during `ap start`. The run stops and stores the outcome word BUDGET_STOP, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped". See [Run outcome](REFERENCE.md#run-outcome).
+Press Ctrl+C during `ap start`, or run `ap stop`. The run stops and stores the outcome word STOPPED, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped". See [Run outcome](REFERENCE.md#run-outcome).
 
 ## Local models
 
@@ -671,6 +671,16 @@ pytest -q -n auto
 
 `-n auto` runs one worker per CPU core; the suite takes about a minute on Linux. The tests use a fake agent and
 make no API calls. CI runs them on Ubuntu and Windows.
+
+## Before a merge
+
+Run `python scripts/premerge.py` before you merge a branch of Autopilot.
+
+- On Windows, it runs the full suite on WSL. Then it runs the test files that changed on the branch on the Windows Python.
+- On Linux, it runs the suite once.
+- With `--ci`, it also starts the CI workflow on the branch and prints the result of each job.
+
+The command exits 1 when a step is red. `tests/test_hygiene.py` also finds three traps that pass on WSL and fail in CI.
 
 ## What the script does
 
