@@ -100,6 +100,10 @@ A task may change `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md` and `README.md` wit
 
 The task gate runs only the tests of the changed modules (`gate.tests: changed`, the default). The phase close always runs the full test command. Set `gate.tests: full` to run the full command for every task. A bad `gate.scope_always` or `gate.tests` value is an error with a plain message. See `REFERENCE.md` for the settings.
 
+## Learn from runs
+
+See `HOWTO.md`: `ap audit --signals`, `ap audit --ladder`, `ap validate`.
+
 ## Install
 
 Three steps, no administrator prompt.
