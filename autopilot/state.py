@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS decisions (
   id TEXT PRIMARY KEY, kind TEXT, task_id TEXT, phase_id TEXT, title TEXT, question TEXT, checked TEXT, why TEXT,
   suggestion TEXT, blocks TEXT, status TEXT, answer TEXT, created_at TEXT, answered_at TEXT
 );
-CREATE TABLE IF NOT EXISTS approvals (phase TEXT PRIMARY KEY, who TEXT, at TEXT);
+CREATE TABLE IF NOT EXISTS approvals (phase TEXT PRIMARY KEY, who TEXT, at TEXT, sig TEXT);
 """
 SESSION_COLS = ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write", "num_turns", "duration_ms")
 
@@ -62,6 +62,8 @@ class State:
         try:
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.executescript(SCHEMA)
+            if 'sig' not in [r[1] for r in self.db.execute('PRAGMA table_info(approvals)')]:
+                self.db.execute('ALTER TABLE approvals ADD COLUMN sig TEXT')  # X3: signed rows
             have = {r["name"] for r in self.db.execute("PRAGMA table_info(sessions)")}
             for col in SESSION_COLS:  # older databases predate the token ledger
                 if col not in have:
@@ -228,10 +230,23 @@ class State:
             except Exception:  # noqa: BLE001
                 user = os.environ.get("USERNAME") or os.environ.get("USER") or "unknown"
             who = f"{user} ({source})"
-        self.db.execute("INSERT OR REPLACE INTO approvals(phase, who, at) VALUES(?,?,?)", (phase, who, now()))
+        at = now()
+        from .receipt import sign  # the key lives under ~/.autopilot, never in the checkout a session can write
+        self.db.execute("INSERT OR REPLACE INTO approvals(phase, who, at, sig) VALUES(?,?,?,?)",
+                        (phase, who, at, sign({"phase": phase, "who": who, "at": at})))
 
     def approved(self, phase: str) -> sqlite3.Row | None:
-        return self.db.execute("SELECT * FROM approvals WHERE phase=?", (phase,)).fetchone()
+        """The row only when its signature checks out: a row written straight into state.db by a session is ignored."""
+        import hmac
+        from .receipt import sign
+        row = self.db.execute("SELECT * FROM approvals WHERE phase=?", (phase,)).fetchone()
+        if row is None:
+            return None
+        want = sign({"phase": row["phase"], "who": row["who"], "at": row["at"]})
+        return row if hmac.compare_digest(str(row["sig"] or ""), want) else None
+
+    def consume_approval(self, phase: str):
+        self.db.execute("DELETE FROM approvals WHERE phase=?", (phase,))
 
     def phases_closed(self) -> int:
         return int(self.db.execute("SELECT COUNT(*) FROM phases WHERE status IN ('done','partial')").fetchone()[0])

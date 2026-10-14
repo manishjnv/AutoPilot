@@ -1277,11 +1277,12 @@ def start_status_page(root: Path, port: int = 8765) -> str:
         try:  # W11-port: the VS Code extension reads the port from this file; M4: the token has its own 0600 file
             (root / ".agent" / "status.port").write_text(f"{p}\n", encoding="utf-8")
             tf = root / ".agent" / "status.token"
-            tf.unlink(missing_ok=True)
-            with os.fdopen(os.open(tf, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as fh:
+            tmp = tf.with_suffix(".token.tmp")
+            with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as fh:
                 fh.write(srv.token + "\n")
-        except OSError:
-            pass
+            os.replace(tmp, tf)  # atomic: a stale or planted file is replaced, never kept
+        except OSError as exc:
+            print(f"status page: could not write .agent/status.token ({exc}); the editor view needs it", flush=True)
         if p != port:  # Q21.8: say which port was taken
             print(f"status page: port {port} is in use, so it runs on port {p}", flush=True)
         return f"http://127.0.0.1:{p}/?token={srv.token}"

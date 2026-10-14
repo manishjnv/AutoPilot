@@ -36,7 +36,7 @@ class Notifier:
         text = redact(f"[Autopilot · {self.project}] {event}: {message}")  # M7: the one choke point for alerts
         log.info(text)
         if self.state is not None:
-            self.state.event(event, message)
+            self.state.event(event, redact(message))  # the status page shows events
         if event not in self.events:
             return
         channels = {

@@ -47,7 +47,14 @@ def cause_of(text: str) -> str:
 
 def redact(text: str) -> str:
     """Secret variable values and token-shaped strings are replaced. No cut: logs and alerts keep their length."""
-    text = scrub_secrets(text or "", secrets())
+    import fnmatch
+    import os
+    from .proc import SECRET_ENV
+    vals = dict(secrets())
+    for k, v in os.environ.items():  # X5 review: every credential-shaped name, not only the vendor keys
+        if len(v) >= 8 and any(fnmatch.fnmatchcase(k.upper(), pat) for pat in SECRET_ENV):
+            vals.setdefault(k, v)
+    text = scrub_secrets(text or "", vals)
     for rx, label in SECRET_PATTERNS:
         text = rx.sub(f"***REDACTED[{label}]***", text)
     return text

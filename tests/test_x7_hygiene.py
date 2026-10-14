@@ -23,7 +23,7 @@ def test_git_has_a_timeout_and_never_prompts(monkeypatch, tmp_path):
     with pytest.raises(GitError, match="fetch origin timed out"):
         Git(tmp_path).run("fetch", "origin")
     assert seen["timeout"] == 300
-    assert seen["env"]["GIT_TERMINAL_PROMPT"] == "0" and seen["env"]["GIT_ASKPASS"] == "echo"
+    assert seen["env"]["GIT_TERMINAL_PROMPT"] == "0" and seen["env"]["GIT_ASKPASS"] == "true"
 
 
 def test_the_log_handler_rotates(tmp_path):

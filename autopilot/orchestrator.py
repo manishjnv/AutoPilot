@@ -736,19 +736,20 @@ class Orchestrator:
             left = end - time.monotonic()
 
     def migrate_approvals(self):
-        """H3: once per run start, old approval files become rows and are deleted. Later files are never read."""
+        """H3: approval files are never read (a session could write them). Any file found is removed with one line;
+        approve again with `ap approve <phase>`."""
         d = self.ad / "approvals"
         files = [f for f in sorted(d.iterdir()) if f.is_file()] if d.is_dir() else []
         for f in files:
-            self.state.approve(f.name, who="migrated")
             f.unlink(missing_ok=True)
         if files:
-            log.info("migrated %d approval file(s) into the state", len(files))
+            log.info("removed %d approval file(s): approvals live in the state now, run `ap approve <phase>` again", len(files))
 
     def process_approvals(self):
         for ph in self.plan.phases:
             row = self.state.phase(ph.id)
             if row and row["prod_status"] == "awaiting_approval" and self.state.approved(ph.id):
+                self.state.consume_approval(ph.id)  # one approval, one deploy
                 self.deploy_prod(ph.id, row["prod_ref"])
 
     # ------------------------------------------------------------------ guards

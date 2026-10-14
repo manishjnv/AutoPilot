@@ -250,9 +250,11 @@ def tail_lines(path, n: int, max_bytes: int = 262144) -> list[str]:
         with open(path, "rb") as fh:
             size = fh.seek(0, 2)
             fh.seek(max(0, size - max_bytes))
-            lines = fh.read().decode("utf-8", "replace").splitlines()
+            lines = fh.read().decode("utf-8", "replace").split("\n")  # not splitlines: a form feed inside JSON stays
     except OSError:
         return []
+    if lines and lines[-1] == "":
+        lines.pop()  # a file that ends with a newline has no empty last row
     return lines[-n:] if size <= max_bytes else lines[1:][-n:]  # the first line of a cut read may be partial
 
 

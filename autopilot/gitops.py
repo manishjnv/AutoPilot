@@ -45,7 +45,7 @@ class Git:
 
     def _git(self, args):
         # a credential prompt must fail, not hang; a stuck git is cut off after GIT_TIMEOUT seconds
-        env = {**os.environ, **identity_env(), "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+        env = {**os.environ, **identity_env(), "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true"}
         try:
             return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True, text=True,
                                   encoding="utf-8", errors="replace", env=env, timeout=GIT_TIMEOUT)
@@ -63,8 +63,11 @@ class Git:
         return True
 
     def ok(self, *args: str) -> bool:
-        return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True,
-                              encoding="utf-8", errors="replace", timeout=GIT_TIMEOUT).returncode == 0
+        try:
+            return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True,
+                                  encoding="utf-8", errors="replace", timeout=GIT_TIMEOUT).returncode == 0
+        except subprocess.TimeoutExpired:
+            return False
 
     # ---------- config guard (around agent sessions) ----------
     def config_text(self) -> str:

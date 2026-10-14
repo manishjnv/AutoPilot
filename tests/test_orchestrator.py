@@ -248,7 +248,7 @@ def test_approve_while_run_active_is_queued(tmp_path):
     assert orch2.state.phase("P01")["prod_status"] == "deployed"
 
 
-def test_approval_file_migrated_once_and_later_files_ignored(tmp_path):
+def test_approval_files_are_removed_and_unsigned_rows_ignored(tmp_path):
     root = make_project(tmp_path, phases_basic(), {"deploy": {"prod": {"enabled": True, "cmd": "true", "auto": False}}})
     orch = orch_for(root)
     assert orch.run() == "app complete"
@@ -257,8 +257,12 @@ def test_approval_file_migrated_once_and_later_files_ignored(tmp_path):
     (d / "P01").write_text("approved\n")
     orch2 = orch_for(root)
     orch2.reload_plan()
-    orch2.migrate_approvals()  # run start
-    assert orch2.state.approved("P01")["who"] == "migrated" and not (d / "P01").exists()
+    orch2.migrate_approvals()  # run start: a file is removed, never read (a session could have written it)
+    assert orch2.state.approved("P01") is None and not (d / "P01").exists()
+    orch2.state.db.execute("INSERT INTO approvals(phase, who, at, sig) VALUES(?,?,?,?)", ("P01", "x", "now", "bad"))
+    assert orch2.state.approved("P01") is None  # an unsigned row written straight into state.db does not count
+    orch2.state.approve("P01", "cli")
+    assert orch2.state.approved("P01")["who"].endswith("(cli)")
     orch2.state.db.execute("DELETE FROM approvals")
     (d / "P01").write_text("approved\n")  # a session writes it during the run: never read
     orch2.process_approvals()

@@ -638,7 +638,7 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
             if not hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8")):
                 return self._send(403, "forbidden", "text/plain")  # also stops DNS rebinding: a page cannot know the token
             try:
-                key = stamp()
+                key = (*stamp(), int(time.time() // 10))  # the page also depends on the clock (spinner, stale, dead)
                 if cache.get("key") == key:
                     return self._send(200, cache["body"], "text/html")
                 cfg, plan = Config.load(root), Plan.load(root / AGENT_DIR / "plan.yaml")
@@ -647,7 +647,7 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
                     body = page(cfg, plan, state)
                 finally:
                     state.db.close()
-                cache.update(key=stamp(), body=body)  # after the render: opening state.db touches its files
+                cache.update(key=(*stamp(), int(time.time() // 10)), body=body)  # after the render: opening state.db touches its files
                 # ponytail: a write during the render itself is shown on the next change, not at once
             except Exception as exc:  # noqa: BLE001  a half-written plan mid-replan must not kill the server
                 return self._send(500, f"report unavailable: {type(exc).__name__}", "text/plain")
