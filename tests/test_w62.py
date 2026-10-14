@@ -146,3 +146,11 @@ def test_the_rate_needs_two_live_fetches_of_the_same_bar():
     assert round(figs["five_eta"]) == 3000  # 10 points in 600 s: 50 points left take 3000 s
     assert usage.eta_text(figs["five_eta"]) == "5h ends in ~50 min at this rate" and usage.eta_text(0) == ""
     assert re.fullmatch(r"5h ends in ~2\.0 h at this rate", usage.eta_text(7200))
+
+
+def test_next_says_why_no_switch_is_possible_with_one_login_and_no_credit():
+    rows, _ = rows_for({"": (0.97, 0.42, {})}, fallback=())
+    nxt = usage.next_fields(rows, {}, "suggest", "default")
+    assert nxt["text"] == "no switch possible: add a second login or cline to agent.fallback" and nxt["limit"] == "5h"
+    rows2, _ = rows_for({"": (0.97, 0.42, {}), "/logins/two": (0.3, 0.3, {})})
+    assert usage.next_fields(rows2, {}, "suggest", "default")["text"] == "no switch planned"  # a standby login exists

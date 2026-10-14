@@ -462,8 +462,8 @@ def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
                    "active" if on else "yellow" if count(t["tries"]) >= 2 else None,
                    0 if t["detail"].endswith(" tries") and " · " not in t["detail"]
                    else len(t["detail"].partition(" · ")[0]))
-        if on:
-            row = [(x, "active" if st_ in (None, "blue") else st_) for x, st_ in row]
+        if on:  # readability: every cell of the active row takes the row style; no cyan, yellow or dim on the fill
+            row = [(x, "active") for x, _ in row]
         rows.append(row)
     if other:
         rows.append(line("", "Other: decide, research, docs, audit, waits", "", other, "", "dim", "dim"))

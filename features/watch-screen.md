@@ -35,6 +35,7 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
   window stays until Enter. The progress total counts the end steps (audit, functional check, docs): 100 only when the
   run ended; `audit added N tasks` shows when the audit adds tasks.
 - The running task row has a filled background and bold text (`active`, the one accent); the spinner starts that row.
+  Every cell of that row takes the row style: no cyan, yellow, blue or dim text on the fill (readability, 2026-10-15).
   `Build` (version) drops before `Phases` in a short panel; the version is one line cut with `...`.
 - One colour, one meaning (`COLOUR_MEANING`): green done or ok, cyan running now, yellow warning, red blocked or failed,
   magenta cost and usage, blue model name, dim label, border, pending or zero, bright white a value the eye lands on,
@@ -100,6 +101,7 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
 
 ## Changes
 
+- 2026-10-15: readability: every cell of the active row takes the row style (`tests/test_dash_term.py::test_the_active_row_has_one_style_and_no_colour_on_the_fill`); the status page row inherits its colour.
 - 2026-10-15: W62: the AI box replaces the Usage box when source rows exist (`dash_term.ai_box`, the same groups on
   the status page, `ap status` prints the ACTIVE row and NEXT); new `_USES` rows for its colours. Rules kept. New
   tests: `tests/test_w62.py`.

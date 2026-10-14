@@ -46,7 +46,7 @@ th{font-size:var(--t11);text-transform:uppercase;letter-spacing:.08em;color:var(
 padding:var(--cell) var(--s2);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
 td:first-child{white-space:nowrap}
 td{padding:var(--cell) var(--s2);border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
-tr[aria-current=true]{background:var(--count);color:var(--bg);font-weight:700}
+tr[aria-current=true]{background:var(--count);color:var(--bg);font-weight:700}tr[aria-current=true] *{color:inherit}
 tr[aria-current=true] td{color:inherit}
 .done{color:var(--good)}.running{color:var(--count)}.blocked{color:var(--bad)}.pending{color:var(--muted)}
 .st{white-space:nowrap;font-weight:600}

@@ -562,3 +562,17 @@ def test_spinner_ascii_fallback_for_a_console_without_utf8():
     assert all(ord(c) < 128 for c in s["text"])
     d["asof"].update(live=False, stopped="12:50")
     assert spinner(d, 1000.0, 2000, None, False)["text"] == "x stopped 12:50"
+
+
+def test_the_active_row_has_one_style_and_no_colour_on_the_fill():
+    """Readability (owner 2026-10-15): on the running task row every cell takes the row style; a cyan status word, a dim
+    risk or a yellow tries count on the cyan fill was unreadable."""
+    d = data(asof={"age": 5, "stopped": ""}, phases=PHASES)
+    out = frame(d, 190, 60, True)
+    active = COLORS["active"]
+    rows = [ln for ln in out if f"\x1b[{active}m" in ln]
+    assert rows, "no active row drawn"
+    for ln in rows:
+        codes = set(re.findall(r"\x1b\[([0-9;]+)m", ln)) - {"0", active, "2"}  # dim borders around the box are fine
+        inner = ln[ln.index(f"\x1b[{active}m"):ln.rindex(f"\x1b[{active}m")]
+        assert not re.search(r"\x1b\[(36|33|34|35|31|32|97|1;36)m", inner), inner

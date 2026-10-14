@@ -595,6 +595,9 @@ def next_fields(rows: list, pick: dict, mode: str, active: str) -> dict:
     where = f"{active} {bar['kind']} {round(100 * bar['pct'])}%" if bar else active
     out = {"mode": mode, "source": pick.get("source", "") if pick else "", "login": active,
            "limit": bar.get("kind", ""), "pct": bar.get("pct"), "reset": bar.get("reset", 0.0), "text": "no switch planned"}
+    others = [r for r in rows if r.get("state") in ("STANDBY", "LIMITED") and r.get("kind") in ("login", "api")]
+    if not pick and not others:  # one login and no runnable credit: say why no switch can come
+        out["text"] = "no switch possible: add a second login or cline to agent.fallback"
     if pick:
         target = pick["source"].split(":", 1)[-1]
         if mode == "auto":
