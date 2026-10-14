@@ -701,6 +701,10 @@ there is one, it prints `updating ap 0.4.0 -> v0.5.0 in the background`, and the
 ended. It never updates during a build, in CI, or in a git checkout. To turn it off, set `upgrade.auto: false` in
 `.agent/project.yaml` or the variable `AUTOPILOT_NO_AUTO_UPGRADE=1`.
 
+Before `ap run` or `ap start`, the same check runs first, once a day. When a newer release exists, Autopilot installs it, and
+then starts your command again on the new version, on the same screen. You confirm nothing. If the new version gives
+trouble, the printed line names the way back: `ap upgrade --ref v0.7.1` (your old version).
+
 To update now, run `ap upgrade`. It gets the newest release and checks the file against `SHA256SUMS`.
 `ap upgrade --check` only prints the version. For a repair, or for a second machine, run `ap install`. The install
 script replaces an Autopilot that is older than the script itself.

@@ -106,7 +106,10 @@ def _editable(root: Path, check: bool, run) -> int:
     if p.rc != 0:
         print(f"git pull failed: {(p.stderr or p.stdout).strip()[:200]}")
         return 1
-    print(f"updated {root}; run `ap --version` for the new version")
+    if "up to date" in p.stdout.lower():
+        print(f"ap {__version__} is the latest (checkout {root})")
+    else:
+        print(f"updated {root}; run `ap --version` for the new version")
     return 0
 
 
@@ -211,19 +214,23 @@ def check_once_per_day(run=run_proc, urlopen=_open, stamp=None, now=time.time) -
 NO_AUTO = ("run", "start", "watch", "serve", "mcp", "upgrade", "install", "uninstall", "setup", "quickstart", "onboard")
 
 
-def spawn_after_exit(cmd: list[str], delay: int = 3) -> None:
-    """Start `cmd` detached, after `delay` seconds, through the system shell (not this interpreter)."""
+def spawn_after_exit(cmd: list[str], delay: int = 3, then: list[str] | None = None) -> None:
+    """Start `cmd` after `delay` seconds, through the system shell (not this interpreter). Without `then` it is
+    detached and silent. With `then` (W56) that command follows on the same console, so the user sees it."""
     import shlex
     import subprocess
+    quiet = {} if then else {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
     if sys.platform.startswith("win"):
-        line = f"timeout /t {delay} /nobreak >nul & " + subprocess.list2cmdline(cmd)
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
-        subprocess.Popen(["cmd", "/c", line], creationflags=flags, stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+        line = f"ping -n {delay + 1} 127.0.0.1 >nul & " + subprocess.list2cmdline(cmd)  # ping: a pause that needs no console
+        if then:
+            line += " & " + subprocess.list2cmdline(then)
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | (0 if then else getattr(subprocess, "DETACHED_PROCESS", 0))
+        subprocess.Popen(["cmd", "/c", line], creationflags=flags, close_fds=True, **quiet)
     else:
         line = f"sleep {delay}; " + " ".join(shlex.quote(c) for c in cmd)
-        subprocess.Popen(["sh", "-c", line], start_new_session=True, stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+        if then:
+            line += "; " + " ".join(shlex.quote(c) for c in then)
+        subprocess.Popen(["sh", "-c", line], start_new_session=not then, close_fds=True, **quiet)
 
 
 def auto_update(cmd: str, root=None, *, env=None, run=run_proc, urlopen=_open, detect=detect_install, spawn=spawn_after_exit,
@@ -256,8 +263,50 @@ def auto_update(cmd: str, root=None, *, env=None, run=run_proc, urlopen=_open, d
               else [sys.executable, "-m", "pip", "install", "--upgrade", str(wheel)])
         f = stamp or _stamp()
         f.write_text("", encoding="utf-8")  # the hint is spent: the next day compares against the new version
-        return f"updating ap {__version__} -> {rel['tag']} in the background; the next command runs it"
+        return (f"updating ap {__version__} -> {rel['tag']} in the background; the next command runs it"
+                f" (back: `ap upgrade --ref v{__version__}`)")
     except Exception:  # noqa: BLE001  an update never breaks the command that just ran
+        return ""
+
+
+BEFORE_RUN = ("run", "start")
+
+
+def update_before_run(cmd: str, root, argv: list[str], *, env=None, run=run_proc, urlopen=_open, detect=detect_install,
+                      spawn=spawn_after_exit, active=None, stamp=None, now=time.time) -> str:
+    """W56: before `ap run` or `ap start`, once a day, a release install gets the newest release first and the same
+    command starts again on it. Returns the line to print when this process must stop (the relaunch does the work),
+    else '' and the command runs as usual. Never raises; a failed check or install never blocks a build."""
+    env = os.environ if env is None else env
+    try:
+        if cmd not in BEFORE_RUN or env.get("CI") or env.get("AUTOPILOT_NO_AUTO_UPGRADE") or env.get("AUTOPILOT_DETACHED"):
+            return ""
+        from .config import Config
+        try:
+            if Config.load(root).get("upgrade.auto", True) is False:
+                return ""
+        except Exception:  # noqa: BLE001
+            pass
+        if (active or _run_active)(root):
+            return ""
+        if not check_once_per_day(run=run, urlopen=urlopen, stamp=stamp, now=now):
+            return ""
+        kind = detect()
+        if kind == "editable":
+            return ""  # a developer's checkout pulls only on request
+        rel = latest_release(run=run, urlopen=urlopen)
+        if _ver(rel["tag"]) <= _ver(__version__):
+            return ""  # the day's stamp was written by an older version
+        wheel = fetch_wheel(rel, urlopen)
+        if wheel is None:
+            return ""
+        install = (["uv", "tool", "install", "--reinstall", str(wheel)] if kind == "uv"
+                   else [sys.executable, "-m", "pip", "install", "--upgrade", str(wheel)])
+        spawn(install, then=["ap", *argv])
+        (stamp or _stamp()).write_text("", encoding="utf-8")
+        return (f"ap {__version__} -> {rel['tag']}: installing first, then `ap {' '.join(argv)}` starts by itself"
+                f" (back: `ap upgrade --ref v{__version__}`)")
+    except Exception:  # noqa: BLE001
         return ""
 
 

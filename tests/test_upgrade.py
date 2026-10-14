@@ -98,6 +98,13 @@ def test_a_clean_checkout_is_pulled(tmp_path):
     assert ["git", "-C", str(tmp_path), "pull", "--ff-only"] in run.calls
 
 
+def test_a_current_checkout_says_latest(capsys, tmp_path):
+    def run(cmd, **kw):
+        return Proc(0, "Already up to date.\n" if "pull" in cmd else "", "")
+    assert cmd_upgrade(Namespace(check=False, ref=None), run=run, detect=lambda: "editable", root=tmp_path) == 0
+    assert "is the latest" in capsys.readouterr().out
+
+
 def test_uv_install_passes_the_checked_local_wheel(capsys, monkeypatch):
     monkeypatch.setattr("autopilot.upgrade.__version__", "0.3.0")  # the fake release is v0.4.0, whatever the package says
     run = FakeRun({"gh release view": GH_JSON})
@@ -226,3 +233,43 @@ def test_uninstall_all_dry_run_lists_the_steps_and_the_real_run_spawns_the_packa
     assert cmd_uninstall(Namespace(all=True, dry_run=False, rights=False), spawn=spawned.append) == 0
     out = capsys.readouterr().out
     assert not home.exists() and spawned == [["uv", "tool", "uninstall", "dev-autopilot"]] and "Kept:" in out
+
+# ---- W56: before `ap run` / `ap start`, a release install updates first and the same command starts on the new version
+def _before(tmp_path, monkeypatch, cmd="run", argv=("run", "--budget", "5"), kind="uv", version="0.3.0", env=None, active=False):
+    from autopilot import upgrade
+    monkeypatch.setattr("autopilot.upgrade.__version__", version)
+    spawned = []
+    line = upgrade.update_before_run(cmd, tmp_path, list(argv), env=env or {}, run=FakeRun({"gh release view": GH_JSON}),
+                                     urlopen=fake_open(), detect=lambda: kind, active=lambda r: active,
+                                     spawn=lambda c, then=None: spawned.append((c, then)), stamp=tmp_path / "stamp")
+    return line, spawned
+
+
+def test_update_before_run_installs_then_relaunches_the_same_command(tmp_path, monkeypatch):
+    line, spawned = _before(tmp_path, monkeypatch)
+    assert "0.3.0 -> v0.4.0" in line and "`ap run --budget 5` starts by itself" in line and "--ref v0.3.0" in line
+    (install, then) = spawned[0]
+    assert install[:4] == ["uv", "tool", "install", "--reinstall"] and then == ["ap", "run", "--budget", "5"]
+    assert _before(tmp_path, monkeypatch) == ("", [])  # the same day: nothing again
+
+
+def test_update_before_run_stays_out_of_the_way(tmp_path, monkeypatch):
+    assert _before(tmp_path, monkeypatch, cmd="status") == ("", [])
+    assert _before(tmp_path, monkeypatch, kind="editable") == ("", [])
+    assert _before(tmp_path, monkeypatch, active=True) == ("", [])
+    assert _before(tmp_path, monkeypatch, env={"CI": "1"}) == ("", [])
+    assert _before(tmp_path, monkeypatch, env={"AUTOPILOT_DETACHED": "1"}) == ("", [])
+    assert _before(tmp_path, monkeypatch, version="0.4.0") == ("", [])
+    (tmp_path / ".agent").mkdir()
+    (tmp_path / ".agent" / "project.yaml").write_text("upgrade:\n  auto: false\n", encoding="utf-8")
+    assert _before(tmp_path, monkeypatch) == ("", [])
+
+
+def test_update_before_run_never_raises(tmp_path, monkeypatch):
+    from autopilot import upgrade
+    monkeypatch.setattr("autopilot.upgrade.__version__", "0.3.0")
+
+    def boom(*a, **k):
+        raise RuntimeError("no network")
+    assert upgrade.update_before_run("run", tmp_path, ["run"], env={}, run=boom, urlopen=boom, stamp=tmp_path / "s") == ""
+

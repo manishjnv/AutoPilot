@@ -1929,8 +1929,12 @@ def main(argv=None):
         return cmd_ladder(args)
     if getattr(args, "detach", False):
         return start_detached(Path(args.path).resolve(), [a for a in (argv or sys.argv[1:]) if a != "--detach"])
+    from .upgrade import auto_update, update_before_run  # T2: after the command, once a day, never during a run
+
+    if line := update_before_run(args.cmd, Path(args.path).resolve(), list(argv or sys.argv[1:])):  # W56
+        print(line)
+        return 0
     rc = args.fn(args) or 0
-    from .upgrade import auto_update  # T2: after the command, once a day, never during a run
 
     line = auto_update(args.cmd, Path(args.path).resolve())
     if line:

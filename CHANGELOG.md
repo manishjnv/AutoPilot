@@ -11,6 +11,11 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 **In plain words:** Autopilot now learns from its own runs and wastes less time. A run shows what it waits for, a stop is quick, and nothing is lost when a task fails. It also guards your project better: a broken main branch is found at once, and important features cannot shrink unnoticed.
 
+**Update by itself, before the work**
+- `ap run` and `ap start` look for a newer release once a day, install it first, and then start the same command on the new version. No question. A run that is active, a checkout and `upgrade.auto: false` are left alone.
+- Every update line names the way back: `ap upgrade --ref v<old>`.
+- `ap upgrade` on a git checkout says `is the latest` when nothing changed.
+
 **See what happens**
 - The watch screen tells you what the run waits for, and its clock ticks every second.
 - A run whose process is gone shows DEAD, not ON.
