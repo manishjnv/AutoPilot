@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 
 from autopilot.cli import main as cli_main
-from autopilot.config import Config
+from autopilot.config import Config, deep_merge
 from autopilot.doctor import FAIL, OK, WARN, checks
 from test_backend import stub_claude
 
@@ -14,7 +14,8 @@ def project(tmp_path, extra=None):
     assert cli_main(["init", "-C", str(tmp_path), "--stack", "python"]) == 0
     if extra:
         p = tmp_path / ".agent" / "project.yaml"
-        p.write_text(p.read_text(encoding="utf-8") + "\n" + yaml.safe_dump(extra), encoding="utf-8")
+        merged = deep_merge(yaml.safe_load(p.read_text(encoding="utf-8")), extra)  # W38: a repeated key is an error
+        p.write_text(yaml.safe_dump(merged), encoding="utf-8")
     return Config.load(tmp_path)
 
 

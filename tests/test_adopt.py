@@ -148,7 +148,8 @@ def _onboard_fixture(tmp_path, mode):
     from autopilot.cli import cmd_init
     cmd_init(Namespace(path=str(tmp_path), stack=None, name=None, force=False, quiet=True))
     pj = tmp_path / ".agent" / "project.yaml"
-    pj.write_text(pj.read_text(encoding="utf-8") + f"\nagent:\n  backend: command\n  command: '\"{sys.executable}\" \"{agent}\" \"{seen}\" {mode}'\n", encoding="utf-8")
+    block = f"\nagent:\n  backend: command\n  command: '\"{sys.executable}\" \"{agent}\" \"{seen}\" {mode}'\n"
+    pj.write_text(pj.read_text(encoding="utf-8").replace("\nagent:\n", block, 1), encoding="utf-8")  # W38: one agent block
     return seen
 
 
