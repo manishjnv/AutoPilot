@@ -1661,9 +1661,17 @@ def remember(root: Path):
         pass
 
 
-def pick_project() -> str | None:
+SPENDING = ("start", "run", "answer", "change", "stop", "skip", "approve", "budget")  # W33: never a silent fallback
+
+
+class NeedsFolder(Exception):
+    """A spending command found no project in this folder and nobody to confirm the fallback."""
+
+
+def pick_project(kind: str = "read", yes: bool = False) -> str | None:
     """J2: no -C and this folder is not a project. One active build: that one. Several: ask (or list them when
-    there is no terminal; never guess). None active: the last project used. Says which project it took."""
+    there is no terminal; never guess). None active: the last project used. Says which project it took.
+    W33: a spending command (kind="spend") asks `Build <folder>? [y/N]`; with no terminal it raises NeedsFolder."""
     known = recent_projects()
     active = [p for p in known if run_active(p)]
     if len(active) > 1:
@@ -1680,7 +1688,15 @@ def pick_project() -> str | None:
         print("This folder is no Autopilot project, and no other project is known on this PC.\n"
               "Go to the project folder, or name it with -C <folder>. To start a new one: autopilot quickstart")
         return None
+    print(f"project: {chosen} ({'active' if chosen in active else 'last used'})")
     print(f"this folder is no project, using the last one used: {chosen}")  # Q10: say why, not only which
+    if kind == "spend" and not yes:
+        if not _tty():
+            print("name the project with -C <folder>")
+            raise NeedsFolder
+        if (_ask(f"Build {chosen}? [y/N] ") or "").lower() not in ("y", "yes"):
+            print("Nothing started. Name the project with -C <folder>.")
+            return None
     return str(chosen)
 
 
@@ -1721,6 +1737,8 @@ def main(argv=None):
         p.add_argument("-C", "--path", default=None,
                        help="project folder (default: this folder, or else the active or last project)")
         p.set_defaults(fn=fn)
+        if name in SPENDING and name != "change":  # `change` has its own --yes, which also skips this question
+            p.add_argument("--yes", action="store_true", help="no question when the folder is not named with -C")
         return p
 
     p = add("init", cmd_init, "create .agent/ contract (auto-detects stack)")
@@ -1838,7 +1856,13 @@ def main(argv=None):
     if args.cmd in ("upgrade", "install", "setup", "uninstall", "tour"):  # no project needed: nothing to find or remember
         return args.fn(args) or 0
     if args.path is None:  # J2: no -C
-        found = "." if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists() else pick_project()
+        if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists():
+            found = "."
+        else:
+            try:
+                found = pick_project("spend" if args.cmd in SPENDING else "read", getattr(args, "yes", False))
+            except NeedsFolder:
+                return 3
         if found is None:
             return 1
         args.path = found
