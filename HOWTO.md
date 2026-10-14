@@ -782,9 +782,10 @@ Run `python scripts/premerge.py` before you merge a branch of Autopilot.
 
 - On Windows, it runs the full suite on WSL. Then it runs the test files that changed on the branch on the Windows Python.
 - On Linux, it runs the suite once.
+- When `uv` and Python 3.13 are available, it runs the changed test files again on Python 3.13, and it skips this step with one line if they are not.
 - With `--ci`, it also starts the CI workflow on the branch and prints the result of each job.
 
-The command exits 1 when a step is red. `tests/test_hygiene.py` also finds three traps that pass on WSL and fail in CI.
+The command exits 1 when a step is red. `tests/test_hygiene.py` also finds five traps that pass on WSL and fail in CI.
 
 ## Make a release
 

@@ -1,8 +1,9 @@
-"""Run the suite on WSL (or Linux) and the host, then the changed tests on the host; --ci also runs the CI workflow.
+"""Run the suite on WSL (or Linux) and the host, then the changed tests on the host and on Python 3.13; --ci also runs the CI workflow.
 
 Exit 1 on any red step. Steps come from the pure function `plan`; `run_steps` takes an injectable runner.
 """
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -40,6 +41,16 @@ def run_steps(steps, run=sh):
     return red
 
 
+def newest_python(tests, run=sh, which=shutil.which):
+    """Run the changed tests on Python 3.13 with uv. Skip with one line when uv or 3.13 is missing. Return 0 or 1."""
+    if not tests:
+        return 0
+    if not which("uv") or run(["uv", "python", "find", "3.13"])[0]:
+        print("skip changed tests on Python 3.13: uv or Python 3.13 not available")
+        return 0
+    return run_steps([("changed tests on Python 3.13", ["uv", "run", "--python", "3.13", "-m", "pytest", "-q", *tests])], run)
+
+
 def ci_result(branch, run=sh, wait=time.sleep):
     """Wait for the newest ci.yml run on the branch; print one line per job. Return 0 when all passed."""
     wait(5)  # ponytail: fixed pause for the dispatched run to appear
@@ -64,6 +75,7 @@ def main(argv=None, run=sh, windows=None):
     tests = [t for t in run(["git", "diff", "--name-only", "main...HEAD", "--", "tests"])[1].split() if t.endswith(".py")]
     branch = run(["git", "branch", "--show-current"])[1].strip()
     red = run_steps(plan(windows, wsl_root, tests, ci, branch, sys.executable), run)
+    red = newest_python(tests, run) or red
     if ci and not red:
         red = ci_result(branch, run)
     return red
