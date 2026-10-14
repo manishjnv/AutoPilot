@@ -29,14 +29,14 @@ from .context import ContextBuilder, numbered, progress_line
 from .contracts import added_duplicates
 from .deploy import deploy
 from .docs import Documenter, redact_secrets, research_path, task_not_proven
-from .gate import (TEST_GLOBS, CmdResult, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
+from .gate import (TEST_GLOBS, CmdResult, GateResult, _match, check_env, main_gate, protected_files, run_commands, scan_secrets, task_gate,
                    test_tamper)
 from .gitops import Git, GitError
 from .growth import consolidate
 from .handoff import MIN_WAIT, account_of, entry_folder, fallback_backend, write_handoff
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
-from .proc import agent_env, exclusive_lock, run_proc, stop_when
+from .proc import exclusive_lock, run_proc, stop_when
 from .report import digest, open_window, token_footer, window_line
 from .schemas import REPORTS
 from .state import State, now
@@ -1714,7 +1714,7 @@ class Orchestrator:
         if not tests:
             return None
         return next((r for r in run_commands(tests, cwd, int(self.cfg.get("verify_timeout_sec", 1200)),
-                                             base_env=agent_env(self.cfg)) if r.rc != 0), None)
+                                             base_env=check_env(self.cfg)) if r.rc != 0), None)
 
     def main_test(self, sha: str | None = None) -> CmdResult | None:
         """W21: the red test result of main at `sha` (default: its head), run once per sha. It runs in the checkout

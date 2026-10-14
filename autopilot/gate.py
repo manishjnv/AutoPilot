@@ -12,7 +12,7 @@ from pathlib import Path
 from .config import allowlist_on, scope_always, tests_mode
 from .contracts import contract_problems
 from .kill_guard import kill_commands
-from .proc import agent_env, run_proc, with_tool_dirs
+from .proc import agent_env, command_env, run_proc, with_tool_dirs
 
 SECRET_PATTERNS = [
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}"), "AWS access key"),
@@ -101,10 +101,15 @@ class GateResult:
         return text[-max_chars:]
 
 
+def check_env(cfg) -> dict:
+    """X6: agent_env without login/token variables; names in agent.env or agent.env_passthrough stay (declared)."""
+    return command_env(agent_env(cfg), [*(cfg.get("agent.env", {}) or {}), *(cfg.get("agent.env_passthrough", []) or [])])
+
+
 def run_commands(cmds: list[str], cwd: Path, timeout: int, env: dict | None = None,
                  stop_on_fail: bool = True, base_env: dict | None = None) -> list[CmdResult]:
     results = []
-    full_env = with_tool_dirs({**(base_env if base_env is not None else os.environ), **(env or {})})
+    full_env = with_tool_dirs({**(base_env if base_env is not None else command_env()), **(env or {})})
     for cmd in cmds:
         t0 = time.monotonic()
         try:
@@ -416,12 +421,12 @@ def task_gate(cfg, git, task, report=None, attempt: int = 1, log_path=None) -> G
         gate.warnings += added
     if not gate.problems:
         gate.results = run_commands(verify_commands(cfg, task.verify, files=files), cfg.root,
-                                    int(cfg.get("verify_timeout_sec", 1200)), base_env=agent_env(cfg))
+                                    int(cfg.get("verify_timeout_sec", 1200)), base_env=check_env(cfg))
     gate.ok = not gate.problems and all(r.rc == 0 for r in gate.results)
     return gate
 
 
 def main_gate(cfg, phase: bool = False) -> GateResult:
     results = run_commands(verify_commands(cfg, phase=phase), cfg.root, int(cfg.get("verify_timeout_sec", 1200)),
-                           base_env=agent_env(cfg))
+                           base_env=check_env(cfg))
     return GateResult(ok=all(r.rc == 0 for r in results), results=results)

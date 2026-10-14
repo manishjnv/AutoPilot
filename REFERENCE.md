@@ -99,6 +99,7 @@ A read-only command (`status`, `watch`, `next`, `report`) first prints `project:
 | `AUTOPILOT_CLAUDE_BIN` | The path to the `claude` program. Autopilot also finds `claude` in `~/.local/bin` when the PATH is old |
 | `ANTHROPIC_API_KEY` | Use an API key instead of a subscription. Also set `usage.billing: api` |
 
+The checks and the deploy commands get no login, token or alert variables unless the step declares them (`deploy.env_pass` for deploy).
 Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`. The rollback command gets
 `AUTOPILOT_PREV_REF`. The smoke command also gets `AUTOPILOT_URL`.
 
@@ -172,7 +173,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `scheduling` | The order and parallel work | `phase_dependency` (soft), `parallel` (the template sets 1; unset = 3 with a test command in direct mode, else 1). Only `low` and `medium` first attempts join a batch. Two tasks that share a file never run together. A task with an empty `files_in_scope` runs alone. |
 | `git` | Push and pull | `push` (false), `pull` (true), `mode` (direct or pr). With `mode: pr`, a task with gate warnings or a criterion without a test opens a draft pull request. The body lists them under `## Not proven` ("Nothing" for a clean task, which opens a ready PR). Autopilot marks the draft ready when CI is green, then merges. |
 | `intake` | Fix tasks from GitHub | `enabled` (false), `label` (autopilot), `poll_minutes` (30) |
-| `deploy` | Staging and production | `cmd`, `health_url`, `rollback_cmd` |
+| `deploy` | Staging and production | `cmd`, `health_url`, `rollback_cmd`, `env_pass` (names of extra variables a deploy command needs) |
 | `notify`, `chat` | Alerts and Telegram commands | `events` (an event name such as `budget_forecast` turns its push on), `chat.enabled` (false) |
 | `needs_you` | The questions file | `path` (docs/NEEDS-YOU.md), `wait` (true) |
 | `quality` | Model suggestions | `every` (20) |

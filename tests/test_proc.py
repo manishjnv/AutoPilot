@@ -101,3 +101,28 @@ def test_job_failure_keeps_the_timeout_path(monkeypatch, tmp_path):
     monkeypatch.setattr(proc, "_job_warned", False)
     p = run_proc([PY, "-c", "import time; time.sleep(60)"], timeout=1)
     assert p.timed_out and p.rc == 124
+
+
+def test_command_env_strips_credentials(monkeypatch):
+    from autopilot.proc import command_env
+    names = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "AWS_SECRET_ACCESS_KEY")
+    for k in names:
+        monkeypatch.setenv(k, "x")
+    env = command_env()
+    assert not set(names) & set(env)
+    assert "PATH" in env
+    assert command_env(declare=["GH_TOKEN"])["GH_TOKEN"] == "x"
+
+
+def test_gate_command_gets_no_login(monkeypatch, tmp_path):
+    from autopilot.gate import run_commands
+    from autopilot.proc import command_env
+    for k in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN"):
+        monkeypatch.setenv(k, "x")
+    code = "import os,sys; sys.exit(1 if any(k in os.environ for k in ['ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN','GH_TOKEN']) else 0)"
+    cmd = f'"{PY}" -c "{code}"'
+    assert run_commands([cmd], tmp_path, 30)[0].rc == 0
+    assert run_commands([cmd], tmp_path, 30, base_env=command_env())[0].rc == 0
+    (tmp_path / "ref.py").write_text("import os, sys\nsys.exit(0 if os.environ.get('AUTOPILOT_REF') == 'abc' else 1)\n")
+    ref = f'"{PY}" ref.py'
+    assert run_commands([ref], tmp_path, 30, {"AUTOPILOT_REF": "abc"})[0].rc == 0

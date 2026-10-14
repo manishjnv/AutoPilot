@@ -272,7 +272,7 @@ def test_base_env_isolation(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTOPILOT_TG_TOKEN", "sekret")
     cmd = f'"{sys.executable}" -c "import os; print(os.environ.get(\'AUTOPILOT_TG_TOKEN\', \'\'))"'
     cfg = Config.load(tmp_path)
-    assert run_commands([cmd], tmp_path, 20)[0].output == "sekret"
+    assert run_commands([cmd], tmp_path, 20)[0].output == ""  # X6: the default env is minimal too
     assert run_commands([cmd], tmp_path, 20, base_env=agent_env(cfg))[0].output == ""
     assert run_commands([cmd], tmp_path, 20, env={"AUTOPILOT_TG_TOKEN": "x"}, base_env=agent_env(cfg))[0].output == "x"
 

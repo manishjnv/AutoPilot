@@ -75,6 +75,23 @@ def safe_env(passthrough=(), extra: dict | None = None) -> dict:
     return with_tool_dirs(env)
 
 
+# Login, token and alert variables: the checks and deploy commands run agent-written code and never get them
+# unless the step declares the name.
+SECRET_ENV = ("ANTHROPIC_*", "CLAUDE_*", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN", "CODEX_API_KEY",
+              "CURSOR_API_KEY", "KIRO_API_KEY", "AUTOPILOT_TG_*", "AUTOPILOT_SLACK_WEBHOOK", "AUTOPILOT_WEBHOOK",
+              "AUTOPILOT_NTFY_TOPIC", "AUTOPILOT_STATUS_TOKEN", "CLOUDFLARE_*", "CF_API_*", "AWS_*", "OPENAI_API_KEY")
+
+
+def command_env(base: dict | None = None, declare=()) -> dict:
+    """X6: env for gate, smoke, deploy and setup commands: `base` (default: the safe env) minus credential variables,
+    except the names in `declare`."""
+    import fnmatch
+    keep = {str(d).upper() for d in declare}
+    env = safe_env(declare) if base is None else dict(base)
+    return {k: v for k, v in env.items()
+            if k.upper() in keep or not any(fnmatch.fnmatchcase(k.upper(), pat) for pat in SECRET_ENV)}
+
+
 def python_tool_dirs() -> list[str]:
     """Where `pip install` puts command-line tools for this Python: the interpreter's Scripts/bin folder and the
     per-user one (used when the system folder isn't writable, e.g. C:\\Python3xx on Windows)."""

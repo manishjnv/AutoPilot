@@ -14,6 +14,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - The security and how-to documents now explain the admin right that lets a build install system tools without a password.
 - The plugin stop check no longer runs commands in folders that Autopilot did not set up on this computer.
 - A task or phase name with unsafe characters is now refused, so it cannot delete a folder outside the build area.
+- Test and deploy commands no longer receive your login, token or alert variables unless a step asks for them.
 
 ## [0.8.0] - 2026-10-14
 

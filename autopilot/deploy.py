@@ -7,6 +7,7 @@ import urllib.request
 from dataclasses import dataclass
 
 from .gate import run_commands
+from .proc import command_env
 from .log_scrub import scrub_secrets
 
 # masked in every failure text; more (a zone ID, another token) via deploy.secret_env
@@ -41,16 +42,17 @@ def deploy(cfg, env_name: str, ref: str, phase_id: str, prev_ref: str | None) ->
            "AUTOPILOT_PREV_REF": prev_ref or "", "AUTOPILOT_URL": cfg.get(f"{c}.health_url", "")}
     env.update({"AUTODEV_" + k[10:]: v for k, v in list(env.items())})
     timeout = int(cfg.get("verify_timeout_sec", 1200))
+    base = command_env(declare=cfg.get("deploy.env_pass", []) or [])  # X6: no login or alert variables unless declared
 
     secrets = {k: os.environ[k] for k in _SECRET_ENV + tuple(cfg.get("deploy.secret_env", []) or []) if os.environ.get(k)}
-    res = run_commands([cfg.get(f"{c}.cmd")], cfg.root, timeout, env)  # output holds stdout + stderr
+    res = run_commands([cfg.get(f"{c}.cmd")], cfg.root, timeout, env, base_env=base)  # output holds stdout + stderr
     failure = None
     if res[-1].rc != 0:
         failure = f"deploy command failed:\n{scrub_secrets(res[-1].output[-1500:], secrets)}"
     elif not health_check(cfg.get(f"{c}.health_url", ""), int(cfg.get(f"{c}.health_timeout_sec", 180))):
         failure = f"health check failed: {cfg.get(f'{c}.health_url')}"
     else:
-        smoke = run_commands(cfg.commands("smoke"), cfg.root, timeout, env)
+        smoke = run_commands(cfg.commands("smoke"), cfg.root, timeout, env, base_env=base)
         bad = [r for r in smoke if r.rc != 0]
         if bad:
             failure = f"smoke test failed: {bad[0].cmd}\n{scrub_secrets(bad[0].output[-1500:], secrets)}"
@@ -61,7 +63,7 @@ def deploy(cfg, env_name: str, ref: str, phase_id: str, prev_ref: str | None) ->
     rolled = False
     rb = cfg.get(f"{c}.rollback_cmd")
     if rb and prev_ref:
-        rb_res = run_commands([rb], cfg.root, timeout, env)
+        rb_res = run_commands([rb], cfg.root, timeout, env, base_env=base)
         rolled = rb_res[-1].rc == 0
         failure += f"\nrollback to {prev_ref[:10]}: {'ok' if rolled else 'FAILED'}"
     return DeployResult(False, failure, rolled_back=rolled)

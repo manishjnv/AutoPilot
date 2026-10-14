@@ -247,6 +247,7 @@ audit:                    # reviews overall implementation vs plan -> corrective
   consolidate: false      # O9: at each phase close, a rise in duplicate blocks, files over budget or layer violations adds one [consolidate] task to the next phase
 
 deploy:
+  env_pass: []            # names of extra environment variables the deploy and smoke commands need (login and token variables are removed otherwise)
   staging:
     enabled: false
     cmd: ""               # gets $AUTOPILOT_REF, $AUTOPILOT_PHASE, $AUTOPILOT_ENV

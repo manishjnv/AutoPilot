@@ -204,6 +204,7 @@ No session needs a long chat history. After a crash or a restart, the run contin
 - Sessions cannot commit, push, or change branches. Only the orchestrator uses git.
 - The orchestrator turns git hooks off for its git commands. It restores `.git/config` after each session.
 - Sessions and checks get only the environment variables on an allowlist, not your full environment.
+- Checks, setup and deploy commands run agent-written code, so they get no login, token or alert variables unless the step declares them.
 - Research sessions can read the web, but get no shell.
 
 ## 11. Code map
