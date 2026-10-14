@@ -9,6 +9,10 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+**In plain words:** this version closes the findings of the 2026-10-14 security review. Autopilot stays unattended: no prompt and no question. The documents explain the admin right in plain words, and the code validates everything the model writes.
+
+- The security and how-to documents now explain the admin right that lets a build install system tools without a password.
+
 ## [0.8.0] - 2026-10-14
 
 **In plain words:** Autopilot now learns from its own runs and wastes less time. A run shows what it waits for, a stop is quick, and nothing is lost when a task fails. It also guards your project better: a broken main branch is found at once, and important features cannot shrink unnoticed.

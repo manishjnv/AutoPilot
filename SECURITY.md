@@ -54,7 +54,26 @@ is one command: `ap upgrade --ref vX.Y.Z`. Stop it with `upgrade.auto: false` in
 
 ## Rights the installer takes
 
-The installer takes rights once, with one prompt, so a later run never asks. On Windows it creates the scheduled task `Autopilot-Setup` with the highest run level. The task runs only `%ProgramData%\Autopilot\setup.ps1`. Only Administrators can change that script. The script installs only `winget` ids from the queue file in the same folder. On Linux it writes `/etc/sudoers.d/autopilot` for `apt-get`, `dpkg`, `snap` and `brew`. You accept this standing elevation when you run the installer on a solo PC. On a shared PC, do not run the installer. Remove the rights with `ap uninstall --rights`.
+The installer takes rights once, with one prompt, so a later run never asks. This is a feature. The build never stops for a password.
+
+> [!WARNING]
+> Do not run the installer on a shared PC. Any process that runs as your user can then install packages with full rights, and an AI session is such a process.
+
+**What the installer grants**
+
+| System | What is created | What it allows |
+|---|---|---|
+| Windows | The scheduled task `Autopilot-Setup` with the highest run level | The task runs only `%ProgramData%\Autopilot\setup.ps1`. Only Administrators can change that script. It installs only `winget` ids from the queue file in the same folder. |
+| Linux and WSL | The file `/etc/sudoers.d/autopilot` | Your user runs `apt-get`, `dpkg`, `snap` and `brew` as root, with no password. |
+| macOS | Nothing | `brew` needs no rights. |
+
+**Why Autopilot needs this.** A task sometimes needs a system tool, such as a compiler or a database. Without these rights, the run stops and waits for a password. With them, Autopilot installs the tool, writes it to the log, and goes on.
+
+**What this means for you.** You accept a standing elevation. Any process that runs as your user can install packages as root (Linux) or as administrator (Windows), without a prompt. This includes a Claude Code session that Autopilot starts. Package installs can run code, so treat these rights as admin rights.
+
+**Who should not use it.** Do not run the installer on a shared PC or on a machine with data that you cannot lose. Use a personal PC or a virtual machine for the build.
+
+**How to remove it.** Run `ap uninstall --rights` to remove only the rights. Run `ap uninstall --all` to remove the rights and Autopilot. Run `ap doctor` to check the state. It shows the line `rights` with the result.
 
 ## Docker sandbox
 

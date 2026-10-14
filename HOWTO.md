@@ -12,7 +12,7 @@ setting, use the [reference](REFERENCE.md). The guides use `ap`, the short name 
 | Audits | [Start an audit now](#start-an-audit-now) |
 | Projects | [Change the plan in plain words](#change-the-plan-in-plain-words) · [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
 | Tasks | [Get a design choice or research before a task](#get-a-design-choice-or-research-before-a-task) |
-| Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [What the script does](#what-the-script-does) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
+| Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [Give Autopilot the right to install system tools](#give-autopilot-the-right-to-install-system-tools) · [What the script does](#what-the-script-does) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) · [Merge each task through a pull request](#merge-each-task-through-a-pull-request) |
 | Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Run with the laptop off](#run-with-the-laptop-off-claude-code-routines) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
@@ -719,6 +719,32 @@ It removes the rights the installer took, the folder `~/.autopilot`, and then th
 has ended, because the program cannot delete itself while it runs). `ap uninstall --all --dry-run` lists the steps.
 It keeps uv, Python, git, your AI CLI with its login, and the `.agent/` folder of each project. Delete `.agent/` to
 start a project clean. Without `ap`, run `uv tool uninstall dev-autopilot` (or `pip uninstall dev-autopilot`).
+
+## Give Autopilot the right to install system tools
+
+Some tasks need a system tool, such as a compiler. With this right, Autopilot installs the tool and the build does not stop for a password.
+
+> [!WARNING]
+> Do not give this right on a shared PC. Any process that runs as your user, including an AI session, can then install packages with full rights.
+
+1. Run the command:
+
+   ```powershell
+   ap install --rights
+   ```
+
+2. Accept the one prompt. On Windows, this is the UAC prompt. On Linux and WSL, this is the `sudo` password.
+3. Read the result. Autopilot prints the scheduled task (Windows) or the file `/etc/sudoers.d/autopilot` (Linux) that it created.
+4. Check the state:
+
+   ```powershell
+   ap doctor
+   ```
+
+   The line `rights` names what Autopilot took and how to undo it. It shows `none` when no right is set.
+5. To remove the right, run `ap uninstall --rights`. To remove the right and Autopilot, run `ap uninstall --all`.
+
+For what the right allows, see [SECURITY.md](SECURITY.md#rights-the-installer-takes).
 
 ## Install from a clone to change the code
 
