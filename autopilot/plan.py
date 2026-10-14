@@ -11,7 +11,7 @@ import yaml
 from .config import RISKS, load_yaml
 
 
-ID_RX = re.compile(r"[A-Za-z0-9_-]{1,40}")  # phase and task ids: they become folder and branch names
+ID_RX = re.compile(r"(?!(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$)[A-Za-z0-9_-]{1,40}", re.I)  # ids become folder and branch names; no Windows device names
 
 
 class PlanError(Exception):

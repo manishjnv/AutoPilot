@@ -1727,7 +1727,7 @@ class Orchestrator:
                 red = self._red_test(self.root)
             else:
                 path, branch = self._worktree_root() / "main-probe", "autopilot/main-probe"
-                self.git.add_worktree(path, branch, sha)
+                self.git.add_worktree(path, branch, sha, inside=self._worktree_root())
                 try:
                     self._worktree_setup(path, "main-probe")
                     red = self._red_test(path)
@@ -1868,7 +1868,8 @@ class Orchestrator:
     def _worktree_setup(self, path, label: str):
         if self.cfg.get("scheduling.worktree_setup", True) and self.cfg.commands("setup"):
             t0 = time.monotonic()
-            for r in run_commands(self.cfg.commands("setup"), path, int(self.cfg.get("verify_timeout_sec", 1200))):
+            for r in run_commands(self.cfg.commands("setup"), path, int(self.cfg.get("verify_timeout_sec", 1200)),
+                                  base_env=check_env(self.cfg)):
                 if r.rc != 0:
                     log.warning("setup in worktree %s failed: %s", label, r.cmd)
             took = time.monotonic() - t0
@@ -1888,7 +1889,7 @@ class Orchestrator:
         jobs, self.landed = [], []  # landed: (task, main before its merge) in merge order
         for t in tasks:
             path, branch = self._worktree_root() / t.id, f"autopilot/{t.id}"
-            self.git.add_worktree(path, branch, self.main)
+            self.git.add_worktree(path, branch, self.main, inside=self._worktree_root())
             self._worktree_setup(path, t.id)
             risk = self.effective_risk(t)
             model, phase = self.model_for(risk, 0), self.plan.phase_of(t)
@@ -1973,7 +1974,7 @@ class Orchestrator:
         tmp, tpath = f"autopilot/merge-{task.id}", Path(str(path) + "-merge")
         before = self.git.head()
         try:
-            self.git.add_worktree(tpath, tmp, self.main)
+            self.git.add_worktree(tpath, tmp, self.main, inside=self._worktree_root())
             try:
                 Git(tpath).run("merge", "-q", "--no-ff", "-m", f"[autopilot] merge {task.id}: {task.title}", branch)
             except GitError as exc:
@@ -2259,7 +2260,8 @@ class Orchestrator:
         setup = self.cfg.commands("setup")
         if not setup:
             return True, ""
-        bad = [r for r in run_commands(setup, self.root, int(self.cfg.get("verify_timeout_sec", 1200))) if r.rc != 0]
+        bad = [r for r in run_commands(setup, self.root, int(self.cfg.get("verify_timeout_sec", 1200)),
+                                       base_env=check_env(self.cfg)) if r.rc != 0]
         return (False, f"$ {bad[0].cmd}\n{bad[0].output[-3000:]}") if bad else (True, "")
 
     def repair_env(self, problem: str) -> bool:

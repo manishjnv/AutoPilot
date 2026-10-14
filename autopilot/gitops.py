@@ -192,9 +192,9 @@ class Git:
             raise
         return self.head()
 
-    def add_worktree(self, path, branch: str, base: str):
+    def add_worktree(self, path, branch: str, base: str, inside=None):
         """A separate checkout of `base` on a fresh `branch` (P3). Clears a leftover of the same name first."""
-        self.drop_worktree(path, branch)
+        self.drop_worktree(path, branch, inside=inside)
         self.run("worktree", "add", "-q", "-B", branch, str(path), base)
 
     def drop_worktree(self, path, branch: str, inside=None):

@@ -191,9 +191,18 @@ def doc_tests(root, files: list[str]) -> list[str]:
             if any(d in t.read_text(encoding="utf-8", errors="replace") for d in docs)]
 
 
+_NT_UNSAFE = re.compile(r'[&|<>^%!"()]')  # cmd.exe metacharacters that list2cmdline does not escape
+
+
 def _q(path: str) -> str:
     """One path as one shell word (the gate runs commands with shell=True; a name like `a$(cmd).ts` must stay data)."""
     return subprocess.list2cmdline([path]) if os.name == "nt" else shlex.quote(path)
+
+
+def _safe_paths(paths) -> list[str]:
+    """X4 review: a name that starts with `-` would be an option, and on Windows a cmd.exe metacharacter would run;
+    such names fall out of the narrowed list (the full command still covers them)."""
+    return [p for p in dict.fromkeys(paths) if not p.startswith("-") and not (os.name == "nt" and _NT_UNSAFE.search(p))]
 
 
 def changed_tests(cfg, cmd: str, files: list[str]) -> str:
@@ -212,10 +221,12 @@ def changed_tests(cfg, cmd: str, files: list[str]) -> str:
             elif f.endswith(".py") and (cfg.root / mapped).exists():
                 paths.append(mapped)
         paths += doc_tests(cfg.root, files)
-        return f"{cmd} {' '.join(map(_q, dict.fromkeys(paths)))}" if paths else cmd
+        paths = _safe_paths(paths)
+        return f"{cmd} {' '.join(map(_q, paths))}" if paths else cmd
     code = [f for f in files if re.search(r"\.(?:[cm]?[jt]sx?)$", f) and not _match(f, tests)]
     if "vitest" in cmd and code:
-        return re.sub(r"vitest(\s+run)?", f"vitest related {' '.join(map(_q, code))} --run", cmd, count=1)
+        repl = f"vitest related {' '.join(map(_q, _safe_paths(code)))} --run"
+        return re.sub(r"vitest(\s+run)?", lambda m: repl, cmd, count=1)
     dirs = {f.rsplit("/", 1)[0] if "/" in f else "" for f in files if f.endswith(".go")}
     if "go test" in cmd and dirs and "" not in dirs:
         return cmd.replace("./...", " ".join(_q(f"./{d}/...") for d in sorted(dirs)))

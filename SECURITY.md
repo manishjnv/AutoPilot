@@ -85,3 +85,7 @@ never appear in the command line. The container and the temp folder are removed 
 It does not protect the network. The API host must be reachable, and the default `bridge` network is open egress
 unless `sandbox.enabled: true` also turns on the allowlist. A mount outside the worktree, such as an absolute
 `mcp_config` path, is not visible inside the container.
+
+## The plugin Stop hook and the project list
+
+The Claude Code plugin's Stop hook runs the project test command only in a folder that `ap init`, `ap quickstart`, `ap run` or `ap start` registered in `~/.autopilot/projects.txt`. This stops a hostile clone that you only open in Claude Code from running a command. It is not a boundary against a session that already runs on your computer: such a session can write that file. Autopilot's own build sessions never load the plugin.
