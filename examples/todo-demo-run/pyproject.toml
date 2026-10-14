@@ -10,7 +10,7 @@ requires-python = ">=3.8"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "todo", email = "manishjnvk@gmail.com"}
+    {name = "todo", email = "257227540+manishjnv@users.noreply.github.com"}
 ]
 
 [project.scripts]

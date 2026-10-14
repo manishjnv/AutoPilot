@@ -119,3 +119,25 @@ def test_setup_rights_windows_prints_the_one_command(monkeypatch):
     monkeypatch.setattr(rights, "have_rights", lambda platform=None: "")
     out = rights.setup_rights("win32", run=fake_run([]))
     assert len(out) == 1 and "install.ps1 -Rights" in out[0]
+
+
+def test_sudoers_draft_is_private_and_not_a_fixed_name(tmp_path, monkeypatch):
+    """H6: the draft is a mkstemp file (0600) inside a private mkdtemp folder, gone after the install."""
+    import os
+    import sys
+
+    import pytest
+    if sys.platform.startswith("win"):
+        pytest.skip("POSIX file modes")
+    seen = []
+
+    def run(cmd, **kw):
+        if cmd[:2] == ["sudo", "install"]:
+            draft = Path(cmd[-2])
+            seen.append((draft, draft.stat().st_mode & 0o777, draft.parent.stat().st_mode & 0o777))
+        return SimpleNamespace(rc=0, stdout="", stderr="", timed_out=False)
+    monkeypatch.setattr(rights, "SUDOERS", str(tmp_path / "autopilot"))
+    rights.setup_rights("linux", run=run, user="me", tmp=tmp_path)
+    draft, mode, dmode = seen[0]
+    assert draft.name != "autopilot-sudoers" and mode == 0o600 and dmode == 0o700
+    assert not draft.parent.exists() and os.listdir(tmp_path) == []

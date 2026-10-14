@@ -13,6 +13,8 @@ Autopilot masks the values of known secret variables in the error text of a fail
 - A way for a session to change the files that only Autopilot writes, for example `.agent/plan.yaml` (the task list).
 - A secret that Autopilot writes to git, to a log, or to the status page.
 - A way to read the status page from a different computer without the token.
+- A way to read the status page without its token, also on the same computer: each run makes a random token and the page link holds it.
+- A key, certificate or credentials file that Autopilot stages into a commit: such names are always left out.
 
 ## How to report
 

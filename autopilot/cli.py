@@ -829,7 +829,7 @@ def open_page_once(root: Path, url: str):
         return
     import webbrowser
     try:  # on a machine without a browser this does nothing
-        marker.write_text(url, encoding="utf-8")
+        marker.write_text("opened", encoding="utf-8")  # the URL holds the token: not stored
         webbrowser.open(url, new=2)
     except Exception:  # noqa: BLE001
         pass
@@ -1271,13 +1271,17 @@ def start_status_page(root: Path, port: int = 8765) -> str:
         except OSError:
             continue
         threading.Thread(target=srv.serve_forever, daemon=True).start()
-        try:  # W11-port: the VS Code extension reads the port from this file
+        try:  # W11-port: the VS Code extension reads the port from this file; M4: the token has its own 0600 file
             (root / ".agent" / "status.port").write_text(f"{p}\n", encoding="utf-8")
+            tf = root / ".agent" / "status.token"
+            tf.unlink(missing_ok=True)
+            with os.fdopen(os.open(tf, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as fh:
+                fh.write(srv.token + "\n")
         except OSError:
             pass
         if p != port:  # Q21.8: say which port was taken
             print(f"status page: port {port} is in use, so it runs on port {p}", flush=True)
-        return f"http://127.0.0.1:{p}/"
+        return f"http://127.0.0.1:{p}/?token={srv.token}"
     return ""
 
 
@@ -1291,7 +1295,7 @@ def cmd_serve(args):
     except (ValueError, OSError) as exc:
         print(f"cannot serve: {exc}")
         return 1
-    print(f"status page: http://{args.host}:{srv.server_address[1]}/ (refreshes every {args.refresh}s; Ctrl+C stops)")
+    print(f"status page: http://{args.host}:{srv.server_address[1]}/?token={srv.token} (refreshes every {args.refresh}s; Ctrl+C stops)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

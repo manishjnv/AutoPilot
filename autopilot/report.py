@@ -591,6 +591,8 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
     """Read-only HTTP server: GET / rebuilds the report from plan.yaml + state.db on every request.
     A non-loopback bind needs a token (?token=...). Raises ValueError when that is missing."""
     import hmac
+    import os
+    import secrets
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from pathlib import Path
     from urllib.parse import parse_qs, urlsplit
@@ -603,6 +605,7 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
     if not token and not is_loopback(host):
         raise ValueError(f"refusing to serve on {host} without AUTOPILOT_STATUS_TOKEN (the report shows errors "
                          "and decisions); bind to 127.0.0.1 and use an SSH tunnel, or set a token")
+    token = token or secrets.token_urlsafe(16)  # M4: a token is always required, also on loopback
     root = Path(root)
     cache: dict = {}  # {"key": mtimes of the inputs, "body": page}; a GET between changes returns the same bytes
     inputs = [root / AGENT_DIR / n for n in ("state.db", "state.db-wal", "run.json", "plan.yaml", "logs/autopilot.log")]
@@ -631,12 +634,9 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
             url = urlsplit(self.path)
             if url.path != "/":
                 return self._send(404, "not found", "text/plain")
-            if token:
-                given = parse_qs(url.query).get("token", [""])[0]
-                if not hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8")):
-                    return self._send(403, "forbidden", "text/plain")
-            elif not is_loopback(urlsplit("//" + self.headers.get("Host", "")).hostname or ""):
-                return self._send(403, "forbidden", "text/plain")  # DNS rebinding: a web page posing as localhost
+            given = parse_qs(url.query).get("token", [""])[0]
+            if not hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8")):
+                return self._send(403, "forbidden", "text/plain")  # also stops DNS rebinding: a page cannot know the token
             try:
                 key = stamp()
                 if cache.get("key") == key:
@@ -669,4 +669,9 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
         def log_message(self, *a):  # quiet: the URL holds the token
             pass
 
-    return ThreadingHTTPServer((host, port), Handler)
+    class Server(ThreadingHTTPServer):
+        allow_reuse_address = os.name != "nt"  # on Windows SO_REUSEADDR lets another process share the port
+
+    srv = Server((host, port), Handler)
+    srv.token = token
+    return srv

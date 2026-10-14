@@ -133,12 +133,16 @@ def setup_rights(platform: str | None = None, run=run_proc, user: str | None = N
     if p == "darwin":
         return ["macOS: none needed (brew needs none)"]
     line = SUDO_LINE.format(user=user or os.environ.get("USER") or os.environ.get("LOGNAME") or "me")
-    draft = (tmp or Path(os.environ.get("TMPDIR") or "/tmp")) / "autopilot-sudoers"
-    draft.write_text(line + "\n", encoding="utf-8")
+    import tempfile  # H6: a private 0700 folder and a mkstemp file (0600), never a fixed name another user could pre-create
+    folder = Path(tempfile.mkdtemp(prefix="autopilot-", dir=str(tmp) if tmp else None))
+    fd, name = tempfile.mkstemp(prefix="sudoers-", dir=folder)
+    draft = Path(name)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(line + "\n")
     print(f"one sudo now: it installs {SUDOERS} (checked with visudo)")
     ok = (run(["sudo", "install", "-m", "0440", "-o", "root", "-g", "root", str(draft), SUDOERS], timeout=600).rc == 0
           and run(["sudo", "visudo", "-cf", SUDOERS], timeout=60).rc == 0)
-    draft.unlink(missing_ok=True)
+    shutil.rmtree(folder, ignore_errors=True)
     if not ok:
         run(["sudo", "rm", "-f", SUDOERS], timeout=60)
         return [f"could not install {SUDOERS}; the line to add by hand (visudo -f {SUDOERS}): {line}"]

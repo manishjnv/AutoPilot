@@ -19,6 +19,8 @@ done
 : "${DEPLOY_SSH_HOST:?DEPLOY_SSH_HOST required}" "${DEPLOY_SSH_KEY_PATH:?DEPLOY_SSH_KEY_PATH required}"
 : "${DEPLOY_HEALTH_URL:?DEPLOY_HEALTH_URL required}"
 DEPLOY_DIR=${DEPLOY_DIR:-.}
+# L5: DEPLOY_DIR goes into the remote script: an absolute path of safe characters, no "..", or the default "."
+[[ "$DEPLOY_DIR" == . || ( "$DEPLOY_DIR" =~ ^/[A-Za-z0-9._/-]+$ && "$DEPLOY_DIR" != *..* ) ]] || { echo "ERROR: invalid DEPLOY_DIR '$DEPLOY_DIR' (absolute path, A-Z a-z 0-9 . _ / -, no ..)" >&2; exit 2; }
 DEPLOY_BUILD_CMD=${DEPLOY_BUILD_CMD:-true}
 DEPLOY_RESTART_CMD=${DEPLOY_RESTART_CMD:-true}
 STATE=${DEPLOY_STATE_FILE:-.deploy_prev_ref}
@@ -56,6 +58,7 @@ if [ "$DRY" = 1 ]; then
   exit 0
 fi
 
+# The host key is pinned on first contact (accept-new) in the known_hosts file named below; a changed key then fails the call.
 OUT=$($SSH -i "$DEPLOY_SSH_KEY_PATH" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
   -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PasswordAuthentication=no "$DEPLOY_SSH_HOST" "bash -s" <<<"$REMOTE") \
   || { err "remote deploy step failed"; exit 3; }

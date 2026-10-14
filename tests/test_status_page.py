@@ -9,7 +9,9 @@ from autopilot.report import is_loopback, status_server
 from test_autopilot import make_project, phases_basic
 
 
-def get(srv, path="/"):
+def get(srv, path="/", tok=True):
+    if tok and path == "/":
+        path = f"/?token={srv.token}"  # M4: the token is always required
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{srv.server_address[1]}{path}", timeout=10) as r:
             return r.status, r.read().decode("utf-8"), dict(r.headers)
@@ -42,17 +44,18 @@ def test_page_shows_the_report_and_refreshes(serve):
 
 def test_token_is_required_when_set(serve):
     srv = serve(token="s3cret-token")
-    assert get(srv)[0] == 403 and get(srv, "/?token=wrong")[0] == 403 and get(srv, "/?token=%C3%A9")[0] == 403
+    assert get(srv, tok=False)[0] == 403 and get(srv, "/?token=wrong")[0] == 403 and get(srv, "/?token=%C3%A9")[0] == 403
     assert get(srv, "/?token=s3cret-token")[0] == 200
 
 
-def test_dns_rebinding_is_refused_without_a_token(serve):
+def test_a_token_is_required_also_on_loopback(serve):
     import http.client
     srv = serve()
-    for host, code in (("evil.example:8765", 403), ("localhost:8765", 200), ("[::1]:8765", 200)):
+    assert len(srv.token) >= 16 and get(srv, tok=False)[0] == 403
+    for host in ("evil.example:8765", "localhost:8765"):  # DNS rebinding: the page cannot know the token
         c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
         c.request("GET", "/", headers={"Host": host})
-        assert c.getresponse().status == code, host
+        assert c.getresponse().status == 403, host
         c.close()
 
 
@@ -163,5 +166,10 @@ def test_start_status_page_writes_the_port_file(tmp_path):
         s.bind(("127.0.0.1", 0))
         free = s.getsockname()[1]
     url = start_status_page(root, free)
-    assert url == f"http://127.0.0.1:{free}/"
+    assert url.startswith(f"http://127.0.0.1:{free}/?token=")
     assert (root / ".agent" / "status.port").read_text(encoding="utf-8") == f"{free}\n"
+    tf = root / ".agent" / "status.token"
+    assert url.endswith("/?token=" + tf.read_text(encoding="utf-8").strip())
+    import sys
+    if not sys.platform.startswith("win"):
+        assert tf.stat().st_mode & 0o777 == 0o600

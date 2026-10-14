@@ -43,7 +43,7 @@ def bad_path(p: str, root: Path) -> bool:
     if not p or p.startswith(("/", "\\")) or PurePosixPath(p).is_absolute() or PureWindowsPath(p).is_absolute() \
             or PureWindowsPath(p).drive:
         return True
-    if any(part in ("..", ".git") for part in re.split(r"[/\\]", p)):
+    if any(part.lower() in ("..", ".git") for part in re.split(r"[/\\]", p)):
         return True
     try:
         (root / p).resolve().relative_to(root)
@@ -87,6 +87,8 @@ class OpenAICompatBackend:
         headers = {"Content-Type": "application/json"}
         key_env = self.cfg.get("agent.api_key_env")
         key = os.environ.get(str(key_env)) if key_env else ""
+        if key and urllib.parse.urlsplit(target).scheme == "http" and (urllib.parse.urlsplit(target).hostname or "") not in _LOCAL:
+            return SessionResult(ok=False, error="agent.base_url is http:// and not local: the key would travel in clear text; use https://")
         if key:
             headers["Authorization"] = f"Bearer {key}"
         host = urllib.parse.urlsplit(target).hostname or ""

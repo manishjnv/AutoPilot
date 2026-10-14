@@ -371,9 +371,10 @@ Autopilot.
    ssh -L 8765:127.0.0.1:8765 your-vps
    ```
 
-2. Open `http://127.0.0.1:8765/` in your browser.
+2. Open the link that `ap` printed, `http://127.0.0.1:8765/?token=...`, in your browser. The page refuses a link without the token.
 
 To serve the page on a different address, set `AUTOPILOT_STATUS_TOKEN`. Then open `http://host:8765/?token=...`.
+The token is in `.agent/status.token`.
 Keep this address private.
 
 ## Limit network access
@@ -595,7 +596,7 @@ A thin side panel for VS Code. It lives in `vscode/`. It has no chat participant
 
 1. Run `Autopilot: Start`, `Autopilot: Answer` or `Autopilot: Stop` from the command palette. Each one sends `ap start`, `ap answer` or `ap stop` to a terminal named Autopilot. The terminal is reused when it is open.
 2. Open the Autopilot view in the Explorer side bar. It shows the status page of the run.
-3. The view reads the port from `.agent/status.port`. `ap start` writes that file with the port the status page uses, and new projects ignore it in git. When nothing answers, the view says to run `ap` first.
+3. The view reads the port from `.agent/status.port` and the token from `.agent/status.token`. `ap start` writes that file with the port the status page uses, and new projects ignore it in git. When nothing answers, the view says to run `ap` first.
 
 Build it with `cd vscode`, `npm install` and `npx tsc --noEmit`. See [vscode/README.md](vscode/README.md). This repository does not publish the extension.
 

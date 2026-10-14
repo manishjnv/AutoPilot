@@ -57,3 +57,18 @@ def test_drop_worktree_refuses_outside_path(tmp_path):
 def test_approve_bad_id_exits_2(tmp_path):
     from autopilot.cli import main
     assert main(["approve", "../x", "-C", str(tmp_path)]) == 2
+
+
+def test_plan_write_goes_through_a_temp_file_and_replace(tmp_path, monkeypatch):
+    """M12: a failed write leaves the old plan.yaml whole and no temp file behind."""
+    import os
+
+    import pytest
+
+    from autopilot import plan as planmod
+    p = tmp_path / "plan.yaml"
+    p.write_text("phases: []\n", encoding="utf-8")
+    monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(OSError("boom")))
+    with pytest.raises(OSError):
+        planmod._write_yaml(p, {"phases": [{"id": "P01"}]})
+    assert p.read_text(encoding="utf-8") == "phases: []\n" and [f.name for f in tmp_path.iterdir()] == ["plan.yaml"]

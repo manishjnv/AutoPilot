@@ -469,3 +469,13 @@ def test_entry_added_to_scope_always_passes(repo):  # W19
 def test_howto_has_the_work_branch_recipe():  # W19
     text = (Path(__file__).resolve().parent.parent / "HOWTO.md").read_text(encoding="utf-8")
     assert "main_branch: autopilot/work" in text and "git.mode: direct" in text and "git.mode: pr" in text
+
+
+def test_key_and_credential_files_are_never_staged(repo):
+    """L4: the junk list keeps private keys and credentials out of the add helper."""
+    g = Git(repo)
+    g.ensure_repo("main")
+    for name in ("server.pem", "id_rsa", "id_ed25519.pub", ".npmrc", "credentials.json", "a.key", "b.p12", "c.pfx"):
+        put(repo, name, "x\n")
+    put(repo, "ok.txt", "x\n")
+    assert g.staged_files() == ["ok.txt"]

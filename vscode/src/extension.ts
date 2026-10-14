@@ -26,6 +26,16 @@ async function statusPort(): Promise<number> {
   }
 }
 
+// M4: the page needs the token the run writes to <workspace>/.agent/status.token.
+async function statusToken(): Promise<string> {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+  try {
+    return folder ? new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(folder, ".agent", "status.token"))).trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 async function answers(url: string): Promise<boolean> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
@@ -40,7 +50,7 @@ class StatusView implements vscode.WebviewViewProvider {
     view.webview.options = { enableScripts: false };
     const render = async (): Promise<void> => {
       const port = await statusPort();
-      const local = vscode.Uri.parse(`http://127.0.0.1:${port}/`);
+      const local = vscode.Uri.parse(`http://127.0.0.1:${port}/?token=${await statusToken()}`);
       const up = await answers(local.toString());
       const ext = (await vscode.env.asExternalUri(local)).toString();
       view.webview.html = page(ext, up);

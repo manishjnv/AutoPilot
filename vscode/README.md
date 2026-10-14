@@ -8,7 +8,7 @@ A thin side panel for [Autopilot](../README.md). It has no chat participant.
 - `Autopilot: Answer` sends `ap answer`.
 - `Autopilot: Stop` sends `ap stop`.
 
-The terminal is reused when it is open. The Autopilot view in the Explorer side bar shows the status page of the run. It reads the port from `.agent/status.port` (default 8765). When nothing answers, it says to run `ap` first.
+The terminal is reused when it is open. The Autopilot view in the Explorer side bar shows the status page of the run. It reads the port from `.agent/status.port` (default 8765) and the token from `.agent/status.token`. When nothing answers, it says to run `ap` first.
 
 ## Build and publish
 

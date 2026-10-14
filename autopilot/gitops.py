@@ -22,7 +22,8 @@ FILTER_RX = r"^filter\..+\.(clean|smudge|process)$"
 # Never committed, whatever the project's .gitignore says (written to .git/info/exclude).
 JUNK = ["__pycache__/", "*.py[cod]", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", "*.egg-info/",
         "node_modules/", ".next/", ".turbo/", ".DS_Store", "*.swp", ".coverage", "coverage/", "htmlcov/",
-        ".venv/", "venv/", ".env", ".env.*", "!.env.example", "target/debug/", "target/release/"]
+        ".venv/", "venv/", ".env", ".env.*", "!.env.example", "target/debug/", "target/release/",
+        "*.pem", "id_rsa*", "id_ed25519*", ".npmrc", "credentials.json", "*.key", "*.p12", "*.pfx"]
 
 
 class GitError(RuntimeError):

@@ -91,7 +91,7 @@ A read-only command (`status`, `watch`, `next`, `report`) first prints `project:
 | `AUTOPILOT_NTFY_TOPIC` | ntfy alerts |
 | `AUTOPILOT_SLACK_WEBHOOK` | Slack alerts |
 | `AUTOPILOT_WEBHOOK` | Alerts to a different web service |
-| `AUTOPILOT_STATUS_TOKEN` | Lets the status page serve on an address that is not local |
+| `AUTOPILOT_STATUS_TOKEN` | Sets the token of the status page. Without it, each run makes a random token. A page on an address that is not local needs it |
 | `AUTOPILOT_PLAIN=1` | Removes the pinned status row at the bottom of the terminal, and the color. `status` and the page still show the status line |
 | `NO_COLOR=1` | Removes the color. Claude Code sets this value for its tools, so a window that a build opens from Claude Code ignores it. Use `AUTOPILOT_PLAIN=1` there |
 | `AUTOPILOT_NO_BROWSER=1` | Does not open the browser |
@@ -121,6 +121,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `history/<phase>/BADGE.md` | W9: the markdown image line `![Built by Autopilot](proof.svg)` for the phase folder and the repo-relative path `.agent/history/<phase>/proof.svg` to paste into the README | Yes |
 | `audits/` | The audit reports | Yes |
 | `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
+| `status.token` | The random token of the status page, mode 0600. The page link ends with `?token=` and this value. New projects ignore it in git | No |
 | `run.json` | The journal of the active run. At the end it has `word`, the outcome word. `pid` is the process of the run; `beat_at` is written every 30 seconds while the run lives, also during a long session. `status: running` with a `pid` that is gone shows as `DEAD since HH:MM` (time of `beat_at`, else `updated_at`) in `ap status`, `ap watch`, the end screen and the status page; the next command is `ap start`. A run.json without `pid` still shows ON. `heartbeat_at` is the time of the last runner event, written at most every 10 seconds. `current_at` is the time when the gate line or the start-check line was written. `version` is the Autopilot version of the run | No |
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports. The log rotates at 10 MB and Autopilot keeps three old copies | No |
@@ -481,7 +482,7 @@ by `tests/test_routine.py`, not by a live run.
 
 ## VS Code extension
 
-`vscode/` holds a thin extension (not published yet). Commands `autopilot.start`, `autopilot.answer` and `autopilot.stop` send `ap start`, `ap answer` and `ap stop` to a terminal named Autopilot. The `autopilotStatus` view in the Explorer shows the status page of the run; it reads the port from `.agent/status.port` (default 8765) and says to run `ap` first when nothing answers. See `vscode/README.md`.
+`vscode/` holds a thin extension (not published yet). Commands `autopilot.start`, `autopilot.answer` and `autopilot.stop` send `ap start`, `ap answer` and `ap stop` to a terminal named Autopilot. The `autopilotStatus` view in the Explorer shows the status page of the run; it reads the port from `.agent/status.port` (default 8765) and the token from `.agent/status.token`, and says to run `ap` first when nothing answers. See `vscode/README.md`.
 
 ## Self-healing
 

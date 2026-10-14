@@ -290,6 +290,23 @@ class Plan:
         return [t.id for t in self.all_tasks() if status.get(t.id, "pending") == "pending"]
 
 
+def _write_yaml(path: Path, data: dict) -> None:
+    """M12: write a temp file in the same folder, then os.replace it: a crash never leaves a half plan.yaml."""
+    import os
+    import tempfile
+
+    import yaml
+
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True, width=100)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def append_phase(path: Path | str, phase: dict) -> None:
     """Append a phase (e.g. corrective tasks from an audit) to plan.yaml and re-validate."""
     import yaml
@@ -298,8 +315,7 @@ def append_phase(path: Path | str, phase: dict) -> None:
     data = load_yaml(path)
     data.setdefault("phases", []).append(phase)
     Plan.from_dict(data)  # raises PlanError before we write anything invalid
-    with open(path, "w", encoding="utf-8") as fh:
-        yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True, width=100)
+    _write_yaml(path, data)
 
 
 def insert_task(path: Path | str, phase_id: str, task: dict) -> None:
@@ -312,8 +328,7 @@ def insert_task(path: Path | str, phase_id: str, task: dict) -> None:
         if str(p.get("id") or f"P{i + 1:02d}") == phase_id:
             p["tasks"] = [task] + list(p.get("tasks") or [])
     Plan.from_dict(data)
-    with open(path, "w", encoding="utf-8") as fh:
-        yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True, width=100)
+    _write_yaml(path, data)
 
 
 def clear_reopen_flags(path: Path | str, task_ids: list[str]) -> None:
@@ -325,8 +340,7 @@ def clear_reopen_flags(path: Path | str, task_ids: list[str]) -> None:
         for t in p.get("tasks") or []:
             if str(t.get("id")) in task_ids:
                 t.pop("reopen", None)
-    with open(path, "w", encoding="utf-8") as fh:
-        yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True, width=100)
+    _write_yaml(path, data)
 
 
 def _globs_meet(a: str, b: str) -> bool:

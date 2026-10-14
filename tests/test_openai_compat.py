@@ -203,3 +203,17 @@ def test_checks_has_the_endpoint_row_and_never_raises(tmp_path):
         f"agent:\n  backend: openai_compat\n  base_url: http://127.0.0.1:{port}/v1\n", encoding="utf-8")
     rows = checks(cfg_for(tmp_path, port))
     assert (WARN, "endpoint", f"http://127.0.0.1:{port}/v1 does not answer (start Ollama or LM Studio)") in rows
+
+
+def test_bearer_key_is_never_sent_over_plain_http_to_a_remote_host(tmp_path, monkeypatch):
+    """M6: http:// to a non-loopback host with a key: refused with one sentence, no request."""
+    monkeypatch.setenv("TEST_KEY_X8", "sk-test-not-real")
+    c = Config(tmp_path, deep_merge(defaults(), {"agent": {"backend": "openai_compat", "api_key_env": "TEST_KEY_X8",
+                                                          "base_url": "http://remote.example/v1"}}))
+    r = OpenAICompatBackend(c).run(req(tmp_path))
+    assert not r.ok and "http://" in r.error and "clear text" in r.error
+
+
+def test_dot_git_check_ignores_case(tmp_path):
+    from autopilot.backends.openai_compat import bad_path
+    assert bad_path(".GIT/config", tmp_path.resolve()) and bad_path("a/.Git/hooks/x", tmp_path.resolve())

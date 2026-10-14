@@ -59,10 +59,11 @@ def test_two_gets_with_unchanged_inputs_render_once(tmp_path, monkeypatch):
     real = report.build_report
     monkeypatch.setattr(report, "build_report", lambda *a: calls.append(1) or real(*a))
     srv = report.status_server(root, "127.0.0.1", 0)
-    assert type(srv).__name__ == "ThreadingHTTPServer"
+    from http.server import ThreadingHTTPServer
+    assert isinstance(srv, ThreadingHTTPServer)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
-        url = f"http://127.0.0.1:{srv.server_address[1]}/"
+        url = f"http://127.0.0.1:{srv.server_address[1]}/?token={srv.token}"
         bodies = [urllib.request.urlopen(url, timeout=10).read() for _ in range(2)]
     finally:
         srv.shutdown()
