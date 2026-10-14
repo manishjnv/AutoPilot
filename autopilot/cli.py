@@ -1647,7 +1647,21 @@ def cmd_stop(args):
 def cmd_budget(args):
     """W43: set budget_usd.total in .agent/project.yaml (comments stay); a live run reads it before its next task."""
     from .forecast import write_total
-    if args.usd <= 0:
+    credits = [(k, getattr(args, f"{k}_credit", None)) for k in ("cloud", "api")]
+    if any(v is not None for _, v in credits):  # W59: the hand-entered balances, with the entry date
+        from .usage import write_balance
+        yml = Path(args.path).resolve() / AGENT_DIR / "project.yaml"
+        expires = getattr(args, "expires", "") or ""
+        for name, usd in credits:
+            if usd is None:
+                continue
+            if usd < 0 or not write_balance(yml, name, usd, expires):
+                print(f"FAIL  could not set usage.{name}_credit in .agent/project.yaml")
+                return 1
+            print(f"{name} credit ${usd:g} entered today" + (f", expires {expires}" if expires else ""))
+        if args.usd is None:
+            return 0
+    if args.usd is None or args.usd <= 0:
         print("FAIL  the cost cap must be more than 0")
         return 1
     if not write_total(Path(args.path).resolve() / AGENT_DIR / "project.yaml", args.usd):
@@ -1925,7 +1939,10 @@ def main(argv=None):
     p.add_argument("--now", action="store_true", help="end the session in flight now and keep its files")
     add("resume", cmd_resume, "clear the stop flag")
     p = add("budget", cmd_budget, "set the total cost cap budget_usd.total; a live run uses it before its next task")
-    p.add_argument("usd", type=float, help="the new cap in US dollars")
+    p.add_argument("usd", type=float, nargs="?", help="the new cap in US dollars")
+    p.add_argument("--cloud-credit", type=float, dest="cloud_credit", help="W59: the cloud session credit left, in US dollars")
+    p.add_argument("--api-credit", type=float, dest="api_credit", help="W59: the API credit left, in US dollars")
+    p.add_argument("--expires", default="", help="W59: when the entered credit expires (YYYY-MM-DD)")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
     p.add_argument("--tokens", action="store_true", help="tokens and cost per step: build, retry, review, verify, audit, ...")
     p.add_argument("--issue", action="store_true", help="W51: build a scrubbed issue from the last run and open it with gh (opt-in)")

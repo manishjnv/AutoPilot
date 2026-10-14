@@ -356,6 +356,14 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
                      f'{_bar(u[k], lab, _lvl(u[k]))}')
             if k == "five" and u.get("reset_in"):
                 bars += f'<div class="z">Resets in {e(str(u["reset_in"]))}</div>'
+    for m in u.get("week_models") or []:  # W59: a weekly bar per model
+        bars += (f'<div class="row"><span class="bl">{e(str(m.get("name", "")))} week</span>'
+                 f'<span class="mg">{round(_v(m.get("pct")) * 100)}%</span></div>'
+                 f'{_bar(m.get("pct"), str(m.get("name", "")), _lvl(m.get("pct")))}')
+    for k, v in (u.get("credits") or {}).items():
+        bars += f'<div class="row"><span>{e(k.capitalize())} credit</span><span class="mg">{e(str(v))}</span></div>'
+    if u.get("now"):
+        bars += f'<div class="z">{e(str(u["now"]))}</div>'
     models = "".join(f'<div class="row"><span class="bl">{e(str(m.get("name", "")))}</span>'
                      f'<span>{e(str(m.get("tokens_text", "")))} {round(_v(m.get("share")) * 100)}%</span></div>'
                      f'{_bar(m.get("share"), str(m.get("name", "")))}' for m in u.get("models") or [])

@@ -81,6 +81,7 @@ Each long entry has a short sentence here and the full text under [Command detai
 | `autopilot stop [--now]` | Stops the run before its next session; `--now` ends the task session at once. [Details](#command-details) |
 | `autopilot resume` | Removes the stop flag. It does not start a run |
 | `ap budget <usd> [-C folder]` | Sets the cost cap `budget_usd.total` in `.agent/project.yaml` with a one-line edit (W43); the comments stay. A running build reads the new cap before its next task. A value of 0 or less exits 1 |
+| `ap budget --cloud-credit <usd> --api-credit <usd> [--expires DATE]` | Enters the cloud session credit and the API credit by hand (W59), with the entry date; the usage panel shows them. See [Usage and budget](#usage-and-budget) |
 | `autopilot review --kind periodic\|completion\|replan` | Starts an audit or a replan now |
 | `autopilot audit` | Starts the completion audit now |
 | `ap audit --history [--days N] [--home PATH]` | Prices the retries of your own Claude Code sessions from its history files. [Details](#command-details) |
@@ -176,6 +177,7 @@ The full text of each long table entry, in table order.
 | `NO_COLOR=1` | Removes the color. Claude Code sets this value for its tools, so a window that a build opens from Claude Code ignores it. Use `AUTOPILOT_PLAIN=1` there |
 | `AUTOPILOT_NO_BROWSER=1` | Does not open the browser |
 | `AUTOPILOT_NO_AUTOFIX=1` | Stops every automatic install and repair |
+| `AUTOPILOT_NO_LIVE_USAGE=1` | Stops the calls to the Claude usage endpoint (W59); the bars come from the CLI stream |
 | `AUTOPILOT_CLAUDE_BIN` | The path to the `claude` program. Autopilot also finds `claude` in `~/.local/bin` when the PATH is old |
 | `ANTHROPIC_API_KEY` | Use an API key instead of a subscription. Also set `usage.billing: api` |
 
@@ -247,7 +249,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `onboard` | The discovery pack of the `onboard` session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | Where the agent runs: `mode` `off`, `allowlist`, or `docker`. [Details](#setting-details) | `mode`, `enabled` (false), `allowed_domains`, `image` (needed for `docker`; the image must have `claude` on PATH), `network` (`bridge`) |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `replanner` (sonnet; opus when a pending task's `files_in_scope` matches `escalate.load_bearing`), `unstick` (sonnet), `review` (opus). `helper` (haiku) gives the short answer to a typed question, at most 20 calls for each run |
-| `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
+| `usage` | The 5-hour window and the live bars | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0), `live` (true, W59), `model_reserve_pct` (95), `cloud_credit` and `api_credit` (entered by `ap budget`) |
 | `upgrade` | The update that runs by itself | `auto` (true): before `ap run` or `ap start`, once a day, a release install gets the newest release and starts the command again; `false` turns it off. `AUTOPILOT_NO_AUTO_UPGRADE=1` does the same for one shell |
 | `budget_usd` | Cost limits | `per_session` (8), `per_task` (20), `per_phase` (150), `daily` (200), `total` (5000) |
 | `profile` | How much checking each task gets | `lean` (new projects) or `full` (a missing key) |
@@ -479,6 +481,10 @@ When the Claude CLI prints its final `result` event, Autopilot waits 10 seconds 
 - **5-hour window:** Autopilot reads your real usage from Claude Code. This figure includes your own use. When only
   15% is left (`usage.reserve_pct`), the run pauses until the window resets. This keeps some usage for you.
 - **Active login:** with a second login (`agent.fallback`), the window figures follow the login that the run uses now. The status and the dashboard name it.
+- **Live bars (W59):** Autopilot reads the usage bars of the login from the Claude usage endpoint. The bars: the 5-hour bar, the weekly bar, and the weekly bar of each model with its own limit. One call per login at most every 60 seconds, shared by the run, the watch, and the status page. `usage.live: false` or `AUTOPILOT_NO_LIVE_USAGE=1` stops the calls; the bars then come from the CLI stream and show `cli`. A live and a learned figure that differ by over 5 points at the same reset show `check`.
+- **Room per model (W59):** before each attempt, Autopilot checks the weekly bar of the model. A bar at or over `usage.model_reserve_pct` (default 95) skips the model for the next one down the ladder, never up. When no model of the ladder has room, the run waits for the reset and the watch screen says `opus out until Thu 21:30, waiting`. The log line `usage: opus is out until Thu 21:30, running on sonnet` names the change.
+- **One usage line (W59):** the watch screen, the status page, `ap status`, the report and the digest show the same line: `now: <model> (login <name>) · 5h N% · week N% · <model> week N% · <balance> · resets <time>`. The balance is the subscription, or the entered API credit with its entry date.
+- **Entered credits (W59):** `ap budget --cloud-credit 149 --api-credit 109 --expires 2026-11-05` stores the balances in `usage.cloud_credit` and `usage.api_credit` with the entry date. The usage panel shows them with that date, so a stale figure is visible. Autopilot does not count them down (no API gives the balance).
 - **Other agent CLIs:** they give no usage figure. Autopilot then counts its own cost against the `usage.window_usd` limit.
 - **Weekly limit:** you get one alert when the weekly limit passes 90%.
 - **Usage limit:** the run sleeps until the reset, and sends an alert. This does not count as a failed attempt.

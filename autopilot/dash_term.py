@@ -303,11 +303,17 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
             [alert(count(pr.get("blocked")), "red"), " blocked · ", cnt(count(pr.get("waiting")), "dim"), " waiting"],
             [(f"{count(pr.get('phases_done'))} of {count(pr.get('phases_total'))}", "value"), " phases"]]
     use = []
-    for label, key in (("5h", "five"), ("Week", "week"), ("Context", "context")):
+    tag = " cli" if u.get("source") == "cli" else ""  # W59: the figures come from the CLI stream, not the live endpoint
+    for label, key in (("5h" + tag, "five"), ("Week", "week"), ("Context", "context")):
         if num(u.get(key)) is not None:
             use.append([f"{label:<8}", *level_bar(u.get(key))])
         if key == "five" and u["reset_in"]:
-            use.append([(f"Resets in {u['reset_in']}", "dim")])
+            use.append([(f"Resets in {u['reset_in']}" + (" · check" if u.get("check") else ""), "dim")])
+        if key == "week":  # W59: one bar per model with its own weekly limit
+            for m in u.get("week_models") or []:
+                use.append([(f"{str(m.get('name', ''))[:7]:<8}", "blue"), *level_bar(m.get("pct"))])
+    for k, v in (u.get("credits") or {}).items():
+        use.append([f"{k.capitalize():<8}", (clean(str(v)), "magenta")])
     if u["tokens_text"]:
         use.append(f"Tokens  {u['tokens_text']}")
     use += [[(f"{m['name']:<9}", "blue"), f"{m['tokens_text']:>6} {round((num(m['share']) or 0) * 100):>3}%"]

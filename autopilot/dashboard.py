@@ -206,6 +206,26 @@ def spinner(d: dict, mtime, now: float, prev: dict | None = None, utf: bool = Tr
     return {**out, "kind": "run", "text": frames[frame % len(frames)]}
 
 
+def _usage_w59(cfg, state, run: dict, live: bool) -> dict:
+    """W59: the per-model weekly bars, the figure source, the one line and the hand-entered credits. Plain values;
+    never raises (a view must draw)."""
+    from . import usage
+    from .report import active_account, usage_now
+    try:
+        figs = usage.figures(state, cfg, active_account(state, live))
+        week_models = [{"name": k.capitalize(), "pct": float(v["pct"]),
+                        "reset_in": _dur(float(v["reset"]) - time.time()) if float(v["reset"]) > time.time() else ""}
+                       for k, v in sorted((figs.get("models") or {}).items())]
+        credits = {}
+        for k, v in usage.balances(cfg).items():
+            note = (f" (entered {v['entered']}" + (f", expires {v['expires']}" if v["expires"] else "") + ")") if v["entered"] else ""
+            credits[k] = f"${v['usd']:g}" + note
+        return {"week_models": week_models, "source": figs.get("source") or "", "check": bool(figs.get("check")),
+                "now": usage_now(cfg, state, run, live), "credits": credits}
+    except Exception:  # noqa: BLE001
+        return {"week_models": [], "source": "", "check": False, "now": "", "credits": {}}
+
+
 def dashboard_data(cfg, plan, state, run: dict) -> dict:
     root = cfg.root
     status, tasks = state.status_map(), plan.all_tasks()
@@ -457,6 +477,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "rate": f"{round(sum(kept) / len(kept) / 60)} min per task" if kept else "—",
             "models": [{"name": name(m), "tokens_text": _n(v["total"]), "share": v["total"] / total}
                        for m, v in sorted(models, key=lambda x: -x[1]["total"]) if total and v["total"]],
+            **_usage_w59(cfg, state, run, live),
         },
         "size": ({**facts["size"], "run_lines": facts["run"]["lines"] if facts["run"] else None,
                   "run_files": facts["run"]["files"] if facts["run"] else None,

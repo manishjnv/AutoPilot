@@ -54,6 +54,20 @@ def login_name(state, live: bool = True) -> str:
     return acct if acct == "default" else acct.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
 
 
+def usage_now(cfg, state, run: dict | None = None, live: bool = True) -> str:
+    """W59: the one usage line for a view: `now: <model> (login <name>) · 5h N% · week N% · <balance> · resets <t>`;
+    '' when no figure is known. Never raises (a view must draw)."""
+    from . import usage
+    try:
+        figs = usage.figures(state, cfg, active_account(state, live))
+        run = run or _run_file(cfg)
+        model = str((run or {}).get("model") or "") if live else ""
+        billing = str(cfg.get("usage.billing", "subscription"))
+        return usage.now_line(figs, model, login_name(state, live), usage.balance_text(cfg, billing))
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def window_line(state, live: bool = True) -> str:
     """G1: the usage window as the CLI last reported it, or '' when there is no figure for a window still open."""
     key = window_key(state, live)
@@ -197,6 +211,7 @@ def status_panel(cfg, plan, state, run: dict, width: int | None = None) -> list[
     usage = [f"5h {_bar(five['pct'])}" if five else "",
              f"Week {_bar(week['pct'])}" if five and "pct" in week else "",
              f"login: {login_name(state, live)}" if five else "",
+             usage_now(cfg, state, run, live),  # W59
              f"Tok {_n(total)} (" + ", ".join(f"{name(m)} {_n(n)} {round(100 * n / total)}%" for m, n in top) + ")" if total else "Tok 0",
              f"${state.cost():.2f}"]
     health = [f"Git {run['git']}", f"Checks {run['build']}"] if live and run.get("git") and run.get("build") else []
@@ -411,7 +426,8 @@ def _this_run(cfg, plan, state) -> list[str]:
     return ["", "## This run", "", f"- Started: {run.get('started_at', '?')} ({run.get('status', '?')})",
             f"- Outcome: {run.get('outcome') or 'still running'}", f"- Tasks done this run: {len(done)}",
             f"- Sessions this run: {sessions}", f"- Open decisions: {len(open_d)}", f"- Next action: {action}",
-            f"- {token_footer(state, first)}"] + [f"- {w}" for w in (window_line(state), config_line(state.get_meta("config_load"))) if w]
+            f"- {token_footer(state, first)}"] + [f"- {w}" for w in (window_line(state), usage_now(cfg, state, run),
+                                                                     config_line(state.get_meta("config_load"))) if w]
 
 
 def build_report(cfg, plan, state) -> str:

@@ -38,6 +38,7 @@ from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .proc import exclusive_lock, run_proc, stop_when, tail_lines
 from .report import digest, open_window, token_footer, window_line
+from . import usage as usage_mod
 from .schemas import REPORTS
 from .state import State, now
 from .dash_live import version_text
@@ -473,7 +474,16 @@ class Orchestrator:
             return ""
 
     def _footer(self) -> str:
-        return "\n".join(x for x in (token_footer(self.state, self.first_session), window_line(self.state)) if x)
+        return "\n".join(x for x in (token_footer(self.state, self.first_session), window_line(self.state),
+                                     self.usage_line()) if x)
+
+    def usage_line(self, model: str = "") -> str:
+        """W59: the one usage line (`now: <model> (login <name>) · 5h N% · week N% · <balance> · resets <t>`)."""
+        try:
+            from .report import login_name, usage_now
+            return usage_now(self.cfg, self.state, {"model": model} if model else None)
+        except Exception:  # noqa: BLE001
+            return ""
 
     def _run(self) -> str:
         from .doctor import package_line
@@ -880,6 +890,18 @@ class Orchestrator:
             return
         reserve = float(u("usage.reserve_pct", 15) or 0) / 100
         opus_by = float(u("usage.opus_by_pct", 0) or 0) / 100
+        try:  # W59: the model is out on its weekly bar and nothing lower has room: wait for its reset
+            figs = usage_mod.figures(self.state, self.cfg, self._account())
+            out = usage_mod.out_until(figs, model, float(u("usage.model_reserve_pct", 95) or 95))
+        except Exception:  # noqa: BLE001
+            out = 0.0
+        if out:
+            when = f"{dt.datetime.fromtimestamp(out):%a %H:%M}"
+            self.notify.send("window", f"{model} is out on its weekly limit until {when}; no lower model has room. "
+                                       f"Pausing until then.")
+            self._journal(current=f"{model} out until {when}, waiting")
+            self.sleep(max(60.0, out + 120 - time.time()))
+            return
         heavy = opus_by and kind in self.OPUS_HEAVY and model_rank(model) == 2
         share = (1 - reserve) * (opus_by if heavy else 1)  # the part of the window this session may start in
         five = open_window(self.state, float(u("usage.window_hours", 5) or 5), self._wk("window_seen"))
@@ -1154,9 +1176,25 @@ class Orchestrator:
         """ladder[attempt], but never below `floor` (a model_rank): a task never moves down after failing higher."""
         ladder = self.cfg.get(f"models.ladder.{risk}") or self.cfg.get("models.ladder.medium")
         m = ladder[min(attempt_index, len(ladder) - 1)]
-        if model_rank(m) >= floor:
-            return m
-        return next((x for x in ladder if model_rank(x) >= floor), max(ladder, key=model_rank))
+        if model_rank(m) < floor:
+            m = next((x for x in ladder if model_rank(x) >= floor), max(ladder, key=model_rank))
+        return self.with_room(m, ladder)
+
+    def with_room(self, model: str, ladder: list) -> str:
+        """W59: a model whose weekly bar is at or over `usage.model_reserve_pct` is skipped for the next model down
+        the ladder (never up); when every model is out the lowest one is returned and `window_gate` waits."""
+        if self.cfg.get("usage.billing", "subscription") != "subscription":
+            return model
+        try:
+            figs = usage_mod.figures(self.state, self.cfg, self._account())
+        except Exception:  # noqa: BLE001  a usage read never stops a build
+            return model
+        reserve = float(self.cfg.get("usage.model_reserve_pct", 95) or 95)
+        picked, why = usage_mod.pick(model, list(ladder), figs, reserve, model_rank)
+        if why and self.state.get_meta("usage_why") != why:
+            self.state.set_meta("usage_why", why)
+            log.info("usage: %s", why)
+        return picked
 
     def effective_risk(self, task) -> str:
         """U6: a task whose scope touches a load-bearing path uses at least the `high` ladder."""

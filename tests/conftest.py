@@ -1,3 +1,6 @@
+import os
+
+os.environ["AUTOPILOT_NO_LIVE_USAGE"] = "1"  # W59: no test calls the live usage endpoint
 import pytest
 
 

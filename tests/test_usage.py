@@ -63,7 +63,8 @@ def login(tmp_path, token="tok-secret-123"):
     return str(tmp_path)
 
 
-def test_fetch_sends_the_token_only_to_the_endpoint_and_caches_for_a_minute(tmp_path):
+def test_fetch_sends_the_token_only_to_the_endpoint_and_caches_for_a_minute(tmp_path, monkeypatch):
+    monkeypatch.delenv("AUTOPILOT_NO_LIVE_USAGE", raising=False)  # conftest sets it: no other test calls the endpoint
     calls, clock = [], [1000.0]
 
     def urlopen(url, headers):
@@ -83,7 +84,8 @@ def test_fetch_sends_the_token_only_to_the_endpoint_and_caches_for_a_minute(tmp_
     assert len(calls) == 2
 
 
-def test_kill_switch_no_token_and_a_failed_call_give_empty_without_a_raise(tmp_path):
+def test_kill_switch_no_token_and_a_failed_call_give_empty_without_a_raise(tmp_path, monkeypatch):
+    monkeypatch.delenv("AUTOPILOT_NO_LIVE_USAGE", raising=False)
     calls = []
 
     def boom(url, headers):
@@ -113,3 +115,126 @@ def test_read_token_and_config_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "env"))
     assert usage.config_dir("") == tmp_path / "env" and usage.config_dir("default") == tmp_path / "env"
     assert usage.config_dir(str(tmp_path / "two")) == tmp_path / "two"
+
+
+# ---------- part 2: figures per login, the headroom pick, the one line, the balances ----------
+class FakeState:
+    def __init__(self):
+        self.meta = {}
+
+    def get_meta(self, key, default=None):
+        return self.meta.get(key, default)
+
+    def set_meta(self, key, value):
+        self.meta[key] = value
+
+
+def rank(m):
+    return {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}.get(m, 1)
+
+
+def test_figures_prefer_live_cache_in_meta_and_mark_a_mismatch_with_check():
+    st, clock, calls = FakeState(), [1000.0], []
+    live = {"five_hour": {"pct": 0.54, "reset": 5000.0}, "seven_day": {"pct": 0.42, "reset": 9000.0},
+            "models": {"fable": {"pct": 0.22, "reset": 9000.0}}, "surfaces": {}, "at": 1000.0}
+
+    def fetch(folder, cfg=None, now=None):
+        calls.append(folder)
+        return live
+    st.set_meta("window_seen", {"five_hour": {"pct": 0.40, "reset": 5000.0}})  # the CLI figure, 14 points apart
+    figs = usage.figures(st, None, "default", now=lambda: clock[0], live_fetch=fetch)
+    assert figs["source"] == "live" and figs["five_hour"]["pct"] == 0.54 and figs["check"] is True
+    assert figs["models"]["fable"]["pct"] == 0.22 and st.get_meta("usage_live")["bars"] is live
+    clock[0] = 1030.0
+    usage.figures(st, None, "default", now=lambda: clock[0], live_fetch=fetch)
+    assert calls == [""]  # the meta row is the cache: the second read made no call
+    figs = usage.figures(st, None, "/logins/two", now=lambda: clock[0], live_fetch=fetch)
+    assert calls == ["", "/logins/two"] and "usage_live@/logins/two" in st.meta  # one row per login
+
+
+def test_figures_fall_back_to_the_cli_figures_marked_cli():
+    st = FakeState()
+    st.set_meta("window_seen", {"five_hour": {"pct": 0.40, "reset": 5000.0}, "seven_day": {"pct": 0.61, "reset": 9000.0}})
+    figs = usage.figures(st, None, "default", now=lambda: 2000.0, live_fetch=lambda *a, **k: {})
+    assert figs["source"] == "cli" and figs["five_hour"]["pct"] == 0.40 and figs["seven_day"]["pct"] == 0.61
+    assert usage.figures(st, None, "default", now=lambda: 50000.0, live_fetch=lambda *a, **k: {})["source"] == ""  # expired
+    line = usage.now_line(figs, "sonnet", "default", "subscription")
+    assert line.startswith("now: sonnet (login default) · 5h 40% (cli) · week 61% · subscription · resets ")
+
+
+def test_pick_skips_an_out_model_downward_never_upward():
+    figs = {"models": {"opus": {"pct": 1.0, "reset": 9000.0}, "sonnet": {"pct": 0.3, "reset": 9000.0}}}
+    assert usage.pick("opus", ["sonnet", "opus", "opus"], figs, 95, rank) == ("sonnet", "opus is out until " + usage._hm(9000.0) + ", running on sonnet")
+    assert usage.pick("sonnet", ["sonnet", "opus"], figs, 95, rank) == ("sonnet", "")  # has room: unchanged
+    assert usage.pick("opus", ["opus", "opus"], figs, 95, rank)[0] == "opus"  # nothing lower: the lowest, with a why
+    assert "every model of the ladder is out" in usage.pick("opus", ["opus"], figs, 95, rank)[1]
+    assert usage.pick("haiku", ["haiku", "sonnet", "opus"], figs, 95, rank) == ("haiku", "")  # never up
+    assert usage.out_until(figs, "claude-opus-4-7", 95) == 9000.0 and usage.out_until(figs, "sonnet", 95) == 0.0
+    assert usage.out_until(figs, "sonnet", 25) == 9000.0  # the reserve is the threshold
+
+
+def test_now_line_has_every_part_in_the_spec_order():
+    figs = {"five_hour": {"pct": 0.4, "reset": 9000.0}, "seven_day": {"pct": 0.61, "reset": 9000.0},
+            "models": {"fable": {"pct": 0.22, "reset": 9000.0}}, "source": "live", "check": False}
+    line = usage.now_line(figs, "fable", "claude-2", "subscription")
+    assert line == f"now: fable (login claude-2) · 5h 40% · week 61% · fable week 22% · subscription · resets {usage._hm(9000.0)}"
+    assert usage.now_line({"models": {}}, "", "default") == ""
+    assert usage.now_line({**figs, "check": True}, "sonnet").endswith(" · check")
+
+
+class Cfg:
+    def __init__(self, d):
+        self.d = d
+
+    def get(self, key, default=None):
+        return self.d.get(key, default)
+
+
+def test_balances_and_the_balance_text():
+    cfg = Cfg({"usage.api_credit": {"usd": 109, "entered": "2026-10-14", "expires": "2026-12-01"},
+               "usage.cloud_credit": {"usd": "x"}})
+    assert usage.balances(cfg) == {"api": {"usd": 109.0, "entered": "2026-10-14", "expires": "2026-12-01"}}
+    assert usage.balance_text(cfg, "api") == "api credit $109 (entered 2026-10-14), expires 2026-12-01"
+    assert usage.balance_text(cfg, "subscription") == "subscription" and usage.balance_text(Cfg({}), "api") == "api key"
+
+
+def test_write_balance_keeps_comments_and_records_the_entry_date(tmp_path):
+    yml = tmp_path / "project.yaml"
+    yml.write_text("budget_usd:\n  total: 20   # cap\nusage:                 # the window\n  billing: subscription\n  reserve_pct: 15\n", encoding="utf-8")
+    assert usage.write_balance(yml, "cloud", 149, "2026-11-05", entered="2026-10-14")
+    text = yml.read_text(encoding="utf-8")
+    assert "# cap" in text and "# the window" in text and "reserve_pct: 15" in text
+    assert "  cloud_credit: {usd: 149, entered: '2026-10-14', expires: '2026-11-05'}" in text
+    assert usage.write_balance(yml, "cloud", 100, entered="2026-10-15")  # a second entry replaces the line
+    assert "cloud_credit: {usd: 100, entered: '2026-10-15'}" in yml.read_text(encoding="utf-8")
+    import yaml
+    assert yaml.safe_load(yml.read_text(encoding="utf-8"))["usage"]["cloud_credit"]["usd"] == 100
+    empty = tmp_path / "new.yaml"
+    assert usage.write_balance(empty, "api", 109, entered="2026-10-14")
+    assert yaml.safe_load(empty.read_text(encoding="utf-8")) == {"usage": {"api_credit": {"usd": 109, "entered": "2026-10-14"}}}
+
+
+def test_ap_budget_enters_the_credits_without_a_cap(tmp_path, capsys):
+    from argparse import Namespace
+
+    from autopilot.cli import cmd_budget
+    (tmp_path / ".agent").mkdir()
+    (tmp_path / ".agent" / "project.yaml").write_text("usage:\n  billing: subscription\n", encoding="utf-8")
+    rc = cmd_budget(Namespace(path=str(tmp_path), usd=None, cloud_credit=149.0, api_credit=109.0, expires="2026-11-05"))
+    out = capsys.readouterr().out
+    assert rc == 0 and "cloud credit $149 entered today, expires 2026-11-05" in out and "api credit $109" in out
+    text = (tmp_path / ".agent" / "project.yaml").read_text(encoding="utf-8")
+    assert "cloud_credit: {usd: 149, entered: " in text and "api_credit: {usd: 109, entered: " in text
+    assert cmd_budget(Namespace(path=str(tmp_path), usd=None, cloud_credit=None, api_credit=None, expires="")) == 1
+
+
+def test_the_ladder_moves_down_when_the_model_is_out_and_the_log_says_why(tmp_path, monkeypatch):
+    from test_window import Metered, run, tasks
+    live = {"five_hour": {"pct": 0.2, "reset": 1e10}, "seven_day": {"pct": 0.3, "reset": 1e10},
+            "models": {"opus": {"pct": 1.0, "reset": 1e10}}, "surfaces": {}, "at": 1.0}
+    monkeypatch.setattr(usage, "fetch", lambda *a, **k: dict(live))
+    orch, _, _ = run(tmp_path, tasks(1), {"models": {"ladder": {"low": ["sonnet", "opus", "opus"]}}}, Metered([0.2]))
+    assert orch.model_for("low", 1) == "sonnet"  # attempt 2 would be opus: out at 100%, so down to sonnet
+    assert orch.model_for("low", 0) == "sonnet"
+    assert orch.state.get_meta("usage_why").startswith("opus is out until")
+    assert orch.usage_line("sonnet").startswith("now: sonnet (login default) · 5h 20% · week 30% · subscription · resets ")

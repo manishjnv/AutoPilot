@@ -100,8 +100,8 @@ def fetch(folder: str = "", *, cfg=None, urlopen=_open, now=time.time, cache=_ca
     """The live bars of one login (`parse` output plus `at`, the fetch time), at most one call per CACHE_SEC per login.
     {} when `usage.live` is false, the login has no token, the call fails or the shape is unknown: the caller then
     keeps the CLI stream figures and marks them `(cli)`. Never raises."""
-    if cfg is not None and cfg.get("usage.live", True) is False:
-        return {}
+    if (cfg is not None and cfg.get("usage.live", True) is False) or os.environ.get("AUTOPILOT_NO_LIVE_USAGE"):
+        return {}  # the kill switch: the config key, or the variable (tests and CI never call the endpoint)
     key = str(config_dir(folder))
     hit = cache.get(key)
     if hit and now() - hit[0] < CACHE_SEC:
@@ -121,3 +121,164 @@ def fetch(folder: str = "", *, cfg=None, urlopen=_open, now=time.time, cache=_ca
             bars = {}
     cache[key] = (now(), bars)
     return bars
+
+
+# ---------- W59 part 2: one figure set per login, the model headroom, the one line everywhere ----------
+META = "usage_live"  # state meta key (per login: `usage_live@<folder>`): the last live bars, shared by every process
+
+
+def figures(state, cfg=None, acct: str = "default", *, now=time.time, live_fetch=None) -> dict:
+    """The bars of one login: the live endpoint figures when they are fresh (at most one call per CACHE_SEC, the row
+    is kept in state meta so the watch, the status page and the run share it), else the CLI stream figures marked
+    `cli`. {five_hour, seven_day, models, surfaces, source: live|cli|'', check}. `check` is set when the live and the
+    learned 5-hour percent differ by over 5 points at the same reset (W59 owner acceptance)."""
+    folder = "" if acct == "default" else acct
+    key = META if acct == "default" else f"{META}@{acct}"
+    row = state.get_meta(key, {}) or {}
+    bars = row.get("bars") or {}
+    if not row or now() - float(row.get("at") or 0) >= CACHE_SEC:
+        bars = (live_fetch or fetch)(folder, cfg=cfg, now=now)
+        state.set_meta(key, {"at": now(), "bars": bars})
+    wkey = "window_seen" if acct == "default" else f"window_seen@{acct}"
+    cli = state.get_meta(wkey, {}) or {}
+    out = {"models": {}, "surfaces": {}, "source": "", "check": False}
+    if bars.get("five_hour"):
+        out.update({k: v for k, v in bars.items() if k != "at"}, source="live")
+        five_cli = cli.get("five_hour") or {}
+        if "pct" in five_cli and abs(float(five_cli.get("reset") or 0) - bars["five_hour"]["reset"]) < 120:
+            out["check"] = abs(float(five_cli["pct"]) - bars["five_hour"]["pct"]) > 0.05
+    elif cli.get("five_hour"):
+        five = cli["five_hour"]
+        if 0 < float(five.get("reset") or 0) - now() <= 6 * 3600:  # the same open-window rule as report.open_window
+            out.update(five_hour=five, source="cli")
+            if "pct" in (cli.get("seven_day") or {}):
+                out["seven_day"] = cli["seven_day"]
+    return out
+
+
+def _model_bar(figs: dict, model: str) -> dict:
+    """The weekly bar of `model` (a ladder alias such as `opus`, or a full id) among the per-model bars, else {}."""
+    name = str(model or "").lower()
+    for key, bar in (figs.get("models") or {}).items():
+        if key in name or name in key:
+            return bar
+    return {}
+
+
+def out_until(figs: dict, model: str, reserve_pct: float = 95) -> float:
+    """The reset time when `model` is out (its weekly bar at or over `reserve_pct`), else 0."""
+    bar = _model_bar(figs, model)
+    return float(bar["reset"]) if bar and bar["pct"] * 100 >= float(reserve_pct) else 0.0
+
+
+def pick(model: str, ladder: list, figs: dict, reserve_pct: float, rank) -> tuple[str, str]:
+    """(model, why): `model` when it has weekly room, else the next model DOWN the ladder (a lower `rank`) with room,
+    never up; when none has room the lowest model and a `why` that names the wait. '' why = no change."""
+    if not out_until(figs, model, reserve_pct):
+        return model, ""
+    down = sorted({m for m in ladder if rank(m) < rank(model)}, key=rank, reverse=True)
+    for m in down:
+        if not out_until(figs, m, reserve_pct):
+            return m, f"{model} is out until {_hm(out_until(figs, model, reserve_pct))}, running on {m}"
+    lowest = min(ladder, key=rank) if ladder else model
+    return lowest, f"every model of the ladder is out until {_hm(earliest_reset(figs, ladder))}"
+
+
+def earliest_reset(figs: dict, models) -> float:
+    """The earliest reset among the models that have a weekly bar, 0 when none is known."""
+    resets = [float(_model_bar(figs, m)["reset"]) for m in models if _model_bar(figs, m)]
+    return min(resets) if resets else 0.0
+
+
+def _hm(t: float) -> str:
+    return f"{datetime.fromtimestamp(t):%a %H:%M}" if t else "?"
+
+
+def balances(cfg) -> dict:
+    """The hand-entered credits from project.yaml: {cloud: {usd, entered, expires}, api: {...}} (missing = {})."""
+    out = {}
+    for name in ("cloud", "api"):
+        row = cfg.get(f"usage.{name}_credit") if cfg is not None else None
+        if isinstance(row, dict) and isinstance(row.get("usd"), (int, float)):
+            out[name] = {"usd": float(row["usd"]), "entered": str(row.get("entered") or ""),
+                         "expires": str(row.get("expires") or "")}
+    return out
+
+
+def balance_text(cfg, billing: str = "subscription") -> str:
+    """The balance that pays for the session: the subscription, or the API credit with its entry date."""
+    api = balances(cfg).get("api")
+    if billing == "api":
+        if not api:
+            return "api key"
+        return f"api credit ${api['usd']:g} (entered {api['entered']})" + (f", expires {api['expires']}" if api["expires"] else "")
+    return "subscription"
+
+
+def now_line(figs: dict, model: str, login: str = "default", balance: str = "subscription") -> str:
+    """The one line of W59, the same on the watch screen, the status page, `ap status`, the digest and the alerts:
+    `now: <model> (login <name>) · 5h N% · week N% [· <model> week N%] · <balance> · resets <t> [· check]`. '' when
+    no figure is known."""
+    five, week = figs.get("five_hour") or {}, figs.get("seven_day") or {}
+    if not model and not five:
+        return ""
+    tag = " (cli)" if figs.get("source") == "cli" else ""
+    parts = [f"now: {model or '?'} (login {login})"]
+    if five:
+        parts.append(f"5h {round(100 * five['pct'])}%{tag}")
+    if week:
+        parts.append(f"week {round(100 * week['pct'])}%")
+    bar = _model_bar(figs, model) if model else {}
+    if bar:
+        parts.append(f"{str(model).lower()} week {round(100 * bar['pct'])}%")
+    parts.append(balance)
+    if five:
+        parts.append(f"resets {_hm(five['reset'])}")
+    if figs.get("check"):
+        parts.append("check")
+    return " · ".join(parts)
+
+
+def write_balance(path, name: str, usd: float, expires: str = "", entered: str = "") -> bool:
+    """`ap budget --cloud-credit / --api-credit`: set `usage.<name>_credit: {usd, entered, expires}` in project.yaml
+    with a one-line text edit that keeps every comment (the same way as `forecast.write_total`)."""
+    import re
+    import tempfile
+    from datetime import date
+
+    import yaml
+
+    path = Path(path)
+    try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+    except OSError:
+        return False
+    key = f"{name}_credit"
+    when = entered or date.today().isoformat()  # quoted, so YAML keeps the dates as text
+    val = "{" + f"usd: {usd:g}, entered: '{when}'" + (f", expires: '{expires}'" if expires else "") + "}"
+    head = re.search(r"(?m)^usage:[ \t]*(?:#.*)?$", text)
+    if head:
+        end = re.search(r"(?m)^\S", text[head.end():])
+        stop = head.end() + end.start() if end else len(text)
+        block = text[head.end():stop]
+        kid = re.search(r"(?m)^([ \t]+)[^\s#]", block)
+        m = kid and re.search(rf"(?m)^{re.escape(kid.group(1))}{key}:[ \t]*([^#\n]*?)[ \t]*(?:#.*)?$", block)
+        if m:
+            block = block[:m.start(1)] + val + block[m.end(1):]
+        else:
+            block = f"\n{kid.group(1) if kid else '  '}{key}: {val}" + block
+        new = text[:head.end()] + block + text[stop:]
+    else:
+        sep = "" if not text or text.endswith("\n") else "\n"
+        new = f"{text}{sep}usage:\n  {key}: {val}\n"
+    try:
+        got = (yaml.safe_load(new) or {}).get("usage", {}).get(key, {})
+        if not isinstance(got, dict) or got.get("usd") != usd:
+            return False
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".project-", suffix=".yaml")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(new)
+        os.replace(tmp, path)
+    except (OSError, yaml.YAMLError):
+        return False
+    return True
