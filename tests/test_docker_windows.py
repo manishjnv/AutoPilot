@@ -58,6 +58,8 @@ def test_doctor_docker_row_reads_the_engine_version(tmp_path, monkeypatch):
         calls.append(cmd)
         return (0, "29.8.2") if cmd[:2] == ["docker", "version"] else (0, "")
     monkeypatch.setattr("autopilot.doctor._run", run)
+    # a faked win32 platform makes shutil.which call the Windows API on Linux (Python 3.13): fake the lookup too
+    monkeypatch.setattr("shutil.which", lambda name, *a, **k: "/fake/bin/" + name)
     rows = [r for r in doctor.checks(cfg_with(tmp_path, {"mode": "docker", "image": "img"})) if r[1] == "docker"]
     assert rows == [("ok", "docker", "29.8.2 (Docker Desktop)")]
     assert ["docker", "version", "--format", "{{.Server.Version}}"] in calls

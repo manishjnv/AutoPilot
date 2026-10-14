@@ -4,7 +4,6 @@ import io
 import json
 import os
 import re
-import threading
 import time
 from types import SimpleNamespace
 
@@ -29,26 +28,21 @@ def built(tmp_path):
     return orch
 
 
-def test_run_file_holds_the_gate_line_while_a_slow_test_runs(tmp_path):
+def test_run_file_holds_the_gate_line_while_a_slow_test_runs(tmp_path, monkeypatch):
+    """Every `current` written to run.json is recorded at the write (a file poll misses the short `gate: merge`)."""
     root = make_project(tmp_path, ONE, {**BASE, "commands": {"test": [SLOW]}})
-    seen, stop = set(), threading.Event()
+    seen, real = [], Orchestrator._journal
 
-    def poll():
-        while not stop.is_set():
-            try:
-                seen.add(json.loads((root / ".agent" / "run.json").read_text(encoding="utf-8")).get("current", ""))
-            except (OSError, ValueError):
-                pass
-            time.sleep(0.05)
-    t = threading.Thread(target=poll, daemon=True)
-    t.start()
-    try:
-        Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None).run()
-    finally:
-        stop.set()
-        t.join()
-    assert any(x.startswith("gate: tests (python") for x in seen), seen
-    assert "gate: merge" in seen
+    def journal(self, **kw):
+        real(self, **kw)
+        if "current" in kw:
+            seen.append((kw["current"], json.loads((root / ".agent" / "run.json").read_text(encoding="utf-8")).get("current")))
+    monkeypatch.setattr(Orchestrator, "_journal", journal)
+    Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None).run()
+    texts = [c for c, _ in seen]
+    assert any(x.startswith("gate: tests (python") for x in texts), texts
+    assert "gate: merge" in texts
+    assert all(c == on_disk for c, on_disk in seen if c.startswith("gate:"))  # the run file holds the line
 
 
 def test_a_fake_runner_streaming_every_2_s_keeps_heartbeat_at_moving(tmp_path, monkeypatch):

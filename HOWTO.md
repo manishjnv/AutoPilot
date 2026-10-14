@@ -81,7 +81,7 @@ maximum of 2000 characters each. A hint does not change the rules or the checks.
 
 Type a line to `ap` while a build runs. You get a reply in about one second.
 
-1. In `ap watch`, type in the bottom row. Press Enter to send, or Esc to clear.
+1. In `ap watch`, type in the bottom row. Press Enter to send, or press Escape to clear.
 2. In a shell, type the line after `ap`, for example `ap why is it slow`.
 
 A line that starts with `stop`, `hint`, `skip`, `answer`, `budget`, `change` or `status` runs that command. The reply
@@ -148,7 +148,7 @@ One replan session adds the new ideas to the plan. It ignores ideas that the pla
    ap audit --signals
    ```
 
-   It shows the unknown session errors (the most frequent first), the parked tasks by cause, the gate failures by
+   It shows the unknown session errors (the most frequent first), the blocked tasks by cause, the gate failures by
    kind and the retries by cause, for the last 30 days. Add `--days 7` for a shorter window. It reads only your
    computer and writes nothing.
 2. Start each release from this table. Each unknown wording in it becomes one line in the error catalogue plus a
