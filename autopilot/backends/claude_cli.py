@@ -281,6 +281,8 @@ class ClaudeCLIBackend:
                "--permission-mode", c.get("agent.permission_mode", "bypassPermissions")]
         if req.resume:
             cmd += ["--resume", req.resume]
+        if req.on_text:  # W48b: text deltas as they arrive
+            cmd += ["--include-partial-messages"]
         if req.mcp_config:  # only these servers, not the project's own .mcp.json
             cmd += ["--mcp-config", req.mcp_config, "--strict-mcp-config"]
         elif req.no_tools or allowlist_on(c):  # no MCP servers at all (they'd run outside the sandbox)
@@ -355,6 +357,11 @@ class ClaudeCLIBackend:
                     if req.on_context:
                         req.on_context(meter.context)
                     req.on_tokens(tokens)
+            if req.on_text and '"text_delta"' in line:
+                ev = next(_events(line), {})
+                d = (ev.get("event") or {}).get("delta") or {}
+                if ev.get("type") == "stream_event" and d.get("type") == "text_delta":
+                    req.on_text(str(d.get("text") or ""))
             act = activity(line)
             if act:
                 secs = int(time.monotonic() - started)

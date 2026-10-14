@@ -1860,6 +1860,18 @@ def main(argv=None):
     p.add_argument("--kind", choices=["periodic", "completion", "replan"], default="periodic")
     p.add_argument("-v", "--verbose", action="store_true")
 
+    if argv and not argv[0].startswith("-") and argv[0] not in sub.choices:  # W48a: any other first word is a line to ap
+        if (Path.cwd() / AGENT_DIR / "project.yaml").exists():
+            found = "."
+        else:
+            try:
+                found = pick_project("read")
+            except NeedsFolder:
+                return 3
+        if found is None:
+            return 1
+        from .inbox import cmd_line
+        return cmd_line(Path(found).resolve(), " ".join(argv))
     args = ap.parse_args(argv)
     if args.cmd is None:  # plain `autopilot` in a project folder: follow its run when one is going
         if run_active(Path.cwd()):
