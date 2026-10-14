@@ -3,6 +3,8 @@
 Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
 It is for one developer, or for a person with an idea and a developer friend.
 
+Skills tell the model how. Autopilot proves it did. See [Compare](COMPARE.md) for the reason.
+
 This page lists every feature in simple words. Each row says what the feature does and why it helps you. For commands and settings, see the [Reference](REFERENCE.md). For steps, see the [How-to guides](HOWTO.md).
 
 Words on this page: a *task* is one piece of work from your plan. A *phase* is a group of tasks. The *gate* is the check that runs after each task. A *run* is one build from start to end. A *session* is one fresh start of the AI with an empty memory.

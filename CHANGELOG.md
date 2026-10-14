@@ -11,6 +11,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 **In plain words:** this version closes the findings of the 2026-10-14 security review. Autopilot stays unattended: no prompt and no question. The documents explain the admin right in plain words, and the code validates everything the model writes.
 
+- A new page, COMPARE.md, explains why Autopilot helps even when you already write skills for the model.
 - A production approval is now recorded with who gave it and when, and a coding session cannot approve its own deploy.
 
 - The security and how-to documents now explain the admin right that lets a build install system tools without a password.

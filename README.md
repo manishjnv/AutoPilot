@@ -128,15 +128,15 @@ Three steps, no administrator prompt.
    curl -o %TEMP%\install.cmd https://raw.githubusercontent.com/manishjnv/AutoPilot/main/install.cmd && %TEMP%\install.cmd
    ```
 
-   Have Python 3.10 or newer? `pip install dev-autopilot && ap setup`.
+   Python 3.10 or newer? `pip install dev-autopilot && ap setup`.
 
 2. Answer one question: which AI do you pay for (Claude, GitHub Copilot, Codex, Cursor or Kiro)? The script
    installs that one CLI and prints its login command. Copilot in VS Code is not a command-line tool. Autopilot
    needs the Copilot CLI, which uses the same subscription.
 3. Open a project folder and type `ap`.
 
-See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot [updates itself](HOWTO.md#update-or-remove-autopilot) once a day, with no question;
-`ap uninstall --all` removes it. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
+See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot [updates itself](HOWTO.md#update-or-remove-autopilot) once a day;
+`ap uninstall --all` removes it. [Install with one script](HOWTO.md#install-with-one-script).
 
 ## Example output
 
@@ -158,6 +158,7 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 | Do one job: a server, phone alerts, an existing project | [How-to guides](HOWTO.md) |
 | Look up a command, setting, file or term | [Reference](REFERENCE.md) |
 | How Autopilot works and why | [Architecture](ARCHITECTURE.md) |
+| Skills tell the model how. Autopilot proves it did. | [Compare](COMPARE.md) |
 
 ## Good to know
 

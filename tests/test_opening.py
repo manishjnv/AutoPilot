@@ -62,3 +62,22 @@ def test_readme_states_the_position_and_the_safety_block():  # W1: position line
     body = text.split("## Safety\n", 1)[1].split("\n## ", 1)[0]
     items = [line for line in body.splitlines() if line.startswith("- ")]
     assert len(items) >= 7, items
+
+
+def head_text(name):
+    return chr(10).join(head(name))
+
+
+ONE_LINE = "Skills tell the model how. Autopilot proves it did."
+
+
+def test_compare_page_w58():  # W58: shared opening, one line in three places, word cap, short table cells
+    compare = (ROOT / "COMPARE.md").read_text(encoding="utf-8")
+    assert OPENING in head_text("COMPARE.md")
+    for name in ("COMPARE.md", "README.md", "FEATURES.md"):
+        assert ONE_LINE in (ROOT / name).read_text(encoding="utf-8"), name
+    assert len(compare.split()) < 1500, len(compare.split())
+    for line in compare.splitlines():
+        if line.startswith("|") and not set(line) <= set("|- "):
+            for cell in line.strip("|").split("|"):
+                assert len(cell.split()) < 40, cell

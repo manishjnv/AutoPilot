@@ -283,3 +283,5 @@ flowchart LR
 | Review | The model checks its own work. | Tasks above low risk get a separate review (critical tasks only in older projects). A final audit adds repair tasks. |
 
 Use Claude Code alone for a small change, a question, exploration, or a design that is not decided.
+
+For skills and other tools, see [Compare](COMPARE.md).
