@@ -183,6 +183,8 @@ What this means for you:
    ap quickstart --plan-doc ROADMAP.md
    ```
 
+   Plain `ap quickstart` finds the plan by content: the file with the most checkboxes, numbered steps and
+   phase headings wins, and it prints `plan found: <file> (why)`. When two files are close, it asks which one.
    If you have no plan document, use `ap onboard` and then `ap doctor`. The onboard session reads the
    repository and the README, and then writes a plan.
 2. Show the tasks in order, and read `.agent/plan.yaml` and `.agent/BRAIN.md`:

@@ -14,6 +14,7 @@ from .config import scope_always
 from .scope_files import scoped_files_block
 from .contracts import contracts_block
 from .gate import CODE_EXT, TEST_GLOBS, _count_lines, _match, growth_limit, verify_commands
+from .plan_find import candidates_block
 from .repomap import helper_index
 
 PROMPTS = Path(__file__).parent / "prompts"
@@ -455,6 +456,7 @@ def discovery_pack(root, cfg) -> str:
                 tree.append("  ```\n" + "\n".join("  " + x for x in h.splitlines()) + "\n  ```")
     secs = [("Git log (last 200 commits)", git or "(no git history)", 8000),
             ("Documents", "\n".join(tree) or "(no documents found)", 24000),
+            ("Plan candidates (W35: scored by content)", candidates_block(root) or "(none)", 4000),
             ("Stack files", _stack_section(root), 12000),
             ("Test command result", _test_section(root, cfg), 8000)]
     if conflicts := document_conflicts(root, git):  # N1 conflicts

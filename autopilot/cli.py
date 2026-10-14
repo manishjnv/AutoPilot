@@ -228,10 +228,13 @@ def _quickstart(args, root: Path):
         print(f"plan document not found: {args.plan_doc}")
         return 1
     if not args.plan_doc:  # no plan given: use the project's own, or have Claude write one from the owner's idea
-        found = next((root / p for p in ("PLAN.md", "docs/PLAN.md") if (root / p).is_file()), None)
-        if found:
+        from .plan_find import choose_plan  # W35: the plan is found by content; the named PLAN.md is the fallback
+        found = choose_plan(root)
+        named = next((root / p for p in ("PLAN.md", "docs/PLAN.md") if (root / p).is_file()), None)
+        if not found and named:
+            found = named
             print(f"using {found.relative_to(root)}")
-        else:
+        if not found:
             idea = getattr(args, "idea", None) or ask_idea()
             if idea and Path(idea).is_file():
                 idea = Path(idea).read_text(encoding="utf-8")
