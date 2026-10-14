@@ -5,6 +5,8 @@ import fnmatch
 import json
 import os
 import re
+import shlex
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -189,6 +191,11 @@ def doc_tests(root, files: list[str]) -> list[str]:
             if any(d in t.read_text(encoding="utf-8", errors="replace") for d in docs)]
 
 
+def _q(path: str) -> str:
+    """One path as one shell word (the gate runs commands with shell=True; a name like `a$(cmd).ts` must stay data)."""
+    return subprocess.list2cmdline([path]) if os.name == "nt" else shlex.quote(path)
+
+
 def changed_tests(cfg, cmd: str, files: list[str]) -> str:
     """O10: the test command narrowed to the changed modules; the full command when nothing maps. pytest: by path
     (`tests/test_<module>.py` when it exists, else the test files in the diff); vitest: `related`; go: changed dirs."""
@@ -205,13 +212,13 @@ def changed_tests(cfg, cmd: str, files: list[str]) -> str:
             elif f.endswith(".py") and (cfg.root / mapped).exists():
                 paths.append(mapped)
         paths += doc_tests(cfg.root, files)
-        return f"{cmd} {' '.join(dict.fromkeys(paths))}" if paths else cmd
+        return f"{cmd} {' '.join(map(_q, dict.fromkeys(paths)))}" if paths else cmd
     code = [f for f in files if re.search(r"\.(?:[cm]?[jt]sx?)$", f) and not _match(f, tests)]
     if "vitest" in cmd and code:
-        return re.sub(r"vitest(\s+run)?", f"vitest related {' '.join(code)} --run", cmd, count=1)
+        return re.sub(r"vitest(\s+run)?", f"vitest related {' '.join(map(_q, code))} --run", cmd, count=1)
     dirs = {f.rsplit("/", 1)[0] if "/" in f else "" for f in files if f.endswith(".go")}
     if "go test" in cmd and dirs and "" not in dirs:
-        return cmd.replace("./...", " ".join(f"./{d}/..." for d in sorted(dirs)))
+        return cmd.replace("./...", " ".join(_q(f"./{d}/...") for d in sorted(dirs)))
     return cmd
 
 

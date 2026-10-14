@@ -15,6 +15,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - The plugin stop check no longer runs commands in folders that Autopilot did not set up on this computer.
 - A task or phase name with unsafe characters is now refused, so it cannot delete a folder outside the build area.
 - Test and deploy commands no longer receive your login, token or alert variables unless a step asks for them.
+- A staged file with shell characters in its name can no longer run a command in the check, and uninstall steps run without a shell.
 
 ## [0.8.0] - 2026-10-14
 

@@ -45,3 +45,18 @@ def test_review_prompt_says_do_not_run_tests_and_holds_the_gate_block(tmp_path):
     gate = SimpleNamespace(results=[SimpleNamespace(cmd="pytest", rc=0, output="3 passed")])
     text = ctx.review_prompt(plan.phases[0].tasks[0], "+x") + review_tests(gate)
     assert "Do not run the test suite or any test command" in text and "## Test output" in text and "3 passed" in text
+
+
+def test_a_hostile_file_name_is_quoted_in_the_test_command(tmp_path):
+    import os
+    import subprocess
+    root, cfg = cfg_for(tmp_path)
+    name = "tests/a$(touch MARK).py"
+    out = changed_tests(cfg, CMD, [name])
+    quoted = subprocess.list2cmdline([name]) if os.name == "nt" else "'tests/a$(touch MARK).py'"
+    assert out == f"{CMD} {quoted}"
+    if os.name != "nt":  # run the built string through a real shell: the name stays data
+        subprocess.run(out.replace(CMD, "echo"), shell=True, cwd=root, check=True, capture_output=True)
+        assert not (root / "MARK").exists()
+    assert changed_tests(cfg, "npx vitest run", ["src/a$(x).ts"]).count("$(x)") == 1
+    assert "'src/a$(x).ts'" in changed_tests(cfg, "npx vitest run", ["src/a$(x).ts"]) or os.name == "nt"

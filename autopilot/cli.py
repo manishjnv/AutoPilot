@@ -1554,8 +1554,9 @@ def cmd_uninstall(args, spawn=None):
             print(("would " if dry else "") + f"{name}: {what}")
             if dry or not (what.startswith(("rm ", "npm ", "brew ", "winget ", "Remove-Item"))):
                 continue
-            if capture(f"undo {name}", what, shell=True) != 0:
-                return 1
+            for argv in st.undo_argvs(what):  # L6: no shell
+                if capture(f"undo {name}", argv) != 0:
+                    return 1
         if not dry:
             from .profile import update
             st.reset()

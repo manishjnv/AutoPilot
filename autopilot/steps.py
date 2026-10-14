@@ -111,3 +111,14 @@ def uninstall_cmd(row, method: str, platform: str | None = None) -> str:
     """The undo command of a runner row for the recorded method ('' when the row has none for it)."""
     key = method if method != "native" else ("native-windows" if (platform or sys.platform).startswith("win") else "native-posix")
     return row.uninstall.get(key, "")
+
+
+def undo_argvs(what: str, platform: str | None = None) -> list[list[str]]:
+    """L6: an undo string as argv lists, run with shell=False. `&&` / `;` split the steps, `~` is expanded here.
+    A PowerShell undo (Remove-Item ...) runs through powershell with the whole string as its one -Command argument."""
+    import shlex
+    if (platform or sys.platform).startswith("win"):
+        if what.startswith("Remove-Item"):
+            return [["powershell", "-NoProfile", "-Command", what]]
+        return [shlex.split(c, posix=False) for c in re.split(r"\s*(?:&&|;)\s*", what) if c]
+    return [[os.path.expanduser(a) for a in shlex.split(c)] for c in re.split(r"\s*(?:&&|;)\s*", what) if c]
