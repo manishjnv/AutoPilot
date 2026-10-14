@@ -9,38 +9,45 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
-- W38: a key written twice in one mapping of `project.yaml` (or `plan.yaml`) is an error that names the key and both lines (`duplicate key 'env' in agent: lines 86 and 112`) instead of YAML silently keeping the last one. `ap validate` prints the session environment and the runner with its config folder, and the run log names the config folder at start.
-- W35: the plan file is found by content, not by name. `ap quickstart` scores every `.md`, `.txt` and `.rst` file (checkboxes, numbered steps, phase / milestone / sprint / step / task headings, size; `node_modules`, `.venv`, `.git`, `.agent`, `dist`, `build` are never entered) and uses a clear winner with `plan found: docs/architecture.md (38 checkboxes, 12 phase headings)`; close candidates give one question with the top three; `--plan-doc` still wins. The discovery pack lists the top three candidates.
-- W39: `ap stop --now` (or a second `ap stop` within 60 seconds) ends the task session within 30 seconds by pid or job object, commits its files on the task branch, does not count the attempt and ends the run STOPPED; the next `ap start` continues from those files. A plain `ap stop` prints how long the session has run.
-- W42: the task time counts work. The dashboard sums the task's session durations (a running one counts to now) instead of the wall clock from the first session to the merge, so a crash or a 2-hour gap no longer inflates it. The row's hover text reads `took 24m (3 tries, first 15:12)` when the wall span is over 2x the work. The Size panel says `This run (N tasks)`.
-- W43: the budget is forecast. After each task the end cost is projected from the median cost of the finished tasks of the same risk, and one `budget_forecast` event per run says `$18.40 spent, about $35 at the end, cap $20` when it passes `budget_usd.total`. On a subscription the cap is soft: the active task finishes, then a NEEDS-YOU question asks to raise the cap or stop; on `usage.billing: api` it stops as before. `ap budget <usd>` sets the cap with the comments kept, and a live run uses it before its next task.
-- W36b: the gate guards the tests a committed contract names: deleting one, or fewer tests in a named file, fails with `contract <id>: test <name> removed` unless the task report's `contracts` entry says `changed` with a `why`; an edited contract page needs a new dated `## Changes` line. The phase docs session edits sections in place, and a result that adds a duplicate heading in one file is dropped with the reason in the event.
-- W36: matured features have committed contracts in `features/` (`watch-screen.md`, `gate.md`: what it does, rules, files, the tests that guard it, dated changes). A task whose `files_in_scope` names a file of a contract gets the page in its prompt under `## Feature contracts (keep them, or say why in the report)`, capped at 8000 characters.
-- W27: the task prompt lists the text of each file named exactly in `files_in_scope` (a missing file is `(new file)`, globs are not expanded, `gate.scope_always` docs are left out), capped by `context.scope_chars` (60000). A file that does not fit gives its first 80 lines and its `def` / `class` lines.
-- W40: a failed review keeps its findings as a numbered list. The retry fixes exactly that list; the next review checks each listed finding first (`fixed` or `open`). A new defect fails the task only when it breaks an acceptance criterion, otherwise it goes to `.agent/FOLLOWUPS.md` and the task merges. A medium task over 8 files or 250 lines (tests and docs excluded) gets a `split signal` and no escalation.
-- W41: a retry moves to a stronger model only on hard work. Test files and the always-allowed docs no longer count toward `escalate.max_diff_files` and `max_diff_lines`; a failure of only growth, scope or lint problems retries on the same model with the exact problem named; the task prompt lists the lines left for each scoped file within 40 lines of its growth budget.
+**In plain words:** Autopilot now learns from its own runs and wastes less time. A run shows what it waits for, a stop is quick, and nothing is lost when a task fails. It also guards your project better: a broken main branch is found at once, and important features cannot shrink unnoticed.
 
-- W23: `ap audit --ladder` prints minutes, attempts, retries and cost per model and risk of the project, and a `propose:` line when a tier's first model is slower than the next model up and not cheaper. New projects start low-risk tasks on Sonnet (`low: [sonnet, sonnet, opus]`) and high-risk tasks on Sonnet (`high: [sonnet, opus, opus]`), from the measured run of 2026-10-13.
-- W24: `ap validate` prints how many phases can run side by side and the shared file of each dependent pair; the plan writer, replanner and onboard prompts ask for `depends_on: []` on a phase that shares no file with the phases before it. A phase without the key still depends on the previous phase.
+**See what happens**
+- The watch screen tells you what the run waits for, and its clock ticks every second.
+- A run whose process is gone shows DEAD, not ON.
+- The task time counts only the time the task really worked.
+- A run that you stop by hand ends with the word STOPPED.
 
-- W29: `ap audit --signals` prints one table of the top unknown session errors, parked tasks by cause, gate failures by kind and retries by cause of every project on this computer (last 30 days, `--days N`). It reads only, offline.
-- W29: a failed session whose error no catalogue line knows is written to `~/.autopilot/unknown.jsonl` (scrubbed, the folder name only, never a path); the same wording on one day raises its `count`.
-- W30: the completion audit, the functional check and the phase docs session get the last gate output and do not run the test suite again. They stop after `audit.timeout_sec` (1200 seconds). A stopped completion audit keeps its notes so far, sends them to "Questions for you", and the run goes on.
-- W25: a task that fails only on its scope or on its tests keeps its diff for the retry. The next session adds the missing scope reasons or fixes the tests; it does not rebuild the files.
-- W26: high-risk tasks no longer get an extra Opus planning session before the work; only critical tasks and tasks with `needs_decision: true` do (`decide.risks: [critical]`). Re-planning runs on Sonnet, and on Opus only when a waiting task touches a load-bearing path. Set `decide.risks: [high, critical]` for the old behaviour.
-- W34: a run that you stop by hand (Ctrl+C, `ap stop`) now ends with the word STOPPED. BUDGET_STOP is only for a cost, session or usage limit.
-- W31: `scripts/premerge.py` runs the suite on WSL and on the host before a merge (`--ci` also runs CI), and `tests/test_hygiene.py` finds three test traps that pass on WSL but fail in CI.
-- Fix: the kill-by-name guard also finds `sudo pkill`, `cmd /c taskkill /IM` and `powershell -c Stop-Process -Name`, and it no longer fails `taskkill /PID` or `Stop-Process -Id`.
-- Fix: when git fails during the check of a new main commit, the commit is checked again at the next loop; before, it counted as green.
-- W21: a red main is detected, not skipped: each new commit on main is tested once before the next task, the failing test is named in the `main_red` event, and a main that stays red after the repair ends the run with `main is red` (FAILED).
-- W21: a task report can list `failing_before` (tests that failed before the change); each name is checked against main, a name that passes on main fails the attempt, and a name that fails on main sends the task back, not counted, until main is repaired.
-- W37: on Windows a command that times out now ends with all its child processes, even one whose parent already exited (each command runs in a job object; if that cannot be set up, the old `taskkill /T` is used).
-- W37: a session may stop only the processes it started, by pid. Claude Code sessions can no longer run `taskkill`, `pkill`, `killall` or `Stop-Process`, and a task whose session ran one fails the gate with the command named.
-- W37: a run whose process is gone shows `DEAD since HH:MM` (not ON) in `ap status`, `ap watch` and the status page, and the next command is `ap start`. The run writes `beat_at` into `run.json` every 30 seconds.
-- W19 and W22 setup: `gate.scope_always` (the docs a task may always change) and `gate.tests` (`changed` or `full`) are new settings with defaults; a wrong value is reported by `ap validate`. The gate does not use them yet.
-- W22 Tests run once: the task gate runs the changed modules' tests in every profile (`gate.tests: changed`, the default); the phase close runs the full suite; `gate.tests: full` restores the full command per task; the task prompt tells the agent not to run the full suite.
-- W19 Docs files are always in scope: a task may change REFERENCE.md, CHANGELOG.md, HOWTO.md and README.md (the `gate.scope_always` list) without naming them in its scope; the prompts say so, and HOWTO has the work-branch recipe for a GitHub backup after every task.
-- W20: the phase docs session passes the tests too. If the project tests fail on what the docs session wrote, Autopilot drops that result and says which test failed, so main stays green.
+**Stop and steer**
+- `ap stop --now` ends the current session within 30 seconds and keeps its work.
+- A command such as `ap start` never builds another folder's project without asking you first.
+- The cost is forecast early, and on a subscription the run asks you before it stops at the cost limit.
+- A second Claude login can take over when the first one reaches its usage limit.
+
+**Less waste**
+- A task that fails only on its scope or its tests keeps its work for the next try.
+- A retry fixes exactly the review's list, and new small findings become follow-ups.
+- A retry moves to a stronger model only for hard work, not for a long file list.
+- High-risk tasks no longer get an extra planning session; only critical tasks do.
+- A session ends at its final answer, so it no longer waits for its own background tests.
+- The tests run once for each task, and the full suite runs when a phase ends.
+- The end checks get the last test result and do not run the tests again.
+- Each task gets the text of its files in its prompt, so it reads less.
+
+**Safer builds**
+- A broken main branch is found before the next task starts.
+- A session can stop only its own processes, never all of them by name.
+- Matured features have written contracts, and a task cannot remove their tests without a reason.
+- A doc update that would break a test is dropped, so main stays green.
+- A key written twice in the project settings is an error, not a silent loss.
+- Docker mode now works on Windows with Docker Desktop.
+
+**Learn from every run**
+- Unknown errors are counted, and `ap audit --signals` shows what to fix next.
+- `ap audit --ladder` shows which model is fast and cheap for each kind of task.
+- Plans run parts side by side when their files do not overlap.
+- Autopilot finds your plan file by its content, whatever its name.
+- `scripts/premerge.py` runs the tests on Linux and Windows before a merge.
+- Release notes must be in simple words before a release can be made.
 
 ## [0.7.1] - 2026-10-13
 

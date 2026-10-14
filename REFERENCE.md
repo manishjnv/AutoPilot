@@ -14,6 +14,8 @@ Words on this page: Claude Code (the coding agent that writes the code), the gat
 
 Each command accepts `-C <folder>` to work on a project in a different folder. With no `-C`, a command uses the current folder. If the current folder is not a project, the command uses the project with the active run, or the last project that you used. It prints the project that it uses.
 
+A read-only command (`status`, `watch`, `next`, `report`) first prints `project: <folder> (last used)`, or `(active)` when that project has the active run. A spending command (`start`, `run`, `answer`, `change`, `stop`, `skip`, `approve`, `budget`) asks `Build <folder>? [y/N]` in a terminal. With no terminal, it prints `name the project with -C <folder>` and exits with code 3. `--yes` or `-C` skips the question.
+
 | Command | Result |
 |---|---|
 | `autopilot` | In a terminal, in a folder with no project: the guided start. It asks what to build and which folder, checks the login, makes the plan, and asks `1 start now, 2 not now`. Otherwise it follows the active run, or shows what you can do next |
@@ -30,7 +32,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
 | `autopilot run` | Builds until the completion audit passes |
 | `autopilot start` | Starts or continues the build in the background. It is the same as `run --clear-stop --detach` |
-| `autopilot watch` | Follows a run live. A large terminal window shows a dashboard. It has panels for the project, the tasks, the live output, the progress, the usage, the files, and the issues. A small window shows the scrolling view with a status panel at the bottom. Ctrl+C stops the watch, not the run |
+| `autopilot watch` | Follows a run live. A large terminal window shows a dashboard. It has panels for the project, the tasks, the live output, the progress, the usage, the files, and the issues. A small window shows the scrolling view with a status panel at the bottom. Ctrl+C stops the watch, not the run. The `Waiting for:` line shows the last tool and its time, or the gate, for example `Gate: tests, 2m 40s`. The clock ticks every second. The spinner pauses after 30 seconds with no heartbeat. An old error shows its age and turns dim after the next good session. The Project panel shows the version and `Run N (since HH:MM)`. A window that is too small shows `Widen the window for the panels.`, and the panels start when the window grows. With `NO_COLOR`, the screen uses bold and dim only. `ap status` starts with the version line |
 | `autopilot watch --scroll` | Shows the scrolling view in plain words, also in a large window |
 | `autopilot watch --detail` | Shows each technical log line as it is |
 | `autopilot mcp` | Runs an MCP server on `stdin` and `stdout`. Its tools are `ap_status`, `ap_next`, `ap_start`, `ap_stop` and `ap_answer`. Each tool runs the `ap` command of the same name and returns its text. `init` adds the server to `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kilocode/mcp.json` and `.junie/mcp/mcp.json` when they exist |
@@ -79,7 +81,7 @@ Each command accepts `-C <folder>` to work on a project in a different folder. W
 
 ## Versions and releases
 
-`ap --version` prints the version and the short commit, or `installed` outside a git checkout. `python scripts/bump.py X.Y.Z` sets the version in `pyproject.toml`, the plugin and `autopilot/__init__.py`. It also moves the `CHANGELOG.md` Unreleased lines, sets `DEFAULT_REF` in both install scripts, then makes one commit and the tag `vX.Y.Z`. A push of that tag starts `release.yml`: it runs the tests, builds the wheel and attaches the wheel, the install scripts and `SHA256SUMS` to the GitHub release.
+`ap --version` prints the version and the short commit, or `installed` outside a git checkout. `python scripts/bump.py X.Y.Z` sets the version in `pyproject.toml`, the plugin and `autopilot/__init__.py`. It also moves the `CHANGELOG.md` Unreleased lines, sets `DEFAULT_REF` in both install scripts, then makes one commit and the tag `vX.Y.Z`. The Unreleased block of `CHANGELOG.md` starts with the line `**In plain words:**`. Each entry is one sentence of at most 25 words, with no config key and no file name. The script refuses the bump with `release notes rule: ...` when either rule fails. CI lints the Unreleased block with Vale. A push of that tag starts `release.yml`: it runs the tests, builds the wheel and attaches the wheel, the install scripts and `SHA256SUMS` to the GitHub release.
 
 ## Environment variables
 
@@ -118,7 +120,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `history/<phase>/BADGE.md` | W9: the markdown image line `![Built by Autopilot](proof.svg)` for the phase folder and the repo-relative path `.agent/history/<phase>/proof.svg` to paste into the README | Yes |
 | `audits/` | The audit reports | Yes |
 | `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
-| `run.json` | The journal of the active run. At the end it has `word`, the outcome word. `pid` is the process of the run; `beat_at` is written every 30 seconds while the run lives, also during a long session. `status: running` with a `pid` that is gone shows as `DEAD since HH:MM` (time of `beat_at`, else `updated_at`) in `ap status`, `ap watch`, the end screen and the status page; the next command is `ap start`. A run.json without `pid` still shows ON | No |
+| `run.json` | The journal of the active run. At the end it has `word`, the outcome word. `pid` is the process of the run; `beat_at` is written every 30 seconds while the run lives, also during a long session. `status: running` with a `pid` that is gone shows as `DEAD since HH:MM` (time of `beat_at`, else `updated_at`) in `ap status`, `ap watch`, the end screen and the status page; the next command is `ap start`. A run.json without `pid` still shows ON. `heartbeat_at` is the time of the last runner event, written at most every 10 seconds. `current_at` is the time when the gate line or the start-check line was written. `version` is the Autopilot version of the run | No |
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports | No |
 | `STOP` | The stop flag from `autopilot stop`; the first line `now` means `ap stop --now` | No |
@@ -147,9 +149,9 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | Section | Controls | Important keys (default) |
 |---|---|---|
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
-| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing), `scope_always` (docs a task may change outside its scope, with no scope addition and no warning; default `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md`, `README.md`), `tests` (`changed` default, or `full`: which tests the gate runs per task; the phase close always runs the full command; a value other than these two is an error) |
+| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (default `true` in new projects, off when the key is missing), `scope_always` (docs a task may change outside its scope, with no scope addition and no warning; default `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md`, `README.md`), `tests` (`changed` default, or `full`: which tests the gate runs per task; the phase close always runs the full command; a value other than these two is an error). Exception (W45): a change in `autopilot/templates/`, `autopilot/prompts/`, `autopilot/config.py` or `autopilot/schemas.py` runs the full test command. A change to `README.md`, `HOWTO.md`, `REFERENCE.md`, `GUIDE.md` or `ARCHITECTURE.md` adds each test file that names that doc. The review session reads the gate output and does not run tests |
 | `context` | The task prompt | `scope_chars` (60000, W27): most characters of the `## Files in scope (current content)` block. It holds the text of each file that `files_in_scope` names exactly, in list order. A missing file is `(new file)`, globs are not expanded and `gate.scope_always` docs are left out. A file that does not fit gives its first 80 lines and its `def` / `class` lines with line numbers. |
-| `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env`, `user_config` (false) |
+| `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env` (variables for the session, for example `CLAUDE_CONFIG_DIR`), `fallback` (default empty; see below), `user_config` (false) |
 | `onboard` | The discovery pack of the `onboard` session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | Where the agent runs: `mode` `off`, `allowlist` (Claude Code's own sandbox with the network allowlist) or `docker` (each session in `docker run --rm` with only the worktree at `/work`, its git folders (the shared one read-only) and a temp login folder mounted; never the home folder; secret variables pass by name only). A missing `mode` follows `enabled` | `mode`, `enabled` (false), `allowed_domains`, `image` (needed for `docker`; the image must have `claude` on PATH), `network` (`bridge`) |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `replanner` (sonnet; opus when a pending task's `files_in_scope` matches `escalate.load_bearing`), `unstick` (sonnet), `review` (opus) |
@@ -239,6 +241,8 @@ usage limit that resets in more than 30 minutes, Autopilot commits the work, wri
 tests) and starts the first runner of the list on it. That runner needs its own subscription login. Later tasks use it
 until the first runner's window resets.
 
+An `agent.fallback` entry is a preset name, or `{claude_cli: {CLAUDE_CONFIG_DIR: <folder>}}`. The second form runs the same runner on a second Claude login. The switch happens between sessions. Each login keeps its own usage window. When both logins are at a limit, the run waits for the earlier reset. `ap doctor` shows one login row for each folder. `ap validate` prints the fallback chain. To set it up, read the [how-to](HOWTO.md#use-a-second-claude-login-at-a-usage-limit).
+
 In your own `agent.command`, `{prompt_file}` gives the path of a temporary file with the prompt, and `{model_flag}`
 gives the model option. The prompt also goes in on standard input. The `kiro` and `cursor` presets approve all tools,
 so run them in a virtual machine or a container.
@@ -268,8 +272,9 @@ sandbox:
 - `sandbox.mode`: `off`, `allowlist` (the same as `sandbox.enabled: true`) or `docker`. A missing mode follows `enabled`.
 - `sandbox.image`: the image name. Required for `docker`; the config check refuses a missing name.
 - `sandbox.network`: `bridge` (the default) gives the container open egress unless `sandbox.enabled: true` also turns on the allowlist.
-- `ap doctor` prints `docker: found <version>` in this mode, or `FAIL` when the `docker` command is missing.
-- Docker mode needs the `claude_cli` backend and does not run on native Windows: use WSL2.
+- `ap doctor` prints `docker: found <version>` in this mode (`docker: <version> (Docker Desktop)` with Docker Desktop), or `FAIL` when the `docker` command is missing.
+- Docker mode needs the `claude_cli` backend. It works with Docker Desktop on Windows, and on Linux, macOS and WSL2. `allowlist` is not supported on native Windows.
+- On Windows, Autopilot copies the login from `CLAUDE_CONFIG_DIR` of the session env, else from `%USERPROFILE%\.claude`, into a temp folder. The container mounts that folder at `/claude`.
 - On macOS the login sits in the Keychain, not in `~/.claude/.credentials.json`, so set `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` for docker mode there.
 
 ### Lean profile
@@ -296,7 +301,7 @@ The gate runs these guards on each task before the checks. A guard that finds a 
 | CI file | An added, changed or deleted CI pipeline file (`gate.ci_files`) |
 | Test settings | A removed test setting, or an added `--ignore`, `--deselect` or `-k` in a test setting file |
 | Protected file | A change to the plan, the settings, the questions file, the backlog, or a path in `gate.protected` |
-| Secret scan | An added line that looks like a key, a token, or a password |
+| Secret scan | An added line that looks like a key, a token, or a password. When the flagged file is a test file, the problem adds the rule: build a fake secret from pieces, for example `'sk-' + 'a' * 24` |
 | Empty change | No changed files, unless the task has `allow_no_changes: true` |
 | Kill by name | A Bash or PowerShell tool call in the Claude Code session log that runs `taskkill`, `pkill`, `killall` or `Stop-Process`, also behind `sudo`, `env`, `cmd /c` or `powershell -c` (up to 5 named). Text in the agent's messages, `kill <pid>`, `taskkill /PID <n>` and `Stop-Process -Id <n>` do not count: they stop one process by its number. Every Claude Code session also gets the deny rules `Bash(taskkill:*)`, `Bash(pkill:*)`, `Bash(killall:*)` and `Bash(Stop-Process:*)`, even when `agent.disallowed_tools` sets its own list. Logs of `command` backends are not checked |
 | Child processes on timeout | Windows: every command and session runs in a job object (kill on close); a timeout calls TerminateJobObject, then `taskkill /F /T`. If the job cannot be created, one warning is logged and only `taskkill /T` runs. POSIX: the process group is killed |
@@ -311,7 +316,7 @@ come from `gate.test_globs`.
 
 ### Phase docs session
 
-When a phase closes, one docs session may edit `README.md`, the RCA log, `docs/DEVELOPING.md`, `HOWTO.md` and files under `docs/`. Python then checks the result: the scope, the secret scan, and the project test command (`commands.test`, the full suite). A change to any other file, a secret, or a red test drops the whole result. The run records the event `<phase>: result dropped (tests: <first failing line>)` and main stays as it was. A project with no test command commits the result after the scope and secret checks. The session edits the section that already covers a change; a result that adds a second `#` or `##` heading with the same text as one in the same file (a second `## Safety`) is dropped with the event `<phase>: result dropped (duplicate heading in README.md: ## Safety)`. Repeated `###` headings, headings in code blocks and duplicates already on main do not count.
+When a phase closes, one docs session may edit `README.md`, the RCA log, `docs/DEVELOPING.md`, `HOWTO.md` and files under `docs/`. Python then checks the result: the scope, the secret scan, and the project test command (`commands.test`, the full suite). A change to any other file, a secret, or a red test drops the whole result. The run records the event `<phase>: result dropped (tests: <first failing line>)` and main stays as it was. A project with no test command commits the result after the scope and secret checks. The session edits the section that already covers a change; a result that adds a second `#` or `##` heading with the same text as one in the same file (a second `## Safety`) is dropped with the event `<phase>: result dropped (duplicate heading in README.md: ## Safety)`. Repeated `###` headings, headings in code blocks and duplicates already on main do not count. The log line `docs session for <phase>: <file>:<line> matched <pattern> and was redacted` names each redacted line. It never shows the value.
 
 ## Models
 
@@ -330,6 +335,8 @@ retry; Opus took 25 to 47 minutes and 2 of 5 tasks were retried. The review of e
 whose `project.yaml` has no `models.ladder` keeps these values too. `ap audit --ladder` measures your own runs.
 
 A retry on the same model continues the failed session. A retry on a different model starts a new session.
+
+When the Claude CLI prints its final `result` event, Autopilot waits 10 seconds for the process to exit. Then it stops the process tree, and the session counts as finished. The log line is `session ended at its final answer; its child processes were stopped`.
 
 **The model for each role:**
 

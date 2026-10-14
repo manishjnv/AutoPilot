@@ -74,6 +74,8 @@ maximum of 2000 characters each. A hint does not change the rules or the checks.
    ```
 
    The build continues after you close the terminal. To follow it, run `ap watch`.
+   The watch shows a `Waiting for:` line with the last tool, or the gate and its time. The spinner pauses after 30
+   seconds with no heartbeat.
 
 > [!NOTE]
 > A plain `ap run` stops again at once while the stop flag exists. Use `ap start` or `ap run --clear-stop`, or
@@ -378,6 +380,31 @@ Shell commands in a session can then connect only to these domains. Other effect
 - Research sessions can use the web, but cannot read the repository.
 - Autopilot does not load the MCP servers of the project.
 - The checks and the deploy commands of Autopilot run outside the sandbox.
+
+## Use a second Claude login at a usage limit
+
+Use this when one Claude login reaches its usage limit and you have a second login.
+
+1. Log in once with the other folder:
+
+   ```bash
+   CLAUDE_CONFIG_DIR=<folder> claude auth login
+   ```
+
+   In PowerShell, run `$env:CLAUDE_CONFIG_DIR='<folder>'; claude auth login`.
+2. In `.agent/project.yaml`, add the entry to `agent.fallback`:
+
+   ```yaml
+   agent:
+     fallback:
+       - claude_cli: {CLAUDE_CONFIG_DIR: <folder>}
+   ```
+
+3. Run `ap doctor`. It shows one login row for each folder.
+4. Run `ap validate`. It prints the fallback chain.
+
+The switch happens between sessions. Each login keeps its own usage window. When both logins are at a limit,
+the run waits for the earlier reset.
 
 ## Limit the usage and the cost of a run
 
@@ -710,6 +737,14 @@ Run `python scripts/premerge.py` before you merge a branch of Autopilot.
 - With `--ci`, it also starts the CI workflow on the branch and prints the result of each job.
 
 The command exits 1 when a step is red. `tests/test_hygiene.py` also finds three traps that pass on WSL and fail in CI.
+
+## Make a release
+
+1. Open `CHANGELOG.md`. Make sure the Unreleased block starts with the line `**In plain words:**`.
+2. Write each entry as one sentence of 25 words or fewer. Do not name a config key or a file.
+3. Run `python scripts/bump.py X.Y.Z`.
+
+The script refuses the bump with `release notes rule: ...` when a rule fails. CI lints the Unreleased block with Vale.
 
 ## What the script does
 
