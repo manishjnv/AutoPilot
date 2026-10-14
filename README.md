@@ -100,17 +100,9 @@ A task may change `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md` and `README.md` wit
 
 The task gate runs only the tests of the changed modules (`gate.tests: changed`, the default). The phase close always runs the full test command. Set `gate.tests: full` to run the full command for every task.
 
-## Retries and scoped files
+## Retries, contracts, budget, learning
 
-A retry fixes the review's findings. Scoped files enter the task prompt. See `HOWTO.md`.
-
-## Contracts, budget, task time
-
-See `HOWTO.md`.
-
-## Learn from runs
-
-See `HOWTO.md`: `ap audit --signals`, `ap audit --ladder`, `ap validate`.
+A retry fixes the review's findings. Scoped files enter the task prompt. Contracts, budget, task time and `ap audit` are in `HOWTO.md`.
 
 ## Install
 
@@ -143,8 +135,8 @@ Three steps, no administrator prompt.
    needs the Copilot CLI, which uses the same subscription.
 3. Open a project folder and type `ap`.
 
-See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot updates itself once a day, before `ap run` or
-after a short command, with no question ([how](HOWTO.md#update-or-remove-autopilot)); `ap uninstall --all` removes it. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
+See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot [updates itself](HOWTO.md#update-or-remove-autopilot) once a day, with no question;
+`ap uninstall --all` removes it. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
 
 ## Example output
 
