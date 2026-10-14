@@ -8,7 +8,6 @@ import shutil
 import sys
 import tempfile
 import time
-import urllib.request
 from pathlib import Path
 
 from . import __version__
@@ -25,6 +24,7 @@ def _open(url):
     """Default `urlopen`: https only, 60 s timeout."""
     if not url.startswith("https://"):
         raise ValueError(f"not an https url: {url}")
+    import urllib.request  # W47
     return urllib.request.urlopen(url, timeout=60)
 
 

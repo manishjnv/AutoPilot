@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import urllib.request
 
 from .signals import redact
 
@@ -12,6 +11,7 @@ log = logging.getLogger("autopilot")
 
 
 def _post(url: str, data: bytes, headers: dict):
+    import urllib.request  # W47: slow import, loaded on first send
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     urllib.request.urlopen(req, timeout=15).read()
 
@@ -63,7 +63,7 @@ class Notifier:
         token, chat = self.env("telegram_token_env"), self.env("telegram_chat_env")
         if not (token and chat):
             return None
-        import urllib.parse
+        import urllib.parse, urllib.request  # W47
         q = {"timeout": int(timeout), "allowed_updates": '["message"]', **({"offset": offset} if offset else {})}
         url = f"https://api.telegram.org/bot{token}/getUpdates?{urllib.parse.urlencode(q)}"
         data = json.loads(urllib.request.urlopen(url, timeout=int(timeout) + 15).read(2_000_000))  # 100 updates fit

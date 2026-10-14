@@ -1,5 +1,8 @@
 """W9: proof.svg (one card per closed phase) and BADGE.md (the README line that shows it). Stdlib only."""
-from xml.sax.saxutils import escape
+from html import escape as _esc
+
+def escape(s):  # W47: xml.sax.saxutils drags in urllib.request (0.2 s); same &, <, > escaping
+    return _esc(s, quote=False)
 
 W, H = 600, 200
 IMG = "proof.svg"

@@ -7,9 +7,6 @@ import re
 import shutil
 import sys
 import sysconfig
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -195,6 +192,7 @@ def check_endpoint(cfg, timeout=2) -> tuple[str, str, str]:
     WARN only, because a local model is optional. Never raises."""
     from .backends.openai_compat import DEFAULT_BASE_URL
     base = str(cfg.get("agent.base_url") or DEFAULT_BASE_URL).rstrip("/")
+    import urllib.error, urllib.parse, urllib.request  # W47: slow import, only this check needs it
     try:
         host = urllib.parse.urlsplit(base).hostname or ""
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if host in ("127.0.0.1", "localhost", "::1")             else urllib.request.build_opener()  # a local runner never goes through an env proxy

@@ -76,7 +76,7 @@ def _dupes(node, where: str = "the top level") -> None:
             _dupes(value, f"{key.value}" if where == "the top level" else f"{where}.{key.value}")
 
 
-class _NoDupes(yaml.SafeLoader):
+class _NoDupes(getattr(yaml, "CSafeLoader", yaml.SafeLoader)):  # W47: the libyaml loader parses 10x faster; same nodes, same errors
     def construct_document(self, node):
         _dupes(node)
         return super().construct_document(node)

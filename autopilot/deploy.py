@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import time
-import urllib.request
 from dataclasses import dataclass
 
 from .gate import run_commands
@@ -24,6 +23,7 @@ class DeployResult:
 def health_check(url: str, timeout: int) -> bool:
     if not url:
         return True
+    import urllib.request  # W47
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
