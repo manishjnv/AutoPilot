@@ -2,6 +2,7 @@
 
 Its checks passed. You are a separate, READ-ONLY review session: do not edit files, do not
 commit. Review the change against the acceptance criteria before it is merged.
+The gate output is below. Do not run the test suite or any test command; if you suspect a file that no test covered, name it as a finding.
 Use only this assignment, the diff and the code; do not read .agent/logs, .agent/history, HANDOFF.md or DECISIONS.md.
 
 ## Task

@@ -170,10 +170,26 @@ def scope_additions(report, attempt: int = 1, files: list[str] | None = None) ->
     return [k for k, _ in pairs], [f"scope added: {k}: {v}" for k, v in pairs], []
 
 
+DEFAULT_PATHS = ("autopilot/templates/", "autopilot/prompts/")
+DEFAULT_FILES = ("autopilot/config.py", "autopilot/schemas.py")
+DOC_FILES = ("README.md", "HOWTO.md", "REFERENCE.md", "GUIDE.md", "ARCHITECTURE.md")
+
+
+def doc_tests(root, files: list[str]) -> list[str]:
+    """W45: for each changed doc file, every tests/*.py that names it (a text search at gate time)."""
+    docs = [f.rsplit("/", 1)[-1] for f in files if f.rsplit("/", 1)[-1] in DOC_FILES]
+    if not docs:
+        return []
+    return [f"tests/{t.name}" for t in sorted((root / "tests").glob("*.py"))
+            if any(d in t.read_text(encoding="utf-8", errors="replace") for d in docs)]
+
+
 def changed_tests(cfg, cmd: str, files: list[str]) -> str:
     """O10: the test command narrowed to the changed modules; the full command when nothing maps. pytest: by path
     (`tests/test_<module>.py` when it exists, else the test files in the diff); vitest: `related`; go: changed dirs."""
     tests = cfg.get("gate.test_globs") or TEST_GLOBS
+    if any(f.startswith(DEFAULT_PATHS) or f in DEFAULT_FILES for f in files):
+        return cmd  # W45: a default (template, config, schema, prompt) reaches every test
     if "pytest" in cmd:
         paths = []
         for f in files:
@@ -183,6 +199,7 @@ def changed_tests(cfg, cmd: str, files: list[str]) -> str:
                 paths.append(f)
             elif f.endswith(".py") and (cfg.root / mapped).exists():
                 paths.append(mapped)
+        paths += doc_tests(cfg.root, files)
         return f"{cmd} {' '.join(dict.fromkeys(paths))}" if paths else cmd
     code = [f for f in files if re.search(r"\.(?:[cm]?[jt]sx?)$", f) and not _match(f, tests)]
     if "vitest" in cmd and code:
