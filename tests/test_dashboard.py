@@ -88,7 +88,7 @@ def test_an_open_question_and_a_blocked_task_are_named(tmp_path):
     orch.state.add_decision(kind="blocked", task_id="P02-T01", title="P02-T01 the tests fail", question="What now?",
                             status="OPEN")
     data = dashboard_data(orch.cfg, orch.plan, orch.state, {})
-    assert data["blocked_why"] == {"id": "P02-T01", "why": "the tests fail on Windows. More text."}
+    assert {k: data["blocked_why"][k] for k in ("id", "why")} == {"id": "P02-T01", "why": "the tests fail on Windows. More text."}  # W18a adds age, old
     assert data["needs_you"] == [{"id": data["needs_you"][0]["id"], "title": "P02-T01 the tests fail"}]
     assert data["progress"]["blocked"] == 1 and data["progress"]["questions"] == 1
 

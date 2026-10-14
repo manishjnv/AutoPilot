@@ -23,6 +23,18 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
   and shows `no change 45s` (minutes after 60 s) in yellow, and the data age note says `data Ns old stale`. A run that
   ended shows `stopped HH:MM` in red. The project block says `No change for N min.` from 5 minutes (yellow from 10,
   red from 30). The browser page shows the same ring, paused when stale.
+- Liveness (W18a): the spinner turns while the newest of the data file and the runner heartbeat (`heartbeat_at` in
+  `run.json`, written from the CLI stream at most every 10 s, and during a gate the `beat_at` of the run process)
+  moves. It pauses (yellow) after 30 s without either. A gate or the start check writes its line to the journal
+  (`gate: tests (<command>)`, `gate: merge`, `start check: tests on main (<command>)`) and the window shows that text
+  in place of `no change`. A dead process stays red (W37 `run_alive`).
+- The Elapsed and Task time values tick from the window clock each second. The Now panel has a `Waiting for:` line:
+  the last tool and its running time, or the gate and its time. The Project panel shows the version
+  (`Autopilot <version> (<sha>) from <folder>`) and `Run N (since HH:MM) · total ... since HH:MM`. The error line and
+  the Issues text carry the error age (`3d ago`) and turn dim after the next successful session.
+- The panel screen needs a terminal (`isatty`, `enable_vt`) and nothing else. With `NO_COLOR` it draws with bold and
+  dim only. The window size is read on every tick: a small window shows the scroll view and the line
+  `Widen the window for the panels.`, and the panels start on the first tick that fits.
 - No value appears in two panels; nothing wraps or overflows the window; every dynamic value on the web page goes
   through `html.escape`, and terminal text goes through `clean` (no control or wide characters).
 
@@ -31,6 +43,7 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
 - `autopilot/dash_term.py`
 - `autopilot/dash_web.py`
 - `autopilot/dashboard.py`
+- `autopilot/dash_live.py`
 
 ## Tests that guard it
 
@@ -51,7 +64,15 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
 - `tests/test_dash_web.py::test_colour_map_classes`
 - `tests/test_dashboard.py::test_data_is_plain_and_has_every_part`
 - `tests/test_dashboard.py::test_a_frozen_state_file_shows_stale_within_30_seconds`
+- `tests/test_watch_liveness.py::test_run_file_holds_the_gate_line_while_a_slow_test_runs`
+- `tests/test_watch_liveness.py::test_a_fake_runner_streaming_every_2_s_keeps_heartbeat_at_moving`
+- `tests/test_watch_liveness.py::test_a_heartbeat_40_s_old_shows_the_pause_and_a_fresh_one_keeps_it_turning`
+- `tests/test_watch_liveness.py::test_watch_with_no_color_draws_the_panels_in_bold_and_dim_only`
+- `tests/test_watch_liveness.py::test_a_small_window_that_grows_gets_the_panels_on_the_next_tick`
 
 ## Changes
 
+- 2026-10-14: W18a: liveness (gate journal lines, runner heartbeat, ticking clock, `Waiting for:`, error age,
+  version, run number, size read on every tick, NO_COLOR panels). Kept every rule above; the Task time `data Ns old`
+  now counts from the data file, not from the heartbeat. New tests: `tests/test_watch_liveness.py`.
 - 2026-10-14: first contract, written from the code and the tests (W36).

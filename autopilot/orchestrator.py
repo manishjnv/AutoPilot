@@ -40,6 +40,7 @@ from .proc import agent_env, exclusive_lock, run_proc, stop_when
 from .report import digest, open_window, token_footer, window_line
 from .schemas import REPORTS
 from .state import State, now
+from .dash_live import version_text
 
 log = logging.getLogger("autopilot")
 
@@ -240,6 +241,7 @@ class Orchestrator:
         self.tracker = outage.Tracker()  # Q22: outage and repeated-error counters of this run (monotonic clock)
         self.outage_waits = 0  # Q22.1: 15-minute waits taken for a vendor outage in this run (outage.OUTAGE_WAITS at most)
         self.last_gate = ""  # N11
+        self._starting = False  # W18a: the start check on main is running; its journal line stays
         self.last_main_gate = None  # W30a: the last gate run on main; end-phase sessions read it instead of testing again
         self.last_log = ""  # W37: the log of the last session, read by the task gate
         self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
@@ -415,13 +417,20 @@ class Orchestrator:
                 self.run_info.update(kw, sessions=self.sessions_this_run,
                                      git="Off" if self.git_offline else "Push!" if self.push_failing else "OK",
                                      build="Red" if self.main_red else "OK")
-                if set(kw) - {"beat_at"}:
+                if set(kw) - {"beat_at", "heartbeat_at"}:
                     self.run_info["updated_at"] = now()
                 tmp = self.ad / "run.json.tmp"
                 tmp.write_text(json.dumps(self.run_info, indent=1), encoding="utf-8")
                 os.replace(tmp, self.ad / "run.json")
         except Exception as exc:  # noqa: BLE001
             log.warning("run journal failed: %s", exc)
+
+    def _wait_line(self, text: str):
+        """W18a: name what the run waits for (a gate command, the start check), so the window never shows a silent wait."""
+        self._journal(current=text, current_at=now())
+
+    def _test_cmd(self) -> str:
+        return ((self.cfg.commands("test") or self.cfg.commands("build", "lint", "typecheck") or ["checks"])[0])[:70]
 
     def heartbeat(self, stop: threading.Event | None = None, interval: float | None = None):
         """W37: write `beat_at` every `interval` seconds (HEARTBEAT) until `stop` is set, so a long session still beats."""
@@ -481,7 +490,7 @@ class Orchestrator:
         self.first_session = self.state.next_session_id()
         self._journal(run_id=f"{dt.datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}", pid=os.getpid(), started_at=now(),
                       status="running", outcome="", word="", current="starting", first_session=self.first_session,
-                      beat_at=now())
+                      beat_at=now(), version=version_text())
         self._start_heartbeat()
         self._prepare_repo()
         try:
@@ -516,7 +525,18 @@ class Orchestrator:
                 log.warning("setup command failed (continuing): %s", why[:800])
                 if not greenfield and self.repair_env(why):
                     self.run_setup()
-            if not greenfield and not self.ensure_main_green():
+            if not greenfield:
+                line = f"start check: tests on main ({self._test_cmd()})"
+                log.info(line)
+                self._wait_line(line)
+                self._starting = True
+            try:
+                green = greenfield or self.ensure_main_green()
+            finally:
+                self._starting = False
+            if not greenfield:
+                log.info("start check: tests on main %s", "passed" if green else "failed")
+            if not green:
                 self.start_main_red()
             self.close_finished_phases()
             outcome = self.loop()
@@ -912,6 +932,8 @@ class Orchestrator:
         self.sleep(wait)
 
     def _main_gate(self, phase: bool = False):
+        if not self._starting:
+            self._wait_line(f"gate: tests ({self._test_cmd()})")
         self.last_main_gate = main_gate(self.cfg, phase=phase)
         return self.last_main_gate
 
@@ -956,6 +978,7 @@ class Orchestrator:
                              web_only=web_only, mcp_config=mcp_config, no_tools=no_tools,
                              resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {},
                              on_context=lambda n: seen.__setitem__(0, n),
+                             on_event=lambda: self._journal(heartbeat_at=now()),
                              on_tokens=lambda n: self._journal(live_tokens=n, context_tokens=seen[0]))
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
         if kind == "task":  # W39: only a task session is cut at once; the gate and reviews run to their end
@@ -1254,6 +1277,7 @@ class Orchestrator:
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 self._journal(state="Test")
+                self._wait_line(f"gate: tests ({self._test_cmd()})")
                 wiped = False
                 gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts,
                                  log_path=self.last_log)
@@ -1769,6 +1793,7 @@ class Orchestrator:
         self.docs.status(self.plan, status)
         self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}{new_file_lines(res.report)}\n\n"
                             f"model: {model}, attempt {attempt}")
+        self._wait_line("gate: merge")
         if self.cfg.get("git.mode", "direct") == "pr":
             sha = self._merge_pr(task, branch, phase, gate.warnings)
         else:

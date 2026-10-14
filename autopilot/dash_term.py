@@ -7,6 +7,7 @@ from __future__ import annotations
 import textwrap
 import unicodedata
 
+from . import dash_live
 from .plain import paint
 
 MIN_COLS, MIN_ROWS = 100, 24
@@ -74,12 +75,16 @@ def fit_segs(line, w: int) -> list:
     return parts + [(" " * (w - sum(len(t) for t, _ in parts)), None)]
 
 
-def render(parts, color: bool) -> str:
-    """Paint whole cells; a style may be several names ('bold yellow')."""
+MONO = {"dim": "dim", "bold": "bold", "value": "bold"}  # W18a: NO_COLOR draws with bold and dim only
+
+
+def render(parts, color) -> str:
+    """Paint whole cells; a style may be several names ('bold yellow'). color: True, False or 'mono' (bold and dim)."""
     out = []
     for t, st in parts:
         for name in (st or "").split() if color else ():
-            t = paint(t, name, True)
+            name = MONO.get(name) if color == "mono" else name
+            t = paint(t, name, True) if name else t
         out.append(t)
     return "".join(out)
 
@@ -202,7 +207,9 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     status = row("Project", p["name"]) + row("Branch", p["branch"])  # the state lives in the title and the bar
     if p["stale_min"] > 0:
         status.append([(f"No change for {p['stale_min']} min.", {"warn": "yellow", "bad": "red"}.get(p["stale"], "dim"))])
-    groups = [status + row("Started", p["started"][:16]) + row("Elapsed", p["elapsed"])]
+    sp0, since = d.get("spin"), p.get("since_ts")
+    elapsed = ticking(sp0["clock"] - since) if sp0 and since else p["elapsed"]  # W18a: ticks on the window clock
+    groups = [status + row("Started", p["started"][:16]) + row("Elapsed", elapsed)]
     if ny:
         n = max(count(pr.get("questions")), len(ny))
         groups.append([rule("! Questions for you", "yellow"),
@@ -222,10 +229,12 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
         if n:  # J13/18: the task time ticks from the local clock; 'data Ns old' is the truth check
             sp, since = d.get("spin"), now.get("since")
             t = ticking(sp["clock"] - float(since)) if sp and since else now["time"]
+            da = (sp["age"] if sp.get("data_age") is None else sp["data_age"]) if sp else None
             if t:
-                tt = [[f"{'Task time':<9}: ", t, *([(f" data {sp['age']}s old", "yellow" if sp["age"] > 30 else "dim")]
-                                                  if sp and sp["age"] is not None and sp["kind"] != "stopped" else [])]]
-        groups.append(g + tt + row("Model", now["model"], "blue"))
+                tt = [[f"{'Task time':<9}: ", t, *([(f" data {da}s old", "yellow" if da > 30 else "dim")]
+                                                  if sp and da is not None and sp["kind"] != "stopped" else [])]]
+        wt = dash_live.tick(p["wait"], sp0["clock"] if sp0 else None)  # W18a: what the run waits for, ticking
+        groups.append(g + tt + row("Model", now["model"], "blue") + (text(wt) if wt else []))
     if p["next"]:
         groups.append([rule("Next"), *text(p["next"])])
     if size:
@@ -247,9 +256,14 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
                        *([[(f"{p['last_commit_age']} ago", "yellow" if p["commit_stalled"] else "dim")]]
                          if p["last_commit_age"] else [])])
     login, err, resets = login_cell(p["login"]), p["last_error"] or "—", p["resets"] or "—"
+    if err != "—" and p["error_age"]:  # W18a: the age of the error; dim after the next successful session
+        err = f"{p['error_age']}: {err}"
     g = [rule("Agent")] + row("Runner", p["runner"] or "—") + row("Login", *login)
     groups.append(g + row("Resets", resets, "magenta" if resets != "—" else "dim")
-                  + row("Error", err, "dim" if err == "—" else "red"))
+                  + row("Error", err, "dim" if err == "—" or p["error_old"] else "red"))
+    ver = [x for x in (p["version"], p["run_line"]) if x]  # W18a: the version and the run number
+    if ver:
+        groups.append([rule("Build")] + [line for x in ver for line in text(x, "dim")])
     rows = []
     for g in groups:
         if rows and len(rows) + len(g) > h - 2:
@@ -298,7 +312,9 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     use.append(f"Rate    {u['rate'] or '—'}")
     issues = []  # the counts of blocked and questions live in Progress and in the question group
     if why:
-        issues += [[(x, "red")] for x in wrap2(f"{why['id']}: {why['why']}", w - 4)]
+        old = bool(why.get("old"))  # W18a: the age shows; dim after the next successful session
+        issues += [[(x, "dim" if old else "red")] for x in wrap2(
+            f"{why['age']} {why['id']}: {why['why']}".strip(), w - 4)]
     issues += [["Warnings  ", alert(count(pr.get("warnings")), "yellow")]]
     issues += ["  " + cut(f"{x['id']} {x['why']}", w - 6) for x in pr["warned_why"][:3]]  # the reason of each warning
     if not pr["warned_why"]:
@@ -449,15 +465,20 @@ def normalize(data) -> dict:
     now = one(sub("project").get("now"), ("n", "title", "attempt", "max_attempts", "time", "model", "since"))
     sp = sub("spin")
     spin = ({"kind": clean(sp.get("kind")), "text": clean(sp.get("text")), "age": count(sp["age"]) if isinstance(
-        sp.get("age"), (int, float)) else None, "clock": float(sp["clock"]) if isinstance(sp.get("clock"), (int, float))
+        sp.get("age"), (int, float)) else None,
+        "data_age": count(sp["data_age"]) if isinstance(sp.get("data_age"), (int, float)) else None, "clock": float(sp["clock"]) if isinstance(sp.get("clock"), (int, float))
         else 0.0} if sp else None)
     size = data.get("size") if isinstance(data.get("size"), dict) else None
     return {
         "project": {**{k: clean(p.get(k)) for k in ("name", "branch", "model", "started", "status", "tone", "stale",
                                                     "state_words", "state", "elapsed", "eta", "next", "last_commit",
                                                     "last_commit_age", "other", "runner", "login", "resets",
-                                                    "last_error", "word")},
-                    "stale_min": count(p.get("stale_min")), "commit_stalled": bool(p.get("commit_stalled"))},
+                                                    "last_error", "word", "error_age", "version", "run_line")},
+                    "stale_min": count(p.get("stale_min")), "commit_stalled": bool(p.get("commit_stalled")),
+                    "error_old": bool(p.get("error_old")),
+                    "since_ts": float(p["since_ts"]) if isinstance(p.get("since_ts"), (int, float)) else None,
+                    "wait": ({"text": clean(w.get("text")), "since": float(w.get("since") or 0),
+                              "secs": count(w.get("secs"))} if isinstance(w := p.get("wait"), dict) else None)},
         "spin": spin,
         "progress": {**pr, "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6],
                      "warned_why": [x for x in (one(r, ("id", "why")) for r in pr.get("warned_why") or []) if x]},
@@ -467,7 +488,7 @@ def normalize(data) -> dict:
         "next": [(clean(t[0]), clean(t[1]) if len(t) > 1 else "") for t in listed("next")
                  if isinstance(t, (list, tuple)) and t],
         "needs_you": [x for x in (one(r, ("id", "title")) for r in data.get("needs_you") or []) if x],
-        "blocked_why": one(data.get("blocked_why"), ("id", "why")),
+        "blocked_why": one(data.get("blocked_why"), ("id", "why", "age", "old")),
         "tasks": [{**r, "slow": bool(o.get("slow"))} for r, o in zip(
             rows("tasks", ("n", "id", "title", "status", "time", "detail", "risk", "tries")),
             [x for x in data.get("tasks") or [] if isinstance(x, dict)])],

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from html import escape as e
 
+from . import dash_live
+
 CSS = """
 :root{color-scheme:light dark;--bg:#f3f4f6;--panel:#fff;--panel-2:#e9ecf0;--line:#b9c0ca;--text:#0b0f16;--muted:#3d4654;
 --good:#0f5c24;--bad:#a01b14;--warn:#7a4700;--count:#075a72;--use:#8a1f7a;--model:#1d4fa8;--hl:#dcedf4;--row:3px;--cell:6px;
@@ -215,7 +217,8 @@ def _project(p: dict, total: int, sz, asof=None, spin=None) -> str:
               if st else "")
     out = (_asof(asof) + _dl([("Branch", p.get("branch"))]) + status  # 'Time left' lives in the bar
            + ("" if p.get("status") == "running" else f'<p>{e(str(p.get("state_words") or ""))}</p>')  # not "Writes the code."
-           + _dl([("Start", p.get("started")), ("Elapsed", p.get("elapsed"))]))
+           + _dl([("Start", p.get("started")), ("Elapsed", p.get("elapsed"))])
+           + "".join(f'<p class="z">{e(str(p[k]))}</p>' for k in ("version", "run_line") if p.get(k)))
     if _i(p.get("stale_min")) > 0:
         c = {"warn": "w", "bad": "bad"}.get(p.get("stale"), "z")
         out += f'<p class="{c}">No change for {_i(p.get("stale_min"))} min.</p>'
@@ -231,16 +234,20 @@ def _project(p: dict, total: int, sz, asof=None, spin=None) -> str:
     if nw.get("n"):
         body += _dl([("Task time", nw.get("time"))])
     body += _dl([("Model", nw.get("model"))])
+    wt = dash_live.tick(p.get("wait"), None)  # W18a: what the run waits for
+    body += f'<p class="z">{e(wt)}</p>' if wt and nw else ""
     out += _group("Now", body if nw else "")
     out += _group("Next", f'<p>{e(str(p["next"]))}</p>' if p.get("next") else "")
     login = str(p.get("login") or "")
     login = "not checked" if login in ("", "—") else login
     err, resets = p.get("last_error") or "—", p.get("resets") or "—"
+    old = err == "—" or bool(p.get("error_old"))  # W18a: the age of the error; dim after the next successful session
+    err = f'{p["error_age"]}: {err}' if err != "—" and p.get("error_age") else err
     out += _group("Agent", _dl([("Runner", p.get("runner") or "—"),
                                 ("Login", login, "w" if login == "not checked" else
                                  "good" if login.lower().startswith(("pro", "max")) else "bad"),
                                 ("Resets", resets, "z" if resets == "—" else "mg"),
-                                ("Error", err, "z" if err == "—" else "bad")]))
+                                ("Error", err, "z" if old else "bad")]))
     if sz:
         rows = [("Code", f'{_i(sz.get("code")):,} lines'),
                 ("Tests", f'{_i(sz.get("tests")):,} lines, {_i(sz.get("test_count")):,} tests'),
@@ -286,7 +293,8 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     bw = data.get("blocked_why") or {}
     issues = _count("Blocked tasks", g.get("blocked"), "bad")
     if bw:
-        issues += f'<div class="bad">{e(str(bw.get("id", "")))}: {e(str(bw.get("why", "")))}</div>'
+        age = f'{e(str(bw["age"]))} ' if bw.get("age") else ""  # W18a: the age; grey after the next successful session
+        issues += f'<div class="{"z" if bw.get("old") else "bad"}">{age}{e(str(bw.get("id", "")))}: {e(str(bw.get("why", "")))}</div>'
     issues += _count("Questions for you", g.get("questions"), "w") + _count("Gate warnings", g.get("warnings"), "w")
     issues += "".join(f'<div class="w">{e(str(x.get("id", "")))} {e(str(x.get("why", "")))}</div>'
                       for x in (g.get("warned_why") or [])[:3])
@@ -340,7 +348,8 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     ms = int(refresh) * 1000
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-            f"<title>{e(str(data.get('line') or ''))} · {PAGE_TITLE}</title><style>{CSS}</style>"
+            f"<title>{e(str(data.get('line') or ''))} · {PAGE_TITLE}"
+            f"{' · ' + e(str(p['version'])) if p.get('version') else ''}</title><style>{CSS}</style>"
             f"<noscript><meta http-equiv=refresh content={int(refresh)}></noscript></head><body>"
             "<p id=off hidden>The build stopped, or the status server is off. This page shows the last status. "
             "For the status now, run: ap status</p>"

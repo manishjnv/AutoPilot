@@ -880,6 +880,8 @@ def cmd_status(args):
     from .report import build_report, run_journal, status_line
     cfg, plan, state = _open_state(Path(args.path).resolve())
     from .plain import colors_on
+    from .dash_live import version_text
+    print(version_text())  # W18a: the first line says which Autopilot answers
     print(dead_red(status_line(cfg, plan, state, run_journal(cfg.root),
                                shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None),
                    colors_on(sys.stdout)) + "\n")
@@ -951,10 +953,11 @@ def restarting(root: Path, wait: float = 90, sleep=None, clock=None) -> bool:
     return False
 
 
-def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
+def watch_dashboard(root: Path, color, hold: bool, tick: float = 1.0, size_fn=None):
     """J9: the full-window dashboard (dash_term.frame) on the terminal's second screen, drawn again each second.
     Returns None when this terminal cannot show it (too small, no plan yet): the caller uses the scrolling view.
-    A window made too small later shows one line that says so. Ctrl+C and the end of the build give the first
+    The window size is read on every tick (W18a); a window made too small later shows one line that says so.
+    color: True, False (no styles) or 'mono' (NO_COLOR: bold and dim only). Ctrl+C and the end of the build give the first
     screen back, with the end message on it."""
     import time
 
@@ -964,7 +967,8 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
     from .state import State
     utf = is_utf(sys.stdout)  # J13/18: ASCII spinner on other consoles
     spin = None
-    size = shutil.get_terminal_size()
+    size_fn = size_fn or shutil.get_terminal_size
+    size = size_fn()
     if size.columns < MIN_COLS or size.lines < MIN_ROWS:
         return None
     box: dict = {}
@@ -986,7 +990,7 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
     out.write("\x1b[?1049h\x1b[?25l\x1b[?7l")  # the second screen, no cursor, no line wrap
     try:
         while True:
-            size = shutil.get_terminal_size()
+            size = size_fn()
             try:
                 d = data()
                 spin = d["spin"] = spinner(d, d["asof"]["mtime"], time.time(), spin, utf)
@@ -1013,8 +1017,14 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
         if "state" in box:
             box["state"].db.close()
     if ended:
-        watch_end(root, run_journal(root), color, hold)
+        watch_end(root, run_journal(root), color is True, hold)
     return 0
+
+
+def panels_ok(args, simple: bool) -> bool:
+    """W18a: the panel screen needs a terminal that takes escape codes, nothing else: NO_COLOR only drops the colours."""
+    return bool(simple and sys.stdout.isatty() and not os.environ.get("AUTOPILOT_PLAIN") and enable_vt()
+                and not getattr(args, "scroll", False) and not getattr(args, "simple", False))
 
 
 def cmd_tour(args):
@@ -1029,15 +1039,17 @@ def cmd_watch(args):
     from .plain import SimpleView, colors_on, paint
     from .report import next_steps_text, run_alive, run_journal
     root = Path(args.path).resolve()
+    size_fn = getattr(args, "size_fn", None) or shutil.get_terminal_size  # W18a: a test gives its own
     log =root / AGENT_DIR / "logs" / "autopilot.log"
     # J1: plain words on a terminal; the technical lines with --detail, and when the output is not a terminal
     simple = bool(getattr(args, "simple", False)) or (sys.stdout.isatty() and not getattr(args, "detail", False))
     color = colors_on(sys.stdout)
-    if (simple and color and sys.stdout.isatty() and not getattr(args, "scroll", False)
-            and not getattr(args, "simple", False)):  # J9: the dashboard, when the window is large enough
-        rc = watch_dashboard(root, color, bool(getattr(args, "hold", False)))
+    panels = panels_ok(args, simple)
+    if panels:  # J9: the dashboard, when the window is large enough
+        rc = watch_dashboard(root, color or "mono", bool(getattr(args, "hold", False)), size_fn=size_fn)
         if rc is not None:
             return rc
+        print(paint("Widen the window for the panels.", "dim", color))  # W18a: the scroll view says only this
     names = {}
     try:
         cfg, plan, state = _open_state(root)
@@ -1111,6 +1123,15 @@ def cmd_watch(args):
     try:
         while True:
             time.sleep(1)
+            if panels:  # W18a: the size is read on every tick; the panels start as soon as the window fits
+                from .dash_term import MIN_COLS, MIN_ROWS
+                size = size_fn()
+                if size.columns >= MIN_COLS and size.lines >= MIN_ROWS:
+                    bar.stop()
+                    rc = watch_dashboard(root, color or "mono", bool(getattr(args, "hold", False)), size_fn=size_fn)
+                    if rc is not None:
+                        return rc
+                    panels = False
             moved()
             if log.exists() and log.stat().st_size > pos:
                 with open(log, encoding="utf-8", errors="replace") as fh:

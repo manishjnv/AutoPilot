@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 
+from . import dash_live
 from .decisions import problems
 from .plain import SimpleView, ending
 from .report import (MODEL_NAMES, STATE_WORDS, _n, _runtime, _shares, next_steps, open_window, run_alive,
@@ -189,14 +190,19 @@ def spinner(d: dict, mtime, now: float, prev: dict | None = None, utf: bool = Tr
     frozen, yellow), stopped (the run ended: red, with the end time), or '' (nothing to show)."""
     frames, pause, stop = SPIN[utf]
     a, prev = d.get("asof") or {}, prev or {}
+    seen = mtime
+    mtime = a["pulse"] if a.get("pulse") is not None else mtime  # W18a: the data or the runner heartbeat, the newest
     frame = int(prev.get("frame", 0)) + (1 if prev and mtime != prev.get("mtime") else 0)
     age = max(0, int(now - mtime)) if mtime is not None else a.get("age")
-    out = {"frame": frame, "mtime": mtime, "clock": now, "age": age}
+    out = {"frame": frame, "mtime": mtime, "clock": now, "age": age,
+           "data_age": max(0, int(now - seen)) if seen is not None else age}
     if not a.get("live", True):
         stopped = a.get("stopped") or ""
         return {**out, "kind": "stopped" if stopped else "", "text": f"{stop} stopped {stopped}" if stopped else ""}
     if isinstance(age, (int, float)) and age > 30:
-        return {**out, "kind": "stale", "text": f"{pause} no change {age}s" if age < 60 else f"{pause} no change {age // 60}m"}
+        what = a.get("wait_text")  # W18a: a gate or the start check says what it waits for, not 'no change'
+        return {**out, "kind": "stale", "text": f"{pause} {what}" if what else
+                f"{pause} no change {age}s" if age < 60 else f"{pause} no change {age // 60}m"}
     return {**out, "kind": "run", "text": frames[frame % len(frames)]}
 
 
@@ -351,11 +357,16 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
     ended = sorted((r for r in rows.values() if r["status"] == "done" and r["finished_at"]),
                    key=lambda r: r["finished_at"], reverse=True)[:3]
     number = {t["id"]: t for t in table}
+    clock = time.time()
+    wait = dash_live.waiting(root, run, live, clock)
+    err_age, err_old = dash_live.error_age(state, broken, clock) if broken else ("", False)
+    why_age, why_old = dash_live.error_age(state, stuck, clock) if stuck else ("", False)
     return {
         # the age of the data; a run that is not live shows when it stopped
         "asof": {"age": data_age(root, run), "live": live, "mtime": data_mtime(root, run),
                  "stopped": "" if live else dead_since or str(run.get("updated_at") or "")[11:16],
-                 "dead_since": dead_since},
+                 "dead_since": dead_since, "pulse": dash_live.pulse(run, data_mtime(root, run)) if live else None,
+                 "wait_text": str(run.get("current") or "") if live and dash_live.gate_label(run.get("current")) else ""},
         "project": {
             "name": str(cfg.get("name", root.name)), "branch": main, "commit": facts["commit"],
             "last_commit": _first(facts["subject"], 60),
@@ -366,6 +377,9 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "runner": runner, "login": str(login or "not checked"),  # J13/17: the plan is stored by no check yet: no call
             "resets": f"{dt.datetime.fromtimestamp(float(five['reset'])):%H:%M}" if five else "—",
             "last_error": _first(broken["last_error"], 70) if broken else "—",
+            "error_age": err_age, "error_old": err_old,
+            "version": dash_live.version_text(), "run_line": dash_live.run_line(state, clock), "wait": wait,
+            "since_ts": dash_live.epoch(run.get("started_at")) if live else None,
             "word": str(run.get("word") or ""),  # P14: the W3 outcome word of the last run
             "run_id": str(run.get("run_id") or ""),"started": str(run.get("started_at") or "").replace("T", " "),
             "status": "running" if live else "finished" if finished else "idle",
@@ -393,7 +407,8 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         "needs_you": [{"id": str(d["id"]), "title": _first(d["title"] or d["question"], 70)} for d in asked[:2]],
         # the same simple sentence as docs/NEEDS-YOU.md gives for this problem
         "blocked_why": ({"id": stuck["id"], "why": (problems(stuck["last_error"] or stuck["note"])
-                                                    or ["No reason is recorded."])[0][:160]} if stuck else None),
+                                                    or ["No reason is recorded."])[0][:160],
+                         "age": why_age, "old": "1" if why_old else ""} if stuck else None),
         # J11: each phase in one line, and the tasks that ended last
         "phases": [{"id": p.id, "title": p.title, "total": len(p.tasks),
                     "done": sum(1 for t in p.tasks if status.get(t.id) == "done"),

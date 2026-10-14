@@ -339,12 +339,15 @@ class ClaudeCLIBackend:
             log = open(req.log_path, "w", encoding="utf-8")  # noqa: SIM115
             log.write(f"$ {' '.join(cmd[:10])} ...\n\nSTDOUT:\n")
 
-        meter, told = usage_meter(), [float("-inf")]
+        meter, told, beat = usage_meter(), [float("-inf")], [float("-inf")]
 
         def on_line(line: str) -> str:
             if log:
                 log.write(line)
                 log.flush()
+            if req.on_event and time.monotonic() - beat[0] >= 10:  # W18a: the runner heartbeat, at most every 10 s
+                beat[0] = time.monotonic()
+                req.on_event()
             if req.on_tokens:  # G8: the status line counts this session's tokens while it runs (every 5 s at most)
                 tokens = meter(line)
                 if tokens and time.monotonic() - told[0] >= 5:
