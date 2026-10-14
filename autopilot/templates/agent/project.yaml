@@ -123,14 +123,16 @@ models:
     replan: high
     onboard: high
     triage: low
-  subagent: ""            # e.g. haiku: model for subagents inside sessions (CLAUDE_CODE_SUBAGENT_MODEL; all of them)
+  subagent: haiku         # W61: the model for subagents inside sessions (CLAUDE_CODE_SUBAGENT_MODEL; all of them; "" = the session model)
   fixer: [sonnet, opus, opus]   # repair attempt N uses entry N (a single model also works)
   replanner: sonnet       # opus when a pending task touches a load-bearing path
   auditor: opus
   onboard: opus
   unstick: sonnet         # diagnoses a stuck task (may search the web) before anyone is asked
   decide: opus            # weighs 2-3 approaches before risky work (see decide:)
-  review: opus            # reviews a task's diff after the gate, before the merge (see review:)
+  review: opus            # reviews a task's diff after the gate, before the merge (see review:); W61: or a map by tier,
+                          # {medium: sonnet, high: opus, critical: opus}; keep a map only after the ten-task measure (REFERENCE)
+  # docs: gemini:gemini-3.8-flash   # W61: docs, research, triage, unstick and helper may run on a free CLI preset <preset>:<model>
   research: sonnet        # web research for a task's `research:` topics (see research:)
   verifier: sonnet        # the per-phase functional check (see functional:)
   triage: haiku           # turns a GitHub issue into a task, with no tools (see intake:)

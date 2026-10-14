@@ -198,6 +198,19 @@ MECHANICAL = ("file grew past the budget", "outside files_in_scope", "scope_addi
 MECHANICAL_LEAD = "Mechanical gate failure (same model; the approach is fine). Fix exactly this and change nothing else:\n\n"
 
 
+CLI_FALLBACK = {"docs": "sonnet", "research": "sonnet", "triage": "haiku", "unstick": "sonnet", "helper": "haiku"}  # W61 rule 3
+
+
+def first_failure(report: str) -> str:
+    """W61 rule 7: the first failing line of a gate report (`FAILED ...`, an error line), else its first line;
+    cut to 200 characters. The gate text, not `sessions.error` (empty on every retried attempt)."""
+    lines = [ln.strip() for ln in (report or "").splitlines() if ln.strip()]
+    for ln in lines:
+        if ln.startswith(("FAILED", "ERROR", "PROBLEM", "E ")) or "Error" in ln or "error:" in ln.lower():
+            return ln[:200]
+    return lines[0][:200] if lines else ""
+
+
 def mechanical(cfg, gate: GateResult | None) -> bool:
     """W41: the gate failed only on growth, scope or lint: no sign the work is too hard for the model."""
     if gate is None or gate.ok:
@@ -494,7 +507,8 @@ class Orchestrator:
                 return ""
             rows = usage_mod.sources(self.cfg, self.state, now=lambda: now)
             current = f"login:{usage_mod._login_name(self._account())}"
-            pick = usage_mod.plan_source(rows, current, float(self.cfg.get("usage.idle_pct", 50) or 50), now=lambda: now)
+            need = self.expected_share(task) if task is not None else 0.0  # W61 rule 2
+            pick = usage_mod.plan_source(rows, current, float(self.cfg.get("usage.idle_pct", 50) or 50), need=need, now=lambda: now)
             line = usage_mod.suggest_line(pick)
             self.state.set_meta("source_suggest", line)
             if not pick or str(self.cfg.get("usage.switch", "suggest")) != "auto":
@@ -506,6 +520,36 @@ class Orchestrator:
             return line
         except Exception:  # noqa: BLE001  the planner never stops a build
             return ""
+
+    def login_with_room(self, model: str, reserve: float):
+        """W61 rule 1: the folder of another login ('' = the default login) where a step up to `model` has room on
+        every bar, else None. Only logins; never the api or the cloud source."""
+        try:
+            rows = usage_mod.sources(self.cfg, self.state)
+        except Exception:  # noqa: BLE001
+            return None
+        current = usage_mod._login_name(self._account())
+        for r in rows:
+            if r["kind"] != "login" or r["off"] or r["name"] == f"login:{current}":
+                continue
+            figs = usage_mod.figures(self.state, self.cfg, r["folder"] or "default")
+            if (r["room"] or 0) > 0 and not usage_mod.step_up_room(figs, model, reserve):
+                return r["folder"]
+        return None
+
+    def expected_share(self, task) -> float:
+        """W61 rule 2: the 75th percentile of this run's task session costs of the task's risk tier, as a share of
+        the 5-hour window (`usage.window_usd` or the learned capacity); 0 when unknown."""
+        try:
+            risk = self.effective_risk(task)
+            cap = float(self.cfg.get("usage.window_usd", 0) or 0) or float(self.state.get_meta(self._wk("window_capacity_usd"), 0) or 0)
+            rows = self.state.db.execute("SELECT task_id, cost FROM sessions WHERE id >= ? AND kind = 'task'",
+                                         (int(self.first_session or 0),)).fetchall()
+            costs = [r["cost"] for r in rows if r["task_id"] in self.plan.task_by_id
+                     and self.effective_risk(self.plan.task_by_id[r["task_id"]]) == risk]
+            return usage_mod.expected_share(costs, cap)
+        except Exception:  # noqa: BLE001
+            return 0.0
 
     def switch_login(self, folder: str, why: str, until: float) -> None:
         """W60 (subsumes W28): put the run on login `folder` ('' = the default login) until `until`, through the one
@@ -1038,7 +1082,11 @@ class Orchestrator:
                 web_only: bool = False, mcp_config: str = "", no_tools: bool = False,
                 timeout_sec: int | None = None) -> SessionResult:
         self.check_stop()
-        self.window_gate(kind, model)
+        preset = ""
+        if ":" in model and kind in usage_mod.CLI_ROLES:  # W61 rule 3: `gemini:gemini-3.8-flash` = a free CLI preset
+            preset, model = model.split(":", 1)
+        else:
+            self.window_gate(kind, model)
         effort = effort or self.cfg.get(f"models.effort.{kind}", "")  # U5: role effort; agent.effort is the fallback
         budget = self.session_budget(task_id)
         self._journal(current=label or " ".join(
@@ -1069,6 +1117,20 @@ class Orchestrator:
             self.owner_cut = False
             with stop_when(self._owner_now):
                 res = self._run_backend(req)
+        elif preset:  # W61 rule 3: the side session runs on the free CLI; a failed or empty answer reruns once on Claude
+            res = self._cli_run(preset, req)
+            counts = dict(self.state.get_meta("cli_sessions", {}) or {})
+            row = dict(counts.get(kind) or {"run": 0, "fallback": 0})
+            row["run"] += 1
+            if not res.ok or not res.report:
+                row["fallback"] += 1
+                fallback = CLI_FALLBACK.get(kind, "sonnet")
+                log.info("%s: %s failed, %s", kind, preset, fallback)
+                self.window_gate(kind, fallback)
+                self._journal(model=fallback)
+                res = self._run_backend(replace(req, model=fallback, label=req.label.replace(f"[{model}", f"[{fallback}")))
+            counts[kind] = row
+            self.state.set_meta("cli_sessions", counts)
         else:
             res = self._run_backend(req)
         if kind == "task" and res.rate_limited:
@@ -1088,6 +1150,12 @@ class Orchestrator:
         if task_id:
             self.state.set_task(task_id, cost=self.state.cost(task_id=task_id))
         self.note_window(res)
+        if res.rate_limited:  # W61 rule 4: an answer that names a model marks that model out (a parsed time, else 10 min)
+            from .backends import limit_model
+            named = limit_model(res.error)
+            if named:
+                until = usage_mod.mark_out(self.state, named, float(res.reset_at or 0), self._account())
+                log.info("usage: %s out until %s (limit answer)", named, dt.datetime.fromtimestamp(until).strftime("%a %H:%M"))
         if res.rate_limited and res.reset_at:
             self.learn_window(res.reset_at)
             until = float(self.state.get_meta("handoff_until", 0) or 0)
@@ -1107,6 +1175,13 @@ class Orchestrator:
 
     def _fallback_backend(self, name: str):
         return fallback_backend(self.cfg, name)
+
+    def _cli_run(self, preset: str, req) -> SessionResult:
+        """W61 rule 3: run `req` through the command backend of `preset` (the model name rides in `req.model`)."""
+        try:
+            return self._fallback_backend(preset).run(req)
+        except Exception as exc:  # noqa: BLE001  a missing or broken CLI is a fallback, never a crash
+            return SessionResult(ok=False, error=f"{preset} failed: {exc!r}")
 
     def _handoff(self, req, res, task_id) -> SessionResult | None:
         """N11: usage limit with a reset > 30 min away and `agent.fallback` set: commit the work, write HANDOFF.md, run
@@ -1218,17 +1293,28 @@ class Orchestrator:
     def can_resume(self) -> bool:
         return bool(self.cfg.get("retries.resume", True)) and getattr(self.backend, "supports_resume", False)
 
-    def model_for(self, risk: str, attempt_index: int, floor: int = -1) -> str:
-        """ladder[attempt], but never below `floor` (a model_rank): a task never moves down after failing higher."""
+    def model_for(self, risk: str, attempt_index: int, floor: int = -1, prev: str = "") -> str:
+        """ladder[attempt], but never below `floor` (a model_rank): a task never moves down after failing higher.
+        `prev` is the model of the last attempt (W61 rule 1: a step up needs room)."""
         ladder = self.cfg.get(f"models.ladder.{risk}") or self.cfg.get("models.ladder.medium")
         m = ladder[min(attempt_index, len(ladder) - 1)]
         if model_rank(m) < floor:
             m = next((x for x in ladder if model_rank(x) >= floor), max(ladder, key=model_rank))
-        return self.with_room(m, ladder)
+        return self.with_room(m, ladder, prev)
 
-    def with_room(self, model: str, ladder: list) -> str:
+    def tier_value(self, key: str, risk: str, default: str) -> str:
+        """W61 rule 5: a models/effort setting that is one name for every tier, or a map by risk tier
+        (`{medium: sonnet, high: opus, critical: opus}`); a tier the map does not name gets the default."""
+        v = self.cfg.get(key, default)
+        if isinstance(v, dict):
+            return str(v.get(risk) or default)
+        return str(v or default)
+
+    def with_room(self, model: str, ladder: list, prev: str = "") -> str:
         """W59: a model whose weekly bar is at or over `usage.model_reserve_pct` is skipped for the next model down
-        the ladder (never up); when every model is out the lowest one is returned and `window_gate` waits."""
+        the ladder (never up); when every model is out the lowest one is returned and `window_gate` waits.
+        W61 rule 1: a step up (rank over `prev`) also needs room on the all-models weekly bar and the 5-hour bar;
+        without it, a login where the model has room takes the task (`limit`), else the retry stays on `prev`."""
         if self.cfg.get("usage.billing", "subscription") != "subscription":
             return model
         try:
@@ -1236,6 +1322,19 @@ class Orchestrator:
         except Exception:  # noqa: BLE001  a usage read never stops a build
             return model
         reserve = float(self.cfg.get("usage.model_reserve_pct", 95) or 95)
+        if prev and model_rank(model) > model_rank(prev):
+            blocked = usage_mod.step_up_room(figs, model, reserve)
+            if blocked:
+                folder = self.login_with_room(model, reserve)
+                if folder is not None:
+                    self.switch_login(folder, f"limit: {model} has room on login {usage_mod._login_name(folder)}",
+                                      time.time() + 7 * 86400)
+                    return model
+                why = f"{model} held, {blocked}"
+                if self.state.get_meta("usage_why") != why:
+                    self.state.set_meta("usage_why", why)
+                    log.info("usage: %s", why)
+                return prev
         picked, why = usage_mod.pick(model, list(ladder), figs, reserve, model_rank)
         if why and self.state.get_meta("usage_why") != why:
             self.state.set_meta("usage_why", why)
@@ -1329,7 +1428,7 @@ class Orchestrator:
 
             if attempts == 0 and not kept:
                 self.plan_source(task)  # W60: a source switch happens only between tasks, never inside one
-            model = own_model or self.model_for(risk, attempts, floor)
+            model = own_model or self.model_for(risk, attempts, floor, str(self.state.task(task.id)["model"] or "") if attempts else "")
             own_model, self.last_gate = "", last_error or ""  # N11: the last gate output goes into a handoff
             effort = self.cfg.get(f"models.effort.{risk}", "")
             base = self.git.head() if kept else self.git.start_branch(branch, self.main)
@@ -1429,6 +1528,18 @@ class Orchestrator:
                                       f"Diff of the cut session (start from it, do not rewrite):\n"
                                       f"{self.git.run('diff', '--cached', check=False)[:8000]}")
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
+            if gate is not None and not gate.ok:  # W61 rule 7: the same gate failure twice with no larger diff = park
+                sig = [first_failure(gate.report()), self.counted_change()[1]]
+                prev_sig = self.state.get_meta(f"failsig:{task.id}")
+                self.state.set_meta(f"failsig:{task.id}", sig)
+                diagnosed = (self.cfg.get("unstick.enabled", True) and not self.cfg.lean  # a diagnosis session (unstick)
+                             and not self.state.get_meta(f"unstick:{task.id}", False)  # still runs before this retry:
+                             and attempts >= int(self.cfg.get("unstick.after_attempts", 2)))  # that retry is not blind
+                if prev_sig and sig[0] and sig[0] == prev_sig[0] and sig[1] <= prev_sig[1] and not diagnosed and not extra:
+                    self.state.event("task_blocked", f"{task.id}: NOT PROVEN: same failure twice ({sig[0][:120]}); "
+                                                     "parked instead of a stronger model")
+                    self._park(task, branch, attempts, f"NOT PROVEN: same failure twice: {sig[0]}\n\n{last_error or ''}")
+                    return False
             chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
             why = self.escalation(res, gate, bool(split))
             fail_model, fail_why = model, why
@@ -1538,9 +1649,11 @@ class Orchestrator:
         for _try in range(2):  # a missing verdict = one retry of the review session
             while True:
                 try:
-                    res = self.session("review", self.ctx.review_prompt(task, diff, listed) + review_tests(gate), self.cfg.get("models.review", "opus"),
+                    tier = self.effective_risk(task)  # W61 rule 5: the review model and effort may follow the tier
+                    res = self.session("review", self.ctx.review_prompt(task, diff, listed) + review_tests(gate),
+                                       self.tier_value("models.review", tier, "opus"),
                                        task_id=task.id, phase=phase.id, read_only=True,
-                                       effort=self.cfg.get("review.effort", "high"))
+                                       effort=self.tier_value("review.effort", tier, "high"))
                 finally:  # read-only: drop what it touched (even its git moves), keep the work on the snapshot
                     self.git.run("checkout", "-q", "-f", "-B", branch, sha)
                     self.git.run("clean", "-q", "-ffd")  # -ff: also nested repos it made (git init / clone)

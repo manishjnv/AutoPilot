@@ -426,6 +426,9 @@ def _this_run(cfg, plan, state) -> list[str]:
     return ["", "## This run", "", f"- Started: {run.get('started_at', '?')} ({run.get('status', '?')})",
             f"- Outcome: {run.get('outcome') or 'still running'}", f"- Tasks done this run: {len(done)}",
             f"- Sessions this run: {sessions}", f"- Open decisions: {len(open_d)}", f"- Next action: {action}",
+            *([f"- Free CLI side sessions: " + ", ".join(f"{k} {v.get('run', 0)} ({v.get('fallback', 0)} fell back to Claude)"
+                                                      for k, v in (state.get_meta("cli_sessions") or {}).items())]
+              if state.get_meta("cli_sessions") else []),  # W61 rule 3: the measure
             f"- {token_footer(state, first)}"] + [f"- {w}" for w in (window_line(state), usage_now(cfg, state, run),
                                                                      str(state.get_meta("source_suggest") or ""),
                                                                      config_line(state.get_meta("config_load"))) if w]

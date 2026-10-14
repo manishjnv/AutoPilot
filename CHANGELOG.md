@@ -17,6 +17,9 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - Each release now carries a signed proof of where it was built, and the updater refuses a download that fails that proof.
 - The watch screen and the status page show every usage bar of your login, and a full model bar gives way to the next model.
 - Autopilot suggests which login or credit to spend next, switches on its own when you allow it, and warns three days before a credit expires.
+- A retry moves to a stronger model only when that model has room, and the same failure twice parks a task.
+- A task moves to the login where it fits, and a model that answers with a limit is skipped until it resets.
+- The review model can follow the risk tier, and side sessions can run on a free command-line tool.
 - Each release also carries the table of supported AI programs as a signed file, with the date the vendor docs were checked.
 - The security and how-to documents now explain the admin right that lets a build install system tools without a password.
 - The plugin stop check no longer runs commands in folders that Autopilot did not set up on this computer.

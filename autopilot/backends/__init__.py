@@ -55,6 +55,16 @@ def parse_reset(s: str, now: datetime) -> float | None:
         return None
 
 
+_MODEL_LIMIT_RX = re.compile(r"\b(opus|sonnet|haiku|fable)\b[^\n]{0,60}?\b(?:not available|unavailable|limit)", re.I)
+
+
+def limit_model(text: str) -> str:
+    """W61 rule 4: the model a limit answer names (`Opus not available until Thu 21:30`, a per-model limit text),
+    lower-case, or '' when the answer names none."""
+    m = _MODEL_LIMIT_RX.search(text or "")
+    return m.group(1).lower() if m else ""
+
+
 def detect_limit(text: str, now: datetime | None = None) -> tuple[bool, float | None]:
     """(limited, reset_at epoch). Only the CLI's subscription message or API 429/529 errors count, never agent prose."""
     text = text or ""

@@ -250,7 +250,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `onboard` | The discovery pack of the `onboard` session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | Where the agent runs: `mode` `off`, `allowlist`, or `docker`. [Details](#setting-details) | `mode`, `enabled` (false), `allowed_domains`, `image` (needed for `docker`; the image must have `claude` on PATH), `network` (`bridge`) |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `replanner` (sonnet; opus when a pending task's `files_in_scope` matches `escalate.load_bearing`), `unstick` (sonnet), `review` (opus). `helper` (haiku) gives the short answer to a typed question, at most 20 calls for each run |
-| `usage` | The 5-hour window and the live bars | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0), `live` (true, W59), `model_reserve_pct` (95), `cloud_credit` and `api_credit` (entered by `ap budget`), `switch` (suggest or auto, W60), `idle_pct` (50), `sources_off` (a list of source names) |
+| `usage` | The 5-hour window and the live bars | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0), `live` (true, W59), `model_reserve_pct` (95), `cloud_credit` and `api_credit` (entered by `ap budget`), `switch` (suggest or auto, W60), `idle_pct` (50), `sources_off` (a list of source names). W61 uses `model_reserve_pct` for a step up too |
 | `upgrade` | The update that runs by itself | `auto` (true): before `ap run` or `ap start`, once a day, a release install gets the newest release and starts the command again; `false` turns it off. `AUTOPILOT_NO_AUTO_UPGRADE=1` does the same for one shell |
 | `budget_usd` | Cost limits | `per_session` (8), `per_task` (20), `per_phase` (150), `daily` (200), `total` (5000) |
 | `profile` | How much checking each task gets | `lean` (new projects) or `full` (a missing key) |
@@ -418,6 +418,7 @@ The gate runs these guards on each task before the checks. A guard that finds a 
 | Kill by name | A Bash or PowerShell tool call in the Claude Code session log that ends a process by its name. [Details](#guard-details) |
 | Child processes on timeout | Windows: every command and session runs in a job object (kill on close); a timeout calls TerminateJobObject, then `taskkill /F /T`. If the job cannot be created, one warning is logged and only `taskkill /T` runs. POSIX: the process group is killed |
 | Red main | Every new commit on main is tested once with `commands.test` before the next task starts. [Details](#guard-details) |
+| Same failure twice | A retry that fails the gate on the same first failing line as the attempt before, with no larger diff, is parked (W61). The note says `NOT PROVEN: same failure twice`; no stronger model is tried |
 | `failing_before` | A task report that lists tests as failing before its change, checked against the test result of main. [Details](#guard-details) |
 | New file | An added file with no reason in the report field `new_files`, when `gate.new_file_reasons` is `true`. [Details](#guard-details) |
 
@@ -466,6 +467,7 @@ When the Claude CLI prints its final `result` event, Autopilot waits 10 seconds 
 
 | Role | Model | Job |
 |---|---|---|
+| Review | opus, or a map by tier (W61) | Reads the diff after the gate; `models.review: {medium: sonnet, high: opus, critical: opus}` and `review.effort` as a map follow the risk tier; a tier not in the map gets the default. Keep a map only after the ten-task measure (REFERENCE, Usage and budget) |
 | Fixer | sonnet, then opus | Repairs `main` when its checks fail |
 | Unstick | sonnet | Finds the cause of a blocked task. It can search the web |
 | Decide | opus | Compares 2 or 3 designs before a critical task or a task with `needs_decision: true` (`decide.risks`) |
@@ -474,6 +476,10 @@ When the Claude CLI prints its final `result` event, Autopilot waits 10 seconds 
 | Auditor, onboard | opus | Audits the app, writes the first plan |
 | Plan update (replanner) | sonnet; opus when a pending task touches a load-bearing path | Updates the plan |
 | Triage | haiku | Makes a task from a GitHub issue, with no tools |
+| Subagent model | haiku (`models.subagent`, W61) | The model of every subagent inside a session (`CLAUDE_CODE_SUBAGENT_MODEL`); empty = the session model |
+| Free CLI side sessions | `<preset>:<model>` (W61) | The docs, research, triage, unstick and helper roles may run on a command preset with a model. The rules are under this table |
+
+**Free CLI side sessions (W61).** `models.docs`, `research`, `triage`, `unstick` and `helper` may name a command preset with a model, for example `gemini:gemini-3.8-flash`. The session runs through that CLI with the same prompt and the same report. A failed or empty answer reruns once on the Claude model of the role, and the log says `docs: gemini failed, sonnet`. The report line `Free CLI side sessions` counts the runs and the fallbacks. The task, fixer, review, decide, audit, replan, onboard, and verifier roles stay on Claude.
 
 ## Usage and budget
 
@@ -486,6 +492,9 @@ When the Claude CLI prints its final `result` event, Autopilot waits 10 seconds 
 - **Room per model (W59):** before each attempt, Autopilot checks the weekly bar of the model. A bar at or over `usage.model_reserve_pct` (default 95) skips the model for the next one down the ladder, never up. When no model of the ladder has room, the run waits for the reset and the watch screen says `opus out until Thu 21:30, waiting`. The log line `usage: opus is out until Thu 21:30, running on sonnet` names the change.
 - **One usage line (W59):** the watch screen, the status page, `ap status`, the report and the digest show the same line: `now: <model> (login <name>) · 5h N% · week N% · <model> week N% · <balance> · resets <time>`. The balance is the subscription, or the entered API credit with its entry date.
 - **Source planner (W60):** before each task, Autopilot ranks the sources. The sources: the logins (`login:default` and one `login:<name>` per `agent.fallback` entry with a config folder), `api` and `cloud`. `api` is the entered API credit (`needs backend` today). `cloud` is the entered cloud credit: Routine runs only, never started by the planner. The order: first a credit that expires soonest with room. Then a login whose weekly bar is under `usage.idle_pct` (50) in the last two days of its week. Then the current login when it has room; else the login with the most room. `usage.switch: suggest` (the default) shows one line on the status page, in the report and in the digest: `suggest: switch to login:two (window idle: ...); say ap source two`. `usage.switch: auto` switches between logins with no question, only between tasks, through the same handoff path as the limit switch, and logs `source: default -> two (window idle: ...)`. The reason is always one of five words: `expires soon`, `window idle`, `cheapest`, `limit`, `owner`. A source in `usage.sources_off` is never used. Three days before an entered credit with room expires, one alert a day names the amount and the way to spend it.
+- **A step up needs room (W61):** a retry can move up the ladder, sonnet to opus. That step also needs room on the all-models weekly bar and the 5-hour bar. Without it, a login where that model has room takes the task (`limit`). Else the retry stays on the current model and the log says `opus held, week 96%`.
+- **The task must fit (W61):** the planner compares the expected share of the next task with each bar of the current login. The share is the upper quartile of this run's task costs of the same risk tier, over `usage.window_usd` or the learned window size. A task that does not fit moves to a login where it fits (`limit`, text `task needs ~12%, 8% left`).
+- **A limit answer marks the model out (W61):** a session answer can name a model, for example `Opus not available until Thu 21:30`. That marks the model out until the time it names. An answer with no time marks it out for 10 minutes. A newer live bar that shows room clears the mark.
 - **Entered credits (W59):** `ap budget --cloud-credit 149 --api-credit 109 --expires 2026-11-05` stores the balances in `usage.cloud_credit` and `usage.api_credit` with the entry date. The usage panel shows them with that date, so a stale figure is visible. Autopilot does not count them down (no API gives the balance).
 - **Other agent CLIs:** they give no usage figure. Autopilot then counts its own cost against the `usage.window_usd` limit.
 - **Weekly limit:** you get one alert when the weekly limit passes 90%.

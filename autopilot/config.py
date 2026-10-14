@@ -156,6 +156,13 @@ class Config:
         for r in RISKS:
             if not ladder.get(r):
                 errs.append(f"models.ladder.{r} is empty")
+        for key in ("models.review", "review.effort"):  # W61 rule 5: one name, or a map by risk tier
+            v = self.get(key)
+            if isinstance(v, dict) and not set(v) <= set(RISKS):
+                errs.append(f"{key} map keys must be risk tiers ({', '.join(RISKS)}), got {sorted(v)}")
+        for role, v in (self.get("models") or {}).items():  # W61 rule 3: a free CLI preset only for the side roles
+            if isinstance(v, str) and ":" in v and role not in ("docs", "research", "triage", "unstick", "helper"):
+                errs.append(f"models.{role}: a CLI preset (`{v}`) is allowed only for docs, research, triage, unstick and helper")
         backend = self.get("agent.backend")
         if backend not in ("claude_cli", "command", "openai_compat"):
             errs.append(f"agent.backend must be claude_cli, command or openai_compat, got {backend!r}")

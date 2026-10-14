@@ -49,11 +49,11 @@ def test_role_effort_can_be_blanked(tmp_path):
     assert fake.reqs[0].effort == ""  # falls back to agent.effort / the CLI default in the backend
 
 
-def test_subagent_model_env_is_opt_in(tmp_path):
+def test_subagent_model_env_follows_the_setting(tmp_path):  # W61 rule 6: the template sets haiku; "" opts out
     cfg = Config.load(tmp_path)
-    assert "CLAUDE_CODE_SUBAGENT_MODEL" not in ClaudeCLIBackend(cfg).env()
-    cfg.data["models"]["subagent"] = "haiku"
     assert ClaudeCLIBackend(cfg).env()["CLAUDE_CODE_SUBAGENT_MODEL"] == "haiku"
+    cfg.data["models"]["subagent"] = ""
+    assert "CLAUDE_CODE_SUBAGENT_MODEL" not in ClaudeCLIBackend(cfg).env()
 
 
 def test_model_rank():

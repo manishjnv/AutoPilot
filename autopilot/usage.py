@@ -143,7 +143,8 @@ def figures(state, cfg=None, acct: str = "default", *, now=time.time, live_fetch
     cli = state.get_meta(wkey, {}) or {}
     out = {"models": {}, "surfaces": {}, "source": "", "check": False}
     if bars.get("five_hour"):
-        out.update({k: v for k, v in bars.items() if k != "at"}, source="live")
+        out.update({k: (dict(v) if isinstance(v, dict) else v) for k, v in bars.items() if k != "at"}, source="live")
+        out["models"] = {m: dict(b) for m, b in (bars.get("models") or {}).items()}  # a copy: marks never touch the cache
         five_cli = cli.get("five_hour") or {}
         if "pct" in five_cli and abs(float(five_cli.get("reset") or 0) - bars["five_hour"]["reset"]) < 120:
             out["check"] = abs(float(five_cli["pct"]) - bars["five_hour"]["pct"]) > 0.05
@@ -153,7 +154,62 @@ def figures(state, cfg=None, acct: str = "default", *, now=time.time, live_fetch
             out.update(five_hour=five, source="cli")
             if "pct" in (cli.get("seven_day") or {}):
                 out["seven_day"] = cli["seven_day"]
+    # W61 rule 4: a model marked out by a limit answer stays out until its reset; a live bar that is newer than the
+    # mark and shows room clears it
+    mkey = MARKS if acct == "default" else f"{MARKS}@{acct}"
+    marks = dict(state.get_meta(mkey, {}) or {})
+    if marks:
+        reserve = float(cfg.get("usage.model_reserve_pct", 95) or 95) if cfg is not None else 95.0
+        live_at = float(bars.get("at") or 0) if out["source"] == "live" else 0.0
+        changed = False
+        for model, mark in list(marks.items()):
+            reset = float(mark.get("reset") or 0)
+            live = _model_bar({"models": out["models"]}, model)
+            if reset <= now() or (live_at > float(mark.get("at") or 0) and live and live["pct"] * 100 < reserve):
+                marks.pop(model)
+                changed = True
+                continue
+            out["models"][str(model)] = {"pct": 1.0, "reset": reset}
+        if changed:
+            state.set_meta(mkey, marks)
     return out
+
+
+MARKS = "usage_out"  # state meta (per login): {model: {reset, at}} from limit answers (W61 rule 4)
+COOLDOWN = 600  # a limit answer with no reset time: out for this long, not a lockout
+
+
+def mark_out(state, model: str, reset: float = 0.0, acct: str = "default", *, now=time.time) -> float:
+    """W61 rule 4: mark `model` out until `reset` (a parsed time), else for COOLDOWN seconds. Returns the time."""
+    until = float(reset) if reset and reset > now() else now() + COOLDOWN
+    mkey = MARKS if acct == "default" else f"{MARKS}@{acct}"
+    marks = dict(state.get_meta(mkey, {}) or {})
+    marks[str(model).lower()] = {"reset": until, "at": now()}
+    state.set_meta(mkey, marks)
+    return until
+
+
+def step_up_room(figs: dict, model: str, reserve_pct: float = 95) -> str:
+    """W61 rule 1: '' when a step up to `model` has room on this login, else the bar that blocks it, for the row text:
+    the model's own weekly bar, the all-models weekly bar or the 5-hour bar at or over `reserve_pct`."""
+    bar = _model_bar(figs, model)
+    if bar and bar["pct"] * 100 >= reserve_pct:
+        return f"{model} week {round(100 * bar['pct'])}%"
+    for key, label in (("seven_day", "week"), ("five_hour", "5h")):
+        b = figs.get(key) or {}
+        if "pct" in b and float(b["pct"]) * 100 >= reserve_pct:
+            return f"{label} {round(100 * float(b['pct']))}%"
+    return ""
+
+
+def expected_share(costs: list, capacity_usd: float) -> float:
+    """W61 rule 2: the 75th percentile of this run's task session costs of one risk tier, as a share of the 5-hour
+    window (`capacity_usd`); 0 when either is unknown."""
+    rows = sorted(float(c) for c in costs if c)
+    if not rows or not capacity_usd or capacity_usd <= 0:
+        return 0.0
+    p75 = rows[min(len(rows) - 1, max(0, int(round(0.75 * (len(rows) - 1)))))]
+    return min(1.0, p75 / float(capacity_usd))
 
 
 def _model_bar(figs: dict, model: str) -> dict:
@@ -286,6 +342,7 @@ def write_balance(path, name: str, usd: float, expires: str = "", entered: str =
 
 # ---------- W60: the source planner (spend every credit before it expires, switch sources on purpose) ----------
 REASONS = ("expires soon", "window idle", "cheapest", "limit", "owner")  # the five fixed reason words (greppable)
+CLI_ROLES = ("docs", "research", "triage", "unstick", "helper")  # W61 rule 3: the roles a free CLI preset may run
 IDLE_DAYS = 2 * 86400  # a weekly window counts as idle only in its last two days
 EXPIRY_DAYS = 3 * 86400  # one alert this long before a credit with room expires
 
@@ -310,15 +367,22 @@ def sources(cfg, state, *, now=time.time) -> list:
         if five or week:
             room = 1 - max(float(five.get("pct") or 0), float(week.get("pct") or 0))
         rows.append({"name": f"login:{name}", "kind": "login", "folder": folder, "room": room,
+                     "five": float(five["pct"]) if five else None,
                      "week": float(week["pct"]) if week else None,
                      "resets": min(x for x in (float(five.get("reset") or 0), float(week.get("reset") or 0)) if x) if (five or week) else 0.0,
                      "week_resets": float(week.get("reset") or 0) if week else 0.0,
                      "expires": 0.0, "usd": 0.0, "can_run": True, "off": f"login:{name}" in off, "note": ""})
+    for role in CLI_ROLES:  # W61 rule 3
+        value = str(cfg.get(f"models.{role}") or "")
+        if ":" in value and f"cli:{value}" not in {r["name"] for r in rows}:
+            rows.append({"name": f"cli:{value}", "kind": "cli", "folder": "", "room": None, "five": None, "week": None,
+                         "resets": 0.0, "week_resets": 0.0, "expires": 0.0, "usd": 0.0, "can_run": True,
+                         "off": f"cli:{value}" in off, "note": "side sessions only, never sleeps the run"})
     for kind in ("api", "cloud"):
         credit = balances(cfg).get(kind)
         usd = float(credit["usd"]) if credit else 0.0
-        rows.append({"name": kind, "kind": kind, "folder": "", "room": 1.0 if usd > 0 else 0.0, "week": None, "resets": 0.0,
-                     "week_resets": 0.0,
+        rows.append({"name": kind, "kind": kind, "folder": "", "room": 1.0 if usd > 0 else 0.0, "five": None, "week": None,
+                     "resets": 0.0, "week_resets": 0.0,
                      "expires": _day(credit["expires"]) if credit and credit["expires"] else 0.0, "usd": usd,
                      "can_run": False, "off": kind in off,
                      "note": "needs backend" if kind == "api" else "Routine runs only: the planner suggests and counts"})
@@ -353,7 +417,7 @@ def reason_text(reason: str, row: dict) -> str:
     return f"login {name} chosen by the owner"
 
 
-def plan_source(rows: list, current: str = "login:default", idle_pct: float = 50, *, now=time.time) -> dict:
+def plan_source(rows: list, current: str = "login:default", idle_pct: float = 50, *, need: float = 0.0, now=time.time) -> dict:
     """The planner: {source, reason, text} for the next task, or {} to stay. Order: a runnable credit that expires
     soonest with room; a login whose weekly window would reset unused (week under `idle_pct` in its last two days);
     else the current login when it has room (nothing to say); else the login with the most room (`cheapest`), or
@@ -369,6 +433,12 @@ def plan_source(rows: list, current: str = "login:default", idle_pct: float = 50
     if idle:
         best = min(idle, key=lambda r: r["week"])
         return {"source": best["name"], "reason": "window idle", "text": reason_text("window idle", best)}
+    if need and cur is not None and not _fits(cur, need):  # W61 rule 2: the next task would not fit here
+        fit = [r for r in on if r["kind"] == "login" and r["name"] != current and _fits(r, need)]
+        if fit:
+            best = max(fit, key=lambda r: r["room"] or 0)
+            left = min(1 - float(b) for b in (cur["five"], cur["week"]) if b is not None)
+            return {"source": best["name"], "reason": "limit", "text": f"task needs ~{round(100 * need)}%, {round(100 * left)}% left"}
     if cur is not None and (cur["room"] is None or cur["room"] > 0):
         return {}
     logins = [r for r in on if r["kind"] == "login" and r["name"] != current and (r["room"] or 0) > 0]
@@ -377,6 +447,12 @@ def plan_source(rows: list, current: str = "login:default", idle_pct: float = 50
         reason = "limit" if cur is not None and cur["room"] == 0 else "cheapest"
         return {"source": best["name"], "reason": reason, "text": reason_text(reason, best)}
     return {}
+
+
+def _fits(row: dict, need: float) -> bool:
+    """W61 rule 2: every known bar of the login leaves at least `need`."""
+    bars = [float(b) for b in (row.get("five"), row.get("week")) if b is not None]
+    return all(1 - b >= need for b in bars) if bars else True
 
 
 def suggest_line(pick: dict) -> str:
