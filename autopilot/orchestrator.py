@@ -466,7 +466,9 @@ class Orchestrator:
 
     def _run(self) -> str:
         from .doctor import package_line
+        from .session_env import config_folder
         log.info(package_line())
+        log.info("config folder %s", config_folder(self.cfg))  # W38: the account the sessions run on
         self.heal_config()
         blocking = self.cfg.blocking_errors()
         if blocking:

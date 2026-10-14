@@ -186,7 +186,7 @@ def test_preflight_writes_kiro_and_keeps_comments(tmp_path, monkeypatch, capsys)
 # ---- N10: login preflight per runner (subscription login only)
 def test_preflight_stops_with_the_login_line_when_the_runner_is_logged_out(tmp_path, monkeypatch, capsys):
     root, pj = init_project(tmp_path)
-    pj.write_text(pj.read_text(encoding="utf-8") + "agent:\n  backend: command\n  preset: codex\n", encoding="utf-8")
+    pj.write_text(pj.read_text(encoding="utf-8").replace("\nagent:\n", "\nagent:\n  backend: command\n  preset: codex\n", 1), encoding="utf-8")
     only_path(monkeypatch, tmp_path, fake_bin(tmp_path, codex="out"))
     assert preflight(Config.load(root)) is False
     out = capsys.readouterr().out
@@ -197,7 +197,7 @@ def test_preflight_stops_with_the_login_line_when_the_runner_is_logged_out(tmp_p
 def test_preflight_passes_a_logged_in_runner_and_names_api_key_runners(tmp_path, monkeypatch, capsys):
     from autopilot.doctor import WARN, check_runner_login
     root, pj = init_project(tmp_path)
-    pj.write_text(pj.read_text(encoding="utf-8") + "agent:\n  backend: command\n  preset: codex\n", encoding="utf-8")
+    pj.write_text(pj.read_text(encoding="utf-8").replace("\nagent:\n", "\nagent:\n  backend: command\n  preset: codex\n", 1), encoding="utf-8")
     only_path(monkeypatch, tmp_path, fake_bin(tmp_path, codex="in"))
     monkeypatch.setattr("autopilot.cli.install_deps", lambda cfg: True)
     assert preflight(Config.load(root)) is True
@@ -247,7 +247,7 @@ def test_installed_but_logged_out_runner_names_only_its_login(tmp_path, monkeypa
 def test_copilot_login_counts_a_token_then_gh_auth_status(tmp_path, monkeypatch, capsys):
     """Q2: copilot has no prompt-free status command: a token variable counts, else `gh auth status` exit 0."""
     root, pj = init_project(tmp_path)
-    pj.write_text(pj.read_text(encoding="utf-8") + "agent:\n  backend: command\n  preset: copilot\n", encoding="utf-8")
+    pj.write_text(pj.read_text(encoding="utf-8").replace("\nagent:\n", "\nagent:\n  backend: command\n  preset: copilot\n", 1), encoding="utf-8")
     only_path(monkeypatch, tmp_path, fake_bin(tmp_path, copilot="out", gh="out"))
     assert not [e for e in Config.load(root).validate() if "agent" in e]  # `ap validate` passes
     assert preflight(Config.load(root)) is False
@@ -320,7 +320,7 @@ def test_every_copy_of_a_runner_fact_matches_the_table():
 
 def test_fallback_names_must_be_presets(tmp_path):
     root, pj = init_project(tmp_path)
-    pj.write_text(pj.read_text(encoding="utf-8") + "agent:\n  fallback: [codex, nope]\n", encoding="utf-8")
+    pj.write_text(pj.read_text(encoding="utf-8").replace("\nagent:\n", "\nagent:\n  fallback: [codex, nope]\n", 1), encoding="utf-8")
     errs = Config.load(root).validate()
     assert any("agent.fallback names must be presets" in e and "nope" in e for e in errs)
 

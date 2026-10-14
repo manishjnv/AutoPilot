@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from yaml.constructor import ConstructorError
 
 from . import AGENT_DIR
 
@@ -57,9 +58,34 @@ def deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
+def _dupes(node, where: str = "the top level") -> None:
+    """W38: YAML keeps the last of two equal keys; a project file must not, so a repeat in one mapping is an error."""
+    if isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            _dupes(item, where)
+    if not isinstance(node, yaml.MappingNode):
+        return
+    seen: dict = {}
+    for key, value in node.value:
+        if isinstance(key, yaml.ScalarNode) and key.tag != "tag:yaml.org,2002:merge":
+            line = key.start_mark.line + 1
+            if (key.tag, key.value) in seen:
+                raise ConstructorError(None, None, f"duplicate key '{key.value}' in {where}: "
+                                                   f"lines {seen[key.tag, key.value]} and {line}")
+            seen[key.tag, key.value] = line
+            _dupes(value, f"{key.value}" if where == "the top level" else f"{where}.{key.value}")
+
+
+class _NoDupes(yaml.SafeLoader):
+    def construct_document(self, node):
+        _dupes(node)
+        return super().construct_document(node)
+
+
 def load_yaml(path: Path) -> dict:
+    """Read a YAML file; a duplicate key raises yaml's ConstructorError (a yaml.YAMLError) naming the key and lines."""
     with open(path, encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+        return yaml.load(fh, Loader=_NoDupes) or {}  # noqa: S506 — _NoDupes is a SafeLoader
 
 
 def defaults() -> dict:

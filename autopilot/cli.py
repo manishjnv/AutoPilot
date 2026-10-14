@@ -635,9 +635,16 @@ def adopt_start(root: Path) -> int:
 
 
 def cmd_validate(args):
+    from .session_env import session_lines
     root = Path(args.path).resolve()
-    cfg = Config.load(root)
+    try:
+        cfg = Config.load(root)
+    except yaml.YAMLError as e:  # W38: a duplicate key names itself and both lines
+        print(f"config  ERROR .agent/project.yaml: {e}")
+        return 1
     ok = True
+    for line in session_lines(cfg):
+        print(f"agent   INFO  {line}")
     blocking = cfg.blocking_errors()
     for e in blocking:
         ok = False
