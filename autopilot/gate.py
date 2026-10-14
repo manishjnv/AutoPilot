@@ -224,7 +224,7 @@ def changed_tests(cfg, cmd: str, files: list[str]) -> str:
         paths = _safe_paths(paths)
         return f"{cmd} {' '.join(map(_q, paths))}" if paths else cmd
     code = [f for f in files if re.search(r"\.(?:[cm]?[jt]sx?)$", f) and not _match(f, tests)]
-    if "vitest" in cmd and code:
+    if "vitest" in cmd and code and _safe_paths(code):  # every name unsafe (Windows): the full command runs
         repl = f"vitest related {' '.join(map(_q, _safe_paths(code)))} --run"
         return re.sub(r"vitest(\s+run)?", lambda m: repl, cmd, count=1)
     dirs = {f.rsplit("/", 1)[0] if "/" in f else "" for f in files if f.endswith(".go")}

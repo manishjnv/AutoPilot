@@ -53,10 +53,16 @@ def test_a_hostile_file_name_is_quoted_in_the_test_command(tmp_path):
     root, cfg = cfg_for(tmp_path)
     name = "tests/a$(touch MARK).py"
     out = changed_tests(cfg, CMD, [name])
-    quoted = subprocess.list2cmdline([name]) if os.name == "nt" else "'tests/a$(touch MARK).py'"
-    assert out == f"{CMD} {quoted}"
+    if os.name == "nt":  # cmd.exe cannot quote `(`: such a name drops out of the narrowed list, the full command runs
+        assert out == CMD
+        assert changed_tests(cfg, CMD, ["tests/a b.py"]) == f"{CMD} {subprocess.list2cmdline(['tests/a b.py'])}"
+    else:
+        assert out == f"{CMD} 'tests/a$(touch MARK).py'"
     if os.name != "nt":  # run the built string through a real shell: the name stays data
         subprocess.run(out.replace(CMD, "echo"), shell=True, cwd=root, check=True, capture_output=True)
         assert not (root / "MARK").exists()
-    assert changed_tests(cfg, "npx vitest run", ["src/a$(x).ts"]).count("$(x)") == 1
-    assert "'src/a$(x).ts'" in changed_tests(cfg, "npx vitest run", ["src/a$(x).ts"]) or os.name == "nt"
+    vit = changed_tests(cfg, "npx vitest run", ["src/a$(x).ts"])
+    if os.name == "nt":
+        assert vit == "npx vitest run"  # the only name is unsafe for cmd.exe: the full command runs
+    else:
+        assert vit.count("$(x)") == 1 and "'src/a$(x).ts'" in vit

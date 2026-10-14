@@ -151,7 +151,7 @@ def test_uninstall_steps_undoes_each_done_step_in_reverse_with_the_command_of_th
     monkeypatch.setattr(ie, "run_proc", lambda *a, **k: ran.append(a[0]) or Proc(0, "", ""))
     monkeypatch.setattr("autopilot.install_errors.capture", lambda step, cmd, **k: ran.append(cmd) or 0)
     assert cmd_uninstall(Namespace(steps=True, dry_run=False, all=False, rights=False)) == 0
-    assert ran == [["npm", "uninstall", "-g", "@openai/codex"]]  # L6: argv, no shell
+    assert [[Path(a[0]).stem.lower(), *a[1:]] for a in ran] == [["npm", "uninstall", "-g", "@openai/codex"]]  # L6: argv, no shell (Windows resolves npm.cmd)
     assert steps.load() == {} and not (Path(os.environ["AUTOPILOT_HOME"]) / "runner").exists()
 
 
@@ -172,5 +172,7 @@ def test_uninstall_undo_runs_without_a_shell(monkeypatch):
     monkeypatch.setattr(steps, "undo_plan", lambda: [("runner", "npm uninstall -g x && rm -f ~/y")])
     monkeypatch.setattr(install_errors, "capture", lambda step, cmd, **kw: calls.append((cmd, kw)) or 0)
     assert cli.cmd_uninstall(SimpleNamespace(steps=True, dry_run=False)) == 0
-    assert [c for c, _ in calls[:2]] == [["npm", "uninstall", "-g", "x"], ["rm", "-f", os.path.expanduser("~/y")]]
+    from pathlib import Path as _P
+    assert [[_P(c[0]).stem.lower(), *c[1:]] for c, _ in calls[:2]] == \
+        [["npm", "uninstall", "-g", "x"], ["rm", "-f", os.path.expanduser("~/y")]]  # Windows resolves npm.cmd
     assert all(not kw.get("shell") for _, kw in calls[:2])

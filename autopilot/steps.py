@@ -121,6 +121,7 @@ def undo_argvs(what: str, platform: str | None = None) -> list[list[str]]:
         if what.startswith("Remove-Item"):
             return [["powershell", "-NoProfile", "-Command", what]]
         import shutil
-        out = [shlex.split(c, posix=False) for c in re.split(r"\s*(?:&&|;)\s*", what) if c]
+        out = [[os.path.expanduser(a) for a in shlex.split(c, posix=False)]
+               for c in re.split(r"\s*(?:&&|;)\s*", what) if c]
         return [[shutil.which(a[0]) or a[0], *a[1:]] for a in out]  # CreateProcess does not find npm.cmd by itself
     return [[os.path.expanduser(a) for a in shlex.split(c)] for c in re.split(r"\s*(?:&&|;)\s*", what) if c]
