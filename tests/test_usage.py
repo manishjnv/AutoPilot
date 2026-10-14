@@ -22,6 +22,7 @@ BODY = {  # the live shape of 2026-10-14, numbers changed
     ],
     "seven_day_breakdown": {"as_of": RESET_5H, "rows": [{"key": "claude_code", "display_name": "Claude Code", "percent": 100},
                                                         {"key": "chat", "display_name": "Chats", "percent": 0}]},
+    "weekly_scoped_shares": [{"limit_index": 2, "used_percent_of_weekly": 11, "allowance_percent_of_weekly": 50}],
 }
 
 
@@ -29,7 +30,7 @@ def test_parse_gives_the_three_bars_and_the_surfaces():
     bars = usage.parse(BODY)
     assert bars["five_hour"]["pct"] == 0.54 and bars["seven_day"]["pct"] == 0.42
     assert bars["five_hour"]["reset"] == usage._when(RESET_5H) > 1.7e9
-    assert bars["models"] == {"fable": {"pct": 0.22, "reset": usage._when(RESET_7D)}}
+    assert bars["models"] == {"fable": {"pct": 0.22, "reset": usage._when(RESET_7D), "cap": 0.5, "used": 0.11}}  # W62: the cap
     assert bars["surfaces"] == {"claude_code": 1.0, "chat": 0.0}
 
 

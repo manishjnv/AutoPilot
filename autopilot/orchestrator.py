@@ -511,7 +511,16 @@ class Orchestrator:
             pick = usage_mod.plan_source(rows, current, float(self.cfg.get("usage.idle_pct", 50) or 50), need=need, now=lambda: now)
             line = usage_mod.suggest_line(pick)
             self.state.set_meta("source_suggest", line)
-            if not pick or str(self.cfg.get("usage.switch", "suggest")) != "auto":
+            mode = str(self.cfg.get("usage.switch", "suggest"))
+            try:  # W62: NEXT as fields next to the string, for the AI box, the status page and `ap status`
+                active = usage_mod._login_name(self._account())
+                staged = usage_mod.with_states(rows, active, float(self.cfg.get("usage.model_reserve_pct", 95) or 95),
+                                               lambda f: usage_mod.figures(self.state, self.cfg, f),
+                                               model=str(self.run_info.get("model") or ""))
+                self.state.set_meta("source_next", usage_mod.next_fields(staged, pick, mode, active))
+            except Exception:  # noqa: BLE001
+                pass
+            if not pick or mode != "auto":
                 return line
             row = next(r for r in rows if r["name"] == pick["source"])
             if row["kind"] != "login":  # the api backend is not built; cloud is Routine only

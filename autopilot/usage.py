@@ -82,6 +82,20 @@ def parse(body) -> dict:
             bar = _bar(flat.get("utilization"), flat.get("resets_at"))
             if bar:
                 out[name] = bar
+    limits = [row for row in (body.get("limits") or []) if isinstance(row, dict)]
+    for share in body.get("weekly_scoped_shares") or []:  # W62: the per-model cap (Fable = 50 percent of the weekly limit)
+        if not isinstance(share, dict) or not isinstance(share.get("limit_index"), int):
+            continue
+        idx = share["limit_index"]
+        row = limits[idx] if 0 <= idx < len(limits) else {}
+        scope = row.get("scope") if isinstance(row.get("scope"), dict) else {}
+        model = scope.get("model") if isinstance(scope.get("model"), dict) else {}
+        name = str(model.get("display_name") or "").lower()
+        cap, used = share.get("allowance_percent_of_weekly"), share.get("used_percent_of_weekly")
+        if name in out["models"] and isinstance(cap, (int, float)) and not isinstance(cap, bool) and 0 < cap <= 100:
+            out["models"][name]["cap"] = float(cap) / 100
+            if isinstance(used, (int, float)) and not isinstance(used, bool) and 0 <= used <= 100:
+                out["models"][name]["used"] = float(used) / 100
     breakdown = body.get("seven_day_breakdown")
     for row in (breakdown.get("rows") if isinstance(breakdown, dict) else None) or []:
         pct = row.get("percent") if isinstance(row, dict) else None
@@ -138,6 +152,9 @@ def figures(state, cfg=None, acct: str = "default", *, now=time.time, live_fetch
     bars = row.get("bars") or {}
     if not row or now() - float(row.get("at") or 0) >= CACHE_SEC:
         bars = (live_fetch or fetch)(folder, cfg=cfg, now=now)
+        prev = (row.get("bars") or {}).get("five_hour") if row else None
+        if prev and bars.get("five_hour") and abs(float(prev.get("reset") or 0) - bars["five_hour"]["reset"]) < 120:
+            state.set_meta(f"{key}:prev", {"at": float(row.get("at") or 0), "pct": float(prev["pct"])})  # W62: the rate
         state.set_meta(key, {"at": now(), "bars": bars})
     wkey = "window_seen" if acct == "default" else f"window_seen@{acct}"
     cli = state.get_meta(wkey, {}) or {}
@@ -145,6 +162,12 @@ def figures(state, cfg=None, acct: str = "default", *, now=time.time, live_fetch
     if bars.get("five_hour"):
         out.update({k: (dict(v) if isinstance(v, dict) else v) for k, v in bars.items() if k != "at"}, source="live")
         out["models"] = {m: dict(b) for m, b in (bars.get("models") or {}).items()}  # a copy: marks never touch the cache
+        prev = state.get_meta(f"{key}:prev") or {}
+        at = float((state.get_meta(key) or {}).get("at") or 0)
+        if prev and at > float(prev.get("at") or 0):  # W62: `5h ends in ~40 min at this rate`, only from two live fetches
+            rate = (bars["five_hour"]["pct"] - float(prev["pct"])) / (at - float(prev["at"]))
+            if rate > 0:
+                out["five_eta"] = (1 - bars["five_hour"]["pct"]) / rate
         five_cli = cli.get("five_hour") or {}
         if "pct" in five_cli and abs(float(five_cli.get("reset") or 0) - bars["five_hour"]["reset"]) < 120:
             out["check"] = abs(float(five_cli["pct"]) - bars["five_hour"]["pct"]) > 0.05
@@ -476,3 +499,104 @@ def expiring(cfg, *, now=time.time) -> list:
 def expiry_text(kind: str, usd: float, expires: str) -> str:
     return (f"cloud credit ${usd:g} expires {expires}: schedule a Routine run" if kind == "cloud"
             else f"api credit ${usd:g} expires {expires}: set usage.switch auto to use it for low-risk tasks")
+
+
+# ---------- W62: the AI box data: one state word per source, the limiting bar, the next switch ----------
+STATES = ("ACTIVE", "STANDBY", "LIMITED", "MANUAL", "OFF", "DISABLED")  # the one table; the same word on every screen
+
+
+def limiting_bar(figs: dict, model: str = "") -> dict:
+    """The bar of one login that is closest to its limit: {kind: 5h|week|<model> week, pct, reset}; {} when none."""
+    bars = []
+    for key, kind in (("five_hour", "5h"), ("seven_day", "week")):
+        b = figs.get(key) or {}
+        if "pct" in b:
+            bars.append({"kind": kind, "pct": float(b["pct"]), "reset": float(b.get("reset") or 0)})
+    for name, b in (figs.get("models") or {}).items():
+        if not model or name in str(model).lower() or str(model).lower() in name:
+            bars.append({"kind": f"{name} week", "pct": float(b["pct"]), "reset": float(b.get("reset") or 0)})
+    return max(bars, key=lambda b: b["pct"]) if bars else {}
+
+
+def with_states(rows: list, active: str, reserve_pct: float = 95, figs_of=None, model: str = "") -> list:
+    """Add `state` (one of STATES), `limit` (the limit kind and reset of a LIMITED row) and `model` (the ACTIVE row)
+    to every source row; add one row per scoped model of the active login (kind `share`, the Fable cap)."""
+    out = []
+    for r in rows:
+        r = dict(r)
+        name = r["name"].split(":", 1)[-1]
+        if r["off"]:
+            r["state"] = "OFF"
+        elif r["kind"] == "api":
+            r["state"] = "DISABLED"
+        elif r["kind"] == "cloud":
+            r["state"] = "MANUAL"
+        elif r["kind"] == "login" and r["room"] is not None and r["room"] <= 0:
+            r["state"] = "LIMITED"
+        elif r["kind"] == "login" and name == active:
+            r["state"] = "ACTIVE"
+            r["model"] = model
+        else:
+            r["state"] = "STANDBY"
+        if r["kind"] == "login":
+            figs = figs_of(r["folder"] or "default") if figs_of else {}
+            top = limiting_bar(figs, model if r["state"] == "ACTIVE" else "")
+            r["bar"] = top
+            if r["state"] == "LIMITED" and top:
+                r["limit"] = f"{top['kind']} resets {_hm(top['reset'])}"
+            if r["state"] == "ACTIVE":
+                for mname, b in sorted((figs.get("models") or {}).items()):  # the Fable row under its login
+                    cap = b.get("cap")
+                    share = {"name": mname, "kind": "share", "folder": r["folder"], "room": 1 - float(b["pct"]), "five": None,
+                             "week": float(b["pct"]), "resets": float(b.get("reset") or 0), "week_resets": float(b.get("reset") or 0),
+                             "expires": 0.0, "usd": 0.0, "can_run": True, "off": False, "note": "", "cap": cap,
+                             "bar": {"kind": f"{mname} week", "pct": float(b["pct"]), "reset": float(b.get("reset") or 0)}}
+                    share["state"] = "LIMITED" if float(b["pct"]) * 100 >= reserve_pct else "STANDBY"
+                    if share["state"] == "LIMITED":
+                        share["limit"] = f"week resets {_hm(share['resets'])}"
+                    out.append(r)
+                    r = share
+        out.append(r)
+    return out
+
+
+def next_fields(rows: list, pick: dict, mode: str, active: str) -> dict:
+    """W62 NEXT: {mode, source, login, limit, pct, reset, text}. The limit is the limiting bar of the ACTIVE login;
+    the text puts the mode first and never reads a suggestion as a promise."""
+    cur = next((r for r in rows if r.get("state") == "ACTIVE"), None)
+    bar = (cur or {}).get("bar") or {}
+    where = f"{active} {bar['kind']} {round(100 * bar['pct'])}%" if bar else active
+    out = {"mode": mode, "source": pick.get("source", "") if pick else "", "login": active,
+           "limit": bar.get("kind", ""), "pct": bar.get("pct"), "reset": bar.get("reset", 0.0), "text": "no switch planned"}
+    if pick:
+        target = pick["source"].split(":", 1)[-1]
+        if mode == "auto":
+            out["text"] = f"switch: {target} when {where} hits {round(100 * (bar.get('pct') or 0))}% (auto)" if bar else f"switch: {target} (auto)"
+        else:
+            out["text"] = f"suggest: ap source {target} ({where})"
+    return out
+
+
+def ai_line(rows: list, nxt: dict) -> str:
+    """The one line for `ap status`: the ACTIVE row and NEXT."""
+    cur = next((r for r in rows if r.get("state") == "ACTIVE"), None)
+    if cur is None:
+        return ""
+    bar = cur.get("bar") or {}
+    parts = [f"AI: {cur['name']} ACTIVE" + (f" {cur['model']}" if cur.get("model") else "")]
+    if bar:
+        parts.append(f"{bar['kind']} {round(100 * bar['pct'])}% used, resets {_hm(bar['reset'])}")
+    if nxt and nxt.get("text"):
+        parts.append(nxt["text"])
+    return " · ".join(parts)
+
+
+def eta_text(secs) -> str:
+    """`5h ends in ~40 min at this rate`, '' when unknown."""
+    try:
+        s = float(secs or 0)
+    except (TypeError, ValueError):
+        return ""
+    if s <= 0:
+        return ""
+    return f"5h ends in ~{round(s / 60)} min at this rate" if s < 5400 else f"5h ends in ~{s / 3600:.1f} h at this rate"

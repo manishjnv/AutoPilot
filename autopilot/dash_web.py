@@ -366,6 +366,31 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
         bars += f'<div class="z">{e(str(u["now"]))}</div>'
     if u.get("suggest"):  # W60: the planner's suggestion
         bars += f'<div class="w">{e(str(u["suggest"]))}</div>'
+    if u.get("sources"):  # W62: the same three groups as the terminal AI box: LIMITS, NEXT, SPEND
+        cls = {"ACTIVE": "ok", "LIMITED": "w", "STANDBY": "", "MANUAL": "z", "OFF": "z", "DISABLED": "z"}
+        bars = '<div class="z">Limits</div>'
+        for r in u["sources"]:
+            name, state = e(str(r.get("name", "")).split(":", 1)[-1]), str(r.get("state") or "")
+            head = f'<span class="{"bl" if state == "ACTIVE" else ""}">{name}</span> <span class="{cls.get(state, "z")}">{e(state)}</span>'
+            if r.get("usd"):
+                bars += f'<div class="row">{head}<span class="mg">${float(r["usd"]):g}</span></div>'
+            elif r.get("pct") is None:
+                bars += f'<div class="row">{head}<span class="z">{e(str(r.get("note") or ""))}</span></div>'
+            else:
+                pct = round(_v(r["pct"]) * 100)
+                bars += (f'<div class="row">{head}<span class="{"bad" if pct > 90 else "w" if pct > 75 else "mg"}">{pct}% used</span></div>'
+                         + (_bar(r["pct"], name, _lvl(r["pct"])) if r.get("limiting") else _bar(r["pct"], name, "z")))
+                if r.get("kind") == "share" and r.get("cap"):
+                    bars += f'<div class="z">{pct}% of its {round(_v(r["cap"]) * 100)}% cap</div>'
+                if r.get("limit"):
+                    bars += f'<div class="z">{e(str(r["limit"]))}</div>'
+                elif state == "ACTIVE" and r.get("model"):
+                    bars += f'<div class="z">now <span class="bl">{e(str(r["model"]))}</span> · {e(str(r.get("bar_kind") or ""))} resets in {e(str(r.get("reset_in") or "?"))}</div>'
+        nxt = u.get("next") or {}
+        bars += f'<div class="z">Next</div><div class="row"><strong>{e(str(nxt.get("text") or "no switch planned"))}</strong></div>'
+        if u.get("eta"):
+            bars += f'<div class="z">{e(str(u["eta"]))}</div>'
+        bars += '<div class="z">Spend</div>'
     models = "".join(f'<div class="row"><span class="bl">{e(str(m.get("name", "")))}</span>'
                      f'<span>{e(str(m.get("tokens_text", "")))} {round(_v(m.get("share")) * 100)}%</span></div>'
                      f'{_bar(m.get("share"), str(m.get("name", "")))}' for m in u.get("models") or [])

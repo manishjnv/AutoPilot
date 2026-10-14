@@ -682,14 +682,16 @@ that day's line. A known wording writes nothing. The file stays on your computer
 | Colour | Meaning | Where it appears |
 |---|---|---|
 | Green | Done or OK | Login `Pro` or `Max`, Status `Complete`, progress bar fill, Files added, lines added, Git and Checks `OK`. Also Size `This run (N tasks)` +N lines, Phase ✓, Live `The task is complete`, `✓ VERIFIED` at the end |
-| Cyan | Running now | Status `In progress`, Phase ▶, Live test run, the state word in the title and the bar, the spinner while it turns. Also the running task row (cyan fill, bold) while the run is live |
+| Cyan | Running now | Status `In progress`, Phase ▶, Live test run, the state word in the title and the bar, the spinner while it turns. Also the running task row (cyan fill, bold) while the run is live, and the AI state `ACTIVE` |
 | Yellow | Warning | Login `not checked`, Time over 2x the median, Risk `high`, Tries 2 or more, Questions, Warnings, Retries. Also usage bar over 75 percent, `stale`, Live note, and the paused end words. The full list is under this table |
 | Red | Blocked or failed | Login check failed, Status `Blocked`, Risk `crit`, Error text, Blocked count, Files deleted, lines deleted, and Git and Checks failure text. Also usage bar over 90 percent, Phase ✗, Live error line, `✗ FAILED` and `✗ DEAD` at the end |
-| Magenta | Cost and usage | `Resets`, usage bars, Cost |
-| Blue | Model name | Now model, Detail model, usage model names |
+| Magenta | Cost and usage | `Resets`, usage bars, Cost, the one limiting bar and the credit dollars of the AI box |
+| Blue | Model name | Now model, Detail model, usage model names, the ACTIVE login and its model in the AI box |
 | Grey (dim) | Label, border, pending, or zero | Labels, borders, Status `Pending`, Phase ○, Risk `low`, `waiting`, empty Error, zero counts, Live step verbs |
 | Bright white | A value the eye lands on | Key counts, the next step |
 | Bold | The one headline | The Now card title |
+
+**The AI box (W62).** One box replaces Usage on the watch screen and the status page. LIMITS: one row per source (`usage.sources`) with a state word from one table. The words: `ACTIVE` (runs the task now, the model in blue), `STANDBY` (has room), `LIMITED` (with the limit kind and its reset). Also `MANUAL` (the cloud credit, Routine runs only), `OFF` (`usage.sources_off`), and `DISABLED` (needs a backend). A model with its own cap reads `fable 27% of its 50% cap`. The one coloured bar is the bar that limits the next task, named by the planner. Every other bar is dim, and every percent text keeps the thresholds (yellow over 75, red over 90). All bars show `used`. NEXT: one line, mode first. The forms: `switch: two when default 5h 54% hits 54% (auto)`, `suggest: ap source two (default 5h 54%)`, or `no switch planned`. With two live reads of the same bar it adds `5h ends in ~40 min at this rate`. SPEND: tokens, per-model text, cost, rate. At a small height the box drops per-model spend first, then the `OFF`, `DISABLED`, and `MANUAL` rows, then the `cli` rows, then spend. The `ACTIVE` row, the limiting bar, and NEXT always stay. `ap status` prints the `ACTIVE` row and NEXT as one `AI:` line.
 
 **Every yellow use.** Login `not checked`, Time over 2x the median task time, Risk `high`, Tries 2 or more, Try on the last try. Questions, Warnings, Retries, Last commit age over 10 minutes with a running task. Usage bar over 75 percent, `stale`, `⏸ no change 45s`, Live note, Live wait over 60 s (dim). At the end: `⏸ BLOCKED`, `⏸ STOPPED`, and `⏸ BUDGET_STOP`.
 

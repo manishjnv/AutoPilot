@@ -11,7 +11,12 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
 
 - Panels: the left panel (Project, Branch, Started, Elapsed; `! Questions for you`; Now; Next; Size; Last commit;
   Agent; Phases), the middle column (the tasks panel on top, about 45 percent of the height, the live output below),
-  the right column (Progress, Usage, Files, Issues) and one status bar on the last line.
+  the right column (Progress, AI, Files, Issues) and one status bar on the last line. The AI box (W62) holds three
+  groups: LIMITS (one row per source: name, a state word from `usage.STATES`, the bar or the dollar figure, the
+  reset), NEXT (one line, mode first) and SPEND (tokens, per-model text, cost, rate). The one coloured bar is the
+  planner's limit; every other bar is dim; a credit is a dollar figure, never a bar; at a small height the box
+  collapses in the order per-model spend, OFF/DISABLED/MANUAL rows, cli rows, spend, and keeps the ACTIVE row, the
+  limiting bar and NEXT. Without source rows the old Usage box draws.
 - The Now card (W18b, `dash_card.py`; data from `dash_live.task_card`, `end_card`, `ended_card`): full width at the top
   under the title bar from 120 columns (160 and wider: two inner lines, title in the border; 120 to 159: four lines,
   title on the first line); under 120 it is a group of the left column (a rule line, then six lines). The border row
@@ -95,6 +100,9 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
 
 ## Changes
 
+- 2026-10-15: W62: the AI box replaces the Usage box when source rows exist (`dash_term.ai_box`, the same groups on
+  the status page, `ap status` prints the ACTIVE row and NEXT); new `_USES` rows for its colours. Rules kept. New
+  tests: `tests/test_w62.py`.
 - 2026-10-14: W48a screen: `ap watch` has one input row above the status bar when stdin is a terminal (Enter sends
   through `inbox.submit` in a thread, Esc clears; keys are read without blocking, redraw at once). One line above the
   Now card shows `You: <text>  Reply: <reply>` for 60 s after the last inbox line (the card has no free inner line, so

@@ -220,11 +220,31 @@ def _usage_w59(cfg, state, run: dict, live: bool) -> dict:
         for k, v in usage.balances(cfg).items():
             note = (f" (entered {v['entered']}" + (f", expires {v['expires']}" if v["expires"] else "") + ")") if v["entered"] else ""
             credits[k] = f"${v['usd']:g}" + note
+        # W62: one row per source with its state word, the limiting bar flagged, and NEXT as fields
+        active = usage._login_name(active_account(state, live))
+        reserve = float(cfg.get("usage.model_reserve_pct", 95) or 95)
+        model = str(run.get("model") or "") if live else ""
+        staged = usage.with_states(usage.sources(cfg, state), active, reserve, lambda f: usage.figures(state, cfg, f), model=model)
+        nxt = dict(state.get_meta("source_next") or {}) if live else {}
+        if not nxt:
+            nxt = usage.next_fields(staged, {}, str(cfg.get("usage.switch", "suggest")), active)
+        sources = []
+        for r in staged:
+            bar = r.get("bar") or {}
+            sources.append({"name": str(r["name"]), "kind": str(r["kind"]), "state": str(r.get("state") or ""),
+                            "pct": float(bar["pct"]) if bar else None, "bar_kind": str(bar.get("kind") or ""),
+                            "reset_in": _dur(float(bar["reset"]) - time.time()) if bar and float(bar.get("reset") or 0) > time.time() else "",
+                            "limit": str(r.get("limit") or ""), "usd": float(r.get("usd") or 0), "cap": r.get("cap"),
+                            "model": str(r.get("model") or ""), "note": str(r.get("note") or ""),
+                            "limiting": bool(bar) and r.get("state") in ("ACTIVE", "STANDBY", "LIMITED")
+                            and bar.get("kind") == nxt.get("limit") and (r["kind"] == "share" or r.get("state") == "ACTIVE")})
         return {"week_models": week_models, "source": figs.get("source") or "", "check": bool(figs.get("check")),
                 "now": usage_now(cfg, state, run, live), "credits": credits,
-                "suggest": str(state.get_meta("source_suggest") or "") if live else ""}
+                "suggest": str(state.get_meta("source_suggest") or "") if live else "",
+                "sources": sources, "next": nxt, "eta": usage.eta_text(figs.get("five_eta"))}
     except Exception:  # noqa: BLE001
-        return {"week_models": [], "source": "", "check": False, "now": "", "credits": {}, "suggest": ""}
+        return {"week_models": [], "source": "", "check": False, "now": "", "credits": {}, "suggest": "",
+                "sources": [], "next": {}, "eta": ""}
 
 
 def dashboard_data(cfg, plan, state, run: dict) -> dict:

@@ -885,6 +885,23 @@ def _open_state(root: Path):
     return cfg, plan, state
 
 
+def ai_status_line(cfg, state) -> str:
+    """W62: `AI: login:default ACTIVE sonnet · 5h 54% used, resets Thu 20:20 · suggest: ...`; '' when nothing is known.
+    Never raises (a status print must not fail on a usage read)."""
+    from . import usage
+    from .report import active_account, run_journal
+    try:
+        run = run_journal(cfg.root)
+        live = run.get("status") == "running"
+        active = usage._login_name(active_account(state, live))
+        rows = usage.with_states(usage.sources(cfg, state), active, float(cfg.get("usage.model_reserve_pct", 95) or 95),
+                                 lambda f: usage.figures(state, cfg, f), model=str(run.get("model") or "") if live else "")
+        nxt = dict(state.get_meta("source_next") or {}) if live else usage.next_fields(rows, {}, str(cfg.get("usage.switch", "suggest")), active)
+        return usage.ai_line(rows, nxt)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def cmd_status(args):
     from .report import build_report, run_journal, status_line
     cfg, plan, state = _open_state(Path(args.path).resolve())
@@ -896,6 +913,9 @@ def cmd_status(args):
                    colors_on(sys.stdout)) + "\n")
     if state.get_meta("outcome"):  # W3: the one word of the last run end
         print(f"outcome: {state.get_meta('outcome')}\n")
+    ai = ai_status_line(cfg, state)  # W62: the ACTIVE source and NEXT as one line
+    if ai:
+        print(ai + "\n")
     print(build_report(cfg, plan, state))
     from .plain import colors_on
     print(hints(Path(args.path).resolve(), None, colors_on(sys.stdout)))

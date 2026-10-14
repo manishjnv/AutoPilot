@@ -24,17 +24,19 @@ COLOUR_MEANING = {"green": "done or ok", "cyan": "running now", "yellow": "warni
 _USES = {
     "green": ["Login Pro/Max", "Status Complete", "Progress bar fill", "Files Added", "Lines +", "Git and Checks OK",
               "Size This run", "Phase ✓", "Live: the task is complete"],
-    "cyan": ["Status In progress", "Phase ▶", "Live: test run", "State word", "Spinner turning"],
+    "cyan": ["Status In progress", "Phase ▶", "Live: test run", "State word", "Spinner turning", "AI: ACTIVE state"],
     "yellow": ["Login not checked", "Time over 2x the median", "Risk high", "Tries 2 or more", "Try on the last try",
                "Questions", "Warnings", "Retries", "Last commit age when stalled", "Usage bar over 75%",
-               "Data stale", "No change for minutes", "Spinner no change", "Live: note", "Live: a wait over 60 s (dim)"],
+               "Data stale", "No change for minutes", "Spinner no change", "Live: note", "Live: a wait over 60 s (dim)",
+               "AI: LIMITED state", "AI: percent over 75"],
     "red": ["Login failed", "Status Blocked", "Risk crit", "Error text", "Blocked", "Files Deleted", "Lines -",
-            "Git and Checks fail", "Usage bar over 90%", "Phase ✗", "Live: an error line", "Spinner stopped"],
-    "magenta": ["Resets", "Usage bars", "Cost"],
-    "blue": ["Model", "Detail model", "Usage model names"],
+            "Git and Checks fail", "Usage bar over 90%", "Phase ✗", "Live: an error line", "Spinner stopped",
+            "AI: percent over 90"],
+    "magenta": ["Resets", "Usage bars", "Cost", "AI: the limiting bar", "AI: credit dollars"],
+    "blue": ["Model", "Detail model", "Usage model names", "AI: ACTIVE login and model"],
     "dim": ["Labels and borders", "Status Pending", "Phase ○", "Risk low", "Waiting", "Error empty", "Zero counts",
-            "Live: step verbs"],
-    "value": ["Counts the eye lands on", "Next step"],
+            "Live: step verbs", "AI: other bars", "AI: OFF, DISABLED, MANUAL states", "AI: reset and cap notes"],
+    "value": ["Counts the eye lands on", "Next step", "AI: NEXT line"],
     "bold": ["Now headline"],
     "active": ["Running task row", "Now card label"],
 }
@@ -294,6 +296,71 @@ def cnt(n: int, style=None):
     return str(n), (style if n > 0 else "dim")
 
 
+STATE_STYLE = {"ACTIVE": "cyan", "LIMITED": "yellow", "STANDBY": None, "MANUAL": "dim", "OFF": "dim", "DISABLED": "dim"}
+PCT_STYLE = lambda p: "red" if p > 90 else "yellow" if p > 75 else None  # noqa: E731  J13 thresholds on every percent text
+
+
+def ai_box(u: dict, max_lines: int, w: int = RIGHT_W - 4) -> list:
+    """W62: the AI box: LIMITS (one row per source: name, state word, the bar or the dollar figure, the reset),
+    NEXT (one line, mode first) and SPEND (tokens, per-model text, cost, rate). The ONE coloured bar is the bar the
+    planner named as the limit; every other bar is dim, its percent text still coloured by the J13 thresholds.
+    Collapse at `max_lines`, in this order: per-model SPEND; OFF, DISABLED, MANUAL rows; cli rows; SPEND; then only
+    the ACTIVE row, the limiting bar and NEXT stay."""
+    rows = u.get("sources") or []
+    limits = []  # (category, lines)
+    for r in rows:
+        state, name = str(r.get("state") or ""), str(r.get("name") or "").split(":", 1)[-1][:7]
+        head = [(f"{name:<8}", "blue" if state == "ACTIVE" else None), (f"{state:<8}", STATE_STYLE.get(state, "dim"))]
+        lines = []
+        if r.get("usd"):
+            lines.append(head + [(f"${r['usd']:g}", "magenta")])  # a credit: a dollar figure, never a bar
+        elif r.get("pct") is None:
+            lines.append(head)
+        else:
+            p = round(float(r["pct"]) * 100)
+            k = max(round(float(r["pct"]) * 5), 1 if p > 0 else 0)
+            fill, rest = "█" * k, "░" * (5 - k)
+            if r.get("limiting"):
+                lines.append(head + [(fill, "red" if p > 90 else "yellow" if p > 75 else "magenta"), (rest, None), (f" {p}%", PCT_STYLE(p))])
+            else:
+                lines.append(head + [(fill + rest, "dim"), (f" {p}%", PCT_STYLE(p))])
+            if r.get("kind") == "share" and r.get("cap"):
+                lines.append([(f"  {p}% of its {round(float(r['cap']) * 100)}% cap", "dim")])
+            if r.get("limit"):
+                lines.append([(f"  {r['limit']}", "dim")])
+            elif state == "ACTIVE" and r.get("model"):
+                lines.append([("  now ", "dim"), (clean(str(r["model"]))[:12], "blue"), (f" · {r.get('bar_kind', '')} resets in {r.get('reset_in') or '?'}", "dim")])
+        cat = ("keep" if state == "ACTIVE" or r.get("limiting") else "cli" if r.get("kind") == "cli"
+               else "quiet" if state in ("OFF", "DISABLED", "MANUAL") else "other")
+        limits.append((cat, lines))
+    nxt = u.get("next") or {}
+    next_lines = [[(x, "value" if i == 0 else None)] for i, x in enumerate(wrap2(str(nxt.get("text") or "no switch planned"), w))]
+    if u.get("eta"):
+        next_lines.append([(str(u["eta"]), "dim")])
+    spend_main = []
+    if u.get("tokens_text"):
+        spend_main.append(f"Tokens  {u['tokens_text']}")
+    if u.get("cost_text"):
+        spend_main.append(["Cost    ", (u["cost_text"], "magenta")])
+    spend_main.append(f"Rate    {u.get('rate') or '—'}")
+    spend_models = [[(f"{m['name']:<9}", "blue"), f"{m['tokens_text']:>6} {round((num(m['share']) or 0) * 100):>3}%"]
+                    for m in u.get("models") or []]
+    drop = []
+    def total():
+        rows_ = sum(len(ln) for cat, ln in limits if cat not in drop)
+        return rows_ + len(next_lines) + (0 if "spend" in drop else len(spend_main)) + (0 if "spend_models" in drop else len(spend_models))
+    for step in ("spend_models", "quiet", "cli", "spend", "other"):
+        if total() <= max_lines:
+            break
+        drop.append(step)
+    out = [ln for cat, lines in limits if cat not in drop for ln in lines] + next_lines
+    if "spend" not in drop:
+        out += spend_main
+    if "spend_models" not in drop:
+        out += spend_models
+    return out
+
+
 def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     pr, u, f, why = d["progress"], d["usage"], d["files"], d["blocked_why"]
     word = pr.get("word") or ""
@@ -333,7 +400,9 @@ def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     issues += [["Retries   ", cnt(count(pr.get("retries")), "yellow")]]
     issues += [[f"{k:<10}", (v, "green" if v == "OK" else "red")] for k, v in d["health"].items() if k != "words" and v]
     issues += [[(x, "red")] for x in wrap2(d["health"]["words"], w - 4)]
-    boxes = [("Progress", prog), ("Usage", use)]
+    if u.get("sources"):  # W62: the AI box replaces the Usage box when the source rows exist
+        use = ai_box(u, max(5, h - 24), w - 4)
+    boxes = [("Progress", prog), ("AI" if u.get("sources") else "Usage", use)]
     if f is not None:
         boxes.append(("Files", [["Added     ", cnt(count(f.get("added")), "green")],
                                 ["Modified  ", cnt(count(f.get("modified")))],
