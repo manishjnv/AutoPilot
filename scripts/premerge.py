@@ -71,7 +71,7 @@ def main(argv=None, run=sh, windows=None):
     argv = sys.argv[1:] if argv is None else argv
     ci = "--ci" in argv
     windows = sys.platform == "win32" if windows is None else windows
-    wsl_root = run(["wsl", "wslpath", "-a", str(ROOT)])[1].strip() if windows else ""
+    wsl_root = run(["wsl", "-e", "wslpath", "-a", str(ROOT)])[1].strip() if windows else ""  # -e: no shell, the backslashes survive
     tests = [t for t in run(["git", "diff", "--name-only", "main...HEAD", "--", "tests"])[1].split() if t.endswith(".py")]
     branch = run(["git", "branch", "--show-current"])[1].strip()
     red = run_steps(plan(windows, wsl_root, tests, ci, branch, sys.executable), run)

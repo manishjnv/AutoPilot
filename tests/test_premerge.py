@@ -13,7 +13,7 @@ def fake(red=()):
         calls.append(argv)
         if argv[:2] == ["git", "diff"]:
             return 0, "tests/test_a.py\nREADME.md\n"
-        if argv[:2] == ["wsl", "wslpath"]:
+        if argv[:3] == ["wsl", "-e", "wslpath"]:
             return 0, "/mnt/e/x\n"
         if argv[:2] == ["git", "branch"]:
             return 0, "br\n"
