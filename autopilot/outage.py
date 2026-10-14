@@ -1,6 +1,6 @@
 """Q22: four rules for a build that is running. Pure helpers; `Orchestrator._run_backend` and `execute_task` call them.
 
-1. A vendor outage: three 5xx or timeouts within one minute: one sentence, no retry loop, no login prompt.
+1. A vendor outage: three 5xx or timeouts within 15 minutes: wait 15 minutes, up to four times, then one sentence and STALLED.
 2. An expired login in the middle of a run: the task is parked (no try is spent), the login check runs again, the login
    command is printed, the next start continues.
 3. A model that is not on this plan or in this region: one sentence with the alias that works.
@@ -59,7 +59,7 @@ class Tracker:
     seen: dict = field(default_factory=dict)                 # parsed error id -> set of task ids
 
     def outage(self, text: str) -> bool:
-        """Record one failed session; True when it is the third outage answer inside one minute."""
+        """Record one failed session; True when it is the third outage answer inside 15 minutes."""
         if not is_outage(text):
             return False
         t = self.now()

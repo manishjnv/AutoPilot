@@ -161,6 +161,7 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 
 | To | Read |
 |---|---|
+| See what Autopilot can do | [Features](FEATURES.md) |
 | Build your first project | [Tutorial](GUIDE.md) |
 | Do one job: a server, phone alerts, an existing project | [How-to guides](HOWTO.md) |
 | Look up a command, setting, file or term | [Reference](REFERENCE.md) |
