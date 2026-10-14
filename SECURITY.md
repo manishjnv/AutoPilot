@@ -44,6 +44,14 @@ Four presets let the agent run every tool without a prompt. This is not limited 
 - These four presets never ran live. Autopilot wrote them from the vendor docs.
 - Use them only on a PC and an account where you accept this risk.
 
+## What the updater trusts
+
+The update that runs by itself gets the newest release from GitHub (`gh` when present, else the public releases
+API, no login). It installs a wheel only when its SHA256 matches the `SHA256SUMS` file of that release. A release
+exists only after CI is green on Linux and Windows. The updater never runs while a build is active, and the way back
+is one command: `ap upgrade --ref vX.Y.Z`. Stop it with `upgrade.auto: false` in `.agent/project.yaml` or
+`AUTOPILOT_NO_AUTO_UPGRADE=1`.
+
 ## Rights the installer takes
 
 The installer takes rights once, with one prompt, so a later run never asks. On Windows it creates the scheduled task `Autopilot-Setup` with the highest run level. The task runs only `%ProgramData%\Autopilot\setup.ps1`. Only Administrators can change that script. The script installs only `winget` ids from the queue file in the same folder. On Linux it writes `/etc/sudoers.d/autopilot` for `apt-get`, `dpkg`, `snap` and `brew`. You accept this standing elevation when you run the installer on a solo PC. On a shared PC, do not run the installer. Remove the rights with `ap uninstall --rights`.

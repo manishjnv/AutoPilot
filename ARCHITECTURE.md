@@ -144,9 +144,18 @@ pie title Tokens by model, SecretScan run
 | The push fails, or `main` is different from GitHub | The run tries again after 30 seconds, then continues on your computer and tries at each commit. You get one alert |
 | The plan file or the state file is damaged | The run restores the last good copy: the plan from the last 30 commits on `main`, the state from the backup of the run start |
 | Autopilot stops with an error | Autopilot starts again from the saved state, 10 times at most. The same crash three times on one task parks that task |
+| A newer release exists | Before `ap run` or `ap start`, once a day, Autopilot installs it and starts the same command again on the new version. After a short command it installs in the background. Every update line names the way back, `ap upgrade --ref vX.Y.Z` |
 
 A limit or an outage never counts as a failed attempt. The full list is in the
 [reference](REFERENCE.md#self-healing).
+
+The update that runs by itself has three rules. It runs only when the user types an `ap` command, never on a timer.
+It checks the release at most once a day. It never changes the code while a build is active. Before `ap run` or
+`ap start` the check runs first: a release install (uv tool or pip) downloads the wheel, compares it with
+`SHA256SUMS`, starts the reinstall after the process has exited (Windows locks `ap.exe` while it runs), and then
+starts the same command again on the same console. A git checkout, `CI`, `AUTOPILOT_NO_AUTO_UPGRADE=1`,
+`AUTOPILOT_DETACHED` and `upgrade.auto: false` stop it. Any failure lets the command run on the current
+version.
 
 ## 9. Memory is in files
 
@@ -193,6 +202,7 @@ No session needs a long chat history. After a crash or a restart, the run contin
 | `notify.py` | Telegram, Slack, ntfy, and webhook alerts |
 | `deploy.py` | Deploy, health check, and rollback |
 | `doctor.py` | Checks of your computer, and safe repairs |
+| `upgrade.py` | `ap upgrade`, `ap install`, and the update that runs by itself (see section 8) |
 | `backends/` | Runs Claude Code, or a different agent CLI |
 | `prompts/` | The prompt text for each type of session |
 

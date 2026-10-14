@@ -158,6 +158,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `sandbox` | Where the agent runs: `mode` `off`, `allowlist` (Claude Code's own sandbox with the network allowlist) or `docker` (each session in `docker run --rm` with only the worktree at `/work`, its git folders (the shared one read-only) and a temp login folder mounted; never the home folder; secret variables pass by name only). A missing `mode` follows `enabled` | `mode`, `enabled` (false), `allowed_domains`, `image` (needed for `docker`; the image must have `claude` on PATH), `network` (`bridge`) |
 | `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `replanner` (sonnet; opus when a pending task's `files_in_scope` matches `escalate.load_bearing`), `unstick` (sonnet), `review` (opus), `helper` (haiku: the short answer to a typed question, at most 20 calls for each run) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
+| `upgrade` | The update that runs by itself | `auto` (true): before `ap run` or `ap start`, once a day, a release install gets the newest release and starts the command again; `false` turns it off. `AUTOPILOT_NO_AUTO_UPGRADE=1` does the same for one shell |
 | `budget_usd` | Cost limits | `per_session` (8), `per_task` (20), `per_phase` (150), `daily` (200), `total` (5000) |
 | `profile` | How much checking each task gets | `lean` (new projects) or `full` (a missing key) |
 | `retries` | Attempts | `max_attempts_per_task` (3), `resume` (true) |
@@ -487,6 +488,7 @@ A run stops only for a problem that needs a person. Each repair sends a `heal` a
 
 | Problem | What Autopilot does |
 |---|---|
+| A newer release exists | Before `ap run` or `ap start`, once a day, a release install gets it and starts the same command again on the new version. The line names the way back: `ap upgrade --ref vX.Y.Z` |
 | The code of a task fails its checks | Moves the task up `models.ladder` to a stronger model, then starts a diagnosis, then asks you. It builds the other tasks |
 | `main` fails its checks | A fixer session repairs `main` before new work. It gets three attempts by default (`retries.max_fixer_attempts`) |
 | A tool is missing | Runs the setup again. If the tool is still missing, one repair session repairs the setup. A run gets one repair session |

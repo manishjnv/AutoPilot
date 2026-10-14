@@ -143,8 +143,8 @@ Three steps, no administrator prompt.
    needs the Copilot CLI, which uses the same subscription.
 3. Open a project folder and type `ap`.
 
-See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot updates itself once a day; `ap uninstall --all`
-removes it. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
+See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot updates itself once a day, before `ap run` or
+after a short command, with no question ([how](HOWTO.md#update-or-remove-autopilot)); `ap uninstall --all` removes it. Checksums and each step: [Install with one script](HOWTO.md#install-with-one-script).
 
 ## Example output
 
