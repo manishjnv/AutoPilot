@@ -298,7 +298,7 @@ Cursor; its old name `cursor-agent` still counts. It prints `runner: <name> (fou
 per runner with the install command for this system, then stops. It never names one runner first. A value that you set
 is never changed. When no CLI is logged in, preflight uses the runner that `ap setup` chose on this computer.
 
-Runner table (one source, `autopilot/doctor.py`): every runner fact lives in one table. Each row has the program name,
+Runner table (one source, `autopilot/doctor.py`): every runner fact lives in one table. Each release publishes it as the signed asset `runners.json` with the date the docs were checked (Q16). Each row has the program name,
 the install command per system, the login command, the read-only status command, and the token variables. Only the
 presence of a token variable counts; a value is never read or shown.
 

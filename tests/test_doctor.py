@@ -157,3 +157,16 @@ def test_q17_shared_format_exit_codes_and_json(tmp_path, monkeypatch, capsys):
     assert re.search(r"(?m)^done\s+codex", out) and re.search(r"(?m)^FAIL\s+project place\n {10}bad ap move x", out)
     assert cli_main(["doctor", "--runner", "--project", "--json", "-C", str(tmp_path)]) == 1
     assert set(json.loads(capsys.readouterr().out.splitlines()[0])) == {"status", "item", "detail", "command"}
+
+
+def test_runners_json_round_trips_every_row_with_the_docs_checked_date():  # Q16: the release asset
+    import json
+
+    from autopilot import __version__
+    from autopilot.doctor import DOCS_CHECKED, RUNNERS, runners_json
+    data = json.loads(runners_json())
+    assert data["version"] == __version__ and data["docs_checked"] == DOCS_CHECKED == "2026-10-12"
+    assert [r["key"] for r in data["runners"]] == [r.key for r in RUNNERS]
+    row = next(r for r in data["runners"] if r["key"] == "claude_cli")
+    assert row["binary"] == "claude" and row["probe"] == ["-p", "{prompt}"] and "windows" in row["install"]
+    assert runners_json() == runners_json()  # the same bytes every time: the attestation covers a stable file

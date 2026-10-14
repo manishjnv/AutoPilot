@@ -88,6 +88,19 @@ def check_login(binary: str, version: tuple, cfg, timeout: float = 30, env=None)
 # Rows: subscription runners only (owner rule 2026-10-11). Install commands and flags: docs checked 2026-10-12, not
 # run live. A token variable counts first (presence only, never the value): no process to start. Never `login` here.
 LOGIN_TIMEOUT = 20  # N10
+DOCS_CHECKED = "2026-10-12"  # Q16: the day the install commands and flags of RUNNERS were last checked against the vendor docs
+
+
+def runners_json() -> str:
+    """Q16: the runner table as JSON for the release asset `runners.json` (signed with the release, X9). Rows are the
+    `Runner` fields as plain lists, dicts and strings, plus `docs_checked` and the Autopilot version. A later `ap doctor`
+    may read a newer file from the latest release; the built-in rows stay the offline fallback."""
+    import json
+    from dataclasses import asdict
+
+    from . import __version__
+    rows = [asdict(r) for r in RUNNERS]
+    return json.dumps({"version": __version__, "docs_checked": DOCS_CHECKED, "runners": rows}, indent=1, sort_keys=True) + "\n"
 VSCODE_SENTENCE = ("Copilot in VS Code is not a command-line tool. Autopilot needs the Copilot CLI, which uses the "
                    "same subscription.")
 

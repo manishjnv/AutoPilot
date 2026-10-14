@@ -20,6 +20,8 @@ jobs:
       # No test run here: `scripts/bump.py --tag` puts a tag only on a commit whose CI run is green, so a second run
       # of the suite would prove nothing and cost four minutes.
       - run: uv build
+      - name: Runner table (Q16; a signed release asset, read by a later ap doctor)
+        run: python -c "import pathlib; from autopilot.doctor import runners_json; pathlib.Path('runners.json').write_text(runners_json(), encoding='utf-8')"
       - name: Release notes and checksums
         run: |
           v="${GITHUB_REF_NAME#v}"
@@ -28,15 +30,17 @@ jobs:
           sed -i "s/^\$DefaultRef = .*/\$DefaultRef = '$GITHUB_REF_NAME'/" install.ps1
           awk -v h="## [$v]" 'index($0,h)==1{f=1;next} /^## \[/{f=0} f&&(n||NF){n=1;print}' CHANGELOG.md > notes.md
           (cd dist && sha256sum *) > SHA256SUMS
-          sha256sum install.ps1 install.sh >> SHA256SUMS
+          sha256sum install.ps1 install.sh runners.json >> SHA256SUMS
       - name: Build provenance (X9; verified by `gh attestation verify <wheel> --repo manishjnv/AutoPilot`)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/*
+          subject-path: |
+            dist/*
+            runners.json
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* install.ps1 install.sh SHA256SUMS --title "$GITHUB_REF_NAME" --notes-file notes.md
+        run: gh release create "$GITHUB_REF_NAME" dist/* install.ps1 install.sh runners.json SHA256SUMS --title "$GITHUB_REF_NAME" --notes-file notes.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
