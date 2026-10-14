@@ -57,3 +57,24 @@ jobs:
           git config --global user.email ci@example.com
       - run: python -m pytest -q -n auto
       - run: autopilot --version
+  docs-warnings:
+    # W57: the nightly run counts the Vale warnings on the public pages; it reports and never fails
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install Vale
+        run: |
+          curl -sSL -o vale.tar.gz https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Linux_64-bit.tar.gz
+          tar -xzf vale.tar.gz vale
+          sudo mv vale /usr/local/bin/vale
+      - run: vale sync
+      - name: Count warnings
+        run: |
+          files=""
+          for f in README.md FEATURES.md GUIDE.md HOWTO.md REFERENCE.md ARCHITECTURE.md SECURITY.md COMPARE.md; do
+            [ -f "$f" ] && files="$files $f"
+          done
+          vale --minAlertLevel=warning --output=JSON $files > /tmp/vale.json || true
+          n=$(python3 -c "import json;print(sum(len(v) for v in json.load(open('/tmp/vale.json')).values()))")
+          echo "Vale warnings and errors on the public pages: $n" | tee -a "$GITHUB_STEP_SUMMARY"

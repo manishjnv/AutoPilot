@@ -27,6 +27,30 @@ jobs:
             [ -f "$f" ] && files="$files $f"
           done
           vale --minAlertLevel=error $files
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: uv pip install --system -e ".[dev]"
+      - name: "Docs tests (W57: opening, table cells, word caps)"
+        run: python -m pytest tests/test_opening.py tests/test_docs_cells.py tests/test_docs_caps.py -q
+      - name: "Mermaid render check (W57)"
+        run: |
+          mkdir -p /tmp/mm && echo '{"args":["--no-sandbox"]}' > /tmp/mm/pp.json
+          python - <<'PY'
+          import pathlib, re
+          for f in ["README.md", "FEATURES.md", "GUIDE.md", "HOWTO.md", "REFERENCE.md", "ARCHITECTURE.md", "SECURITY.md", "COMPARE.md"]:
+              p = pathlib.Path(f)
+              if p.exists():
+                  for i, b in enumerate(re.findall(r"```mermaid\s(.*?)```", p.read_text(encoding="utf-8"), re.S)):
+                      pathlib.Path(f"/tmp/mm/{p.stem}-{i}.mmd").write_text(b, encoding="utf-8")
+          PY
+          for f in /tmp/mm/*.mmd; do
+            [ -f "$f" ] || continue
+            npx -y @mermaid-js/mermaid-cli@11 -p /tmp/mm/pp.json -i "$f" -o "$f.svg" || { echo "mermaid parse error in $f"; exit 1; }
+          done
       - name: Lint the Unreleased block of CHANGELOG.md (W49; older release blocks are history and stay as they are)
         run: |
           mkdir -p /tmp/notes && cp -r .vale.ini .vale /tmp/notes/

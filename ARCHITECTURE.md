@@ -4,7 +4,7 @@ Autopilot builds your software project while you are away. You write what you wa
 It is for one developer, or for a person with an idea and a developer friend.
 
 This page explains how Autopilot works and why. The main idea: **the AI model writes the code, and Python code
-decides what to keep.** Words on this page: Claude Code (the coding agent that writes the code), the gate (the check after each step), a worktree (a separate copy of the project for one task), a subscription (a paid Claude plan).
+decides what to keep.** Words on this page: Claude Code (the coding agent that writes the code), the gate (the check after each step). Also: a worktree (a separate copy of the project for one task), a subscription (a paid Claude plan).
 
 For the steps to use Autopilot, read the [tutorial](GUIDE.md). For all commands and settings, read the
 [reference](REFERENCE.md).
@@ -125,7 +125,7 @@ The `lean` profile tries no variation in the feature check and runs no completio
 These are the values of the project template (`models.ladder`). You can change them.
 
 After its checks pass, one read-only Opus review looks at the change before the merge. The template sets
-`review.scope: all`: every task above low risk gets the review. The code default is `critical`: only critical tasks.
+`review.scope: all`: every task over low risk gets the review. The code default is `critical`: only critical tasks.
 
 A failed task goes to a stronger model, never to a weaker one. This chart shows the real share of tokens in the
 SecretScan run (38 sessions):
@@ -170,8 +170,8 @@ A limit or an outage never counts as a failed attempt. The full list is in the
 
 The update that runs by itself has three rules. It runs only when the user types an `ap` command, never on a timer.
 It checks the release at most once a day. It never changes the code while a build is active. Before `ap run` or
-`ap start` the check runs first: a release install (uv tool or pip) downloads the wheel, compares it with
-`SHA256SUMS`, starts the reinstall after the process has exited (Windows locks `ap.exe` while it runs), and then
+`ap start` the check runs first: a release install (uv tool or pip) downloads the wheel and compares it with
+`SHA256SUMS`. It starts the reinstall after the process has exited (Windows locks `ap.exe` while it runs), and then
 starts the same command again on the same console. A git checkout, `CI`, `AUTOPILOT_NO_AUTO_UPGRADE=1`,
 `AUTOPILOT_DETACHED` and `upgrade.auto: false` stop it. Any failure lets the command run on the current
 version.
@@ -274,13 +274,13 @@ flowchart LR
 | Direction | Claude can choose the design as it works. | Your plan sets the design. The gate refuses a change to the plan. |
 | Run time | You give the next step in the chat. | `ap start` runs all tasks in the background. |
 | Context | A long chat can lose early detail. | Each task starts a new session with a short brief. |
-| Checks | The model can say that work is done. | Autopilot runs your build, lint and test commands. A task merges only if they pass. |
-| Test honesty | A test can be deleted or skipped. | The gate refuses deleted tests, fewer tests, fewer assertions and skip markers. |
+| Checks | The model can say that work is done. | Autopilot runs your build, lint, and test commands. A task merges only if they pass. |
+| Test honesty | A test can be deleted or skipped. | The gate refuses deleted tests, fewer tests, fewer assertions, and skip markers. |
 | Failures | You find and repair a problem. | A stronger model tries again. Autopilot repairs a missing tool or a red main branch, and restarts after a crash. |
 | Questions | The chat waits for you. | That task and its dependent tasks wait. Other tasks continue. |
-| Status | You scroll the chat. | `ap watch` shows tasks, live output, progress and usage. |
+| Status | You scroll the chat. | `ap watch` shows tasks, live output, progress, and usage. |
 | Git | You manage branches. | One branch for each task. It merges only after green checks. |
-| Review | The model checks its own work. | Tasks above low risk get a separate review (critical tasks only in older projects). A final audit adds repair tasks. |
+| Review | The model checks its own work. | Tasks over low risk get a separate review (critical tasks only in older projects). A final audit adds repair tasks. |
 
 Use Claude Code alone for a small change, a question, exploration, or a design that is not decided.
 

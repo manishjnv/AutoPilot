@@ -8,3 +8,4 @@ Do not edit `.agent/plan.yaml`, `.agent/project.yaml` or anything under `.agent/
 Do not commit, push, or switch branches; the orchestrator owns git.
 Commands: `ap status` (where the project is), `ap next` (next task), `ap start` (run the plan).
 Do not make plan files. The plan is `.agent/plan.yaml`; change it with `ap change`.
+A doc edit (README, FEATURES, GUIDE, HOWTO, REFERENCE, ARCHITECTURE, SECURITY, COMPARE) runs `vale --minAlertLevel=warning <file>` and the docs tests (`pytest tests/test_opening.py tests/test_docs_cells.py tests/test_docs_caps.py`) on WSL before a push.

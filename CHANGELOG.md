@@ -13,7 +13,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 - A new page, COMPARE.md, explains why Autopilot helps even when you already write skills for the model.
 - A production approval is now recorded with who gave it and when, and a coding session cannot approve its own deploy.
-
+- Every push checks the documents for long sentences, long table cells and page length, and the two big pages start with a finder table.
 - The security and how-to documents now explain the admin right that lets a build install system tools without a password.
 - The plugin stop check no longer runs commands in folders that Autopilot did not set up on this computer.
 - A task or phase name with unsafe characters is now refused, so it cannot delete a folder outside the build area.

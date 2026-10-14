@@ -3,7 +3,7 @@
 Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.
 It is for one developer, or for a person with an idea and a developer friend.
 
-Words in the guides: Claude Code (the coding agent that writes the code), the gate (the check after each step), a worktree (a separate copy of the project for one task), a subscription (a paid Claude plan). Each guide does one job. For your first project, start with the [tutorial](GUIDE.md). To look up a command or a
+Words in the guides: Claude Code (the coding agent that writes the code), the gate (the check after each step). Also: a worktree (a separate copy of the project for one task), a subscription (a paid Claude plan). Each guide does one job. For your first project, start with the [tutorial](GUIDE.md). To look up a command or a
 setting, use the [reference](REFERENCE.md). The guides use `ap`, the short name of `autopilot`.
 
 | Job | Guide |
@@ -12,7 +12,8 @@ setting, use the [reference](REFERENCE.md). The guides use `ap`, the short name 
 | Audits | [Start an audit now](#start-an-audit-now) |
 | Projects | [Change the plan in plain words](#change-the-plan-in-plain-words) · [Use a project that already exists](#use-a-project-that-already-exists) · [Write a plan that runs well](#write-a-plan-that-runs-well) |
 | Tasks | [Get a design choice or research before a task](#get-a-design-choice-or-research-before-a-task) |
-| Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) · [Give Autopilot the right to install system tools](#give-autopilot-the-right-to-install-system-tools) · [What the script does](#what-the-script-does) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
+| Install | [Start from inside Claude Code](#start-from-inside-claude-code) · [Install with one script](#install-with-one-script) · [Update or remove Autopilot](#update-or-remove-autopilot) |
+| Rights and the code | [Give Autopilot the right to install system tools](#give-autopilot-the-right-to-install-system-tools) · [What the script does](#what-the-script-does) · [Install from a clone to change the code](#install-from-a-clone-to-change-the-code) |
 | Alerts | [Get alerts on your phone](#get-alerts-on-your-phone) · [Control a run from Telegram](#control-a-run-from-telegram) |
 | GitHub | [Make fix tasks from GitHub issues and CI](#make-fix-tasks-from-github-issues-and-ci) · [Merge each task through a pull request](#merge-each-task-through-a-pull-request) |
 | Servers | [Run Autopilot on a server](#run-autopilot-on-a-server) · [Run with the laptop off](#run-with-the-laptop-off-claude-code-routines) · [Open the status page from a different computer](#open-the-status-page-from-a-different-computer) · [Limit network access](#limit-network-access) |
@@ -148,8 +149,8 @@ One replan session adds the new ideas to the plan. It ignores ideas that the pla
    ap audit --signals
    ```
 
-   It shows the unknown session errors (the most frequent first), the blocked tasks by cause, the gate failures by
-   kind and the retries by cause, for the last 30 days. Add `--days 7` for a shorter window. It reads only your
+   It shows the unknown session errors (the most frequent first) and the blocked tasks by cause. It also shows the
+   gate failures by kind and the retries by cause, for the last 30 days. Add `--days 7` for a shorter window. It reads only your
    computer and writes nothing. The slow-steps table shows which step of a task takes longest. To report a problem, run `ap report --issue --show` to see the text first, then `ap report --issue`.
 2. Start each release from this table. Each unknown wording in it becomes one line in the error catalogue plus a
    test that proves the line matches it.
@@ -297,7 +298,7 @@ Tasks then run one at a time.
 3. When the run is done, open one pull request from `autopilot/work` to `main` and merge it yourself.
 
 Each task is pushed to GitHub as soon as it passes, and `main` stays as it was until you merge. For a pull request per
-task instead, set `git.mode: pr` (see the section above).
+task instead, set `git.mode: pr` (see the preceding section).
 
 ## Run Autopilot on a server
 
@@ -460,12 +461,13 @@ Use a model on your own computer (Ollama or LM Studio) for low-risk tasks. Nothi
        low: [haiku, sonnet, opus]
    ```
 
-3. Send only low-risk tasks to it. The template starts the `low` tier on `sonnet`; the `ladder` line above makes it `[haiku, sonnet, opus]`, so the first attempt of a low-risk task uses `haiku`, which the map sends to the local model. Higher tiers keep the Claude models.
+3. Send only low-risk tasks to it. The template starts the `low` tier on `sonnet`; the `ladder` line in step 2 makes it `[haiku, sonnet, opus]`. So the first attempt of a low-risk task uses `haiku`, which the map sends to the local model. Higher tiers keep the Claude models.
 4. Run `ap doctor`. The `endpoint` row says whether the server answers.
 
 > [!NOTE]
 > The local model cannot run tools or tests. It writes files and a report only. The gate runs the tests and the checks
-> after each task, so a weak model fails the gate instead of passing it. Keep it on small tasks.
+> after each task, so a weak model fails the gate instead of passing it. A path outside the worktree is refused.
+> `ap doctor` warns and never fails when the server is down. Keep it on small tasks.
 
 ## Use an API key instead of a subscription
 
@@ -576,19 +578,6 @@ shows the effect of a prompt change.
 ## Stop a run and still get a word
 
 Press Ctrl+C during `ap start`, or run `ap stop`. The run stops and stores the outcome word STOPPED, so `ap status` and the notification name an end for every run. While a run is stopped, the bottom bar of `ap watch` shows that word after "Stopped." See [Run outcome](REFERENCE.md#run-outcome).
-
-## Local models
-
-Run low-risk tasks on a model on your own computer (Ollama or LM Studio). Nothing leaves the machine and it costs nothing.
-
-1. Start the server and pull a coding model, for example `ollama pull qwen2.5-coder:7b`.
-2. In `.agent/project.yaml`, set `agent.backend: openai_compat`. Optionally set `agent.base_url` (default
-   `http://localhost:11434/v1`) and `agent.model_map` (for example `haiku: qwen2.5-coder:7b`).
-3. Run `ap doctor`. The `endpoint` row says whether the server answers. It warns and never fails when the server is down.
-
-The model cannot run tools. It writes each file as a fenced block and Autopilot writes the files into the worktree.
-A path outside the worktree is refused. The gate then runs the tests and the checks, so a weak model fails the gate.
-See [Use a local model](HOWTO.md#use-a-local-model).
 
 ## VS Code extension
 
@@ -717,8 +706,8 @@ To remove Autopilot, run:
 ap uninstall --all
 ```
 
-It removes the rights the installer took, the folder `~/.autopilot`, and then the package itself (after the command
-has ended, because the program cannot delete itself while it runs). `ap uninstall --all --dry-run` lists the steps.
+It removes the rights the installer took, the folder `~/.autopilot`, and then the package itself. The package goes
+after the command has ended, because the program cannot delete itself while it runs. `ap uninstall --all --dry-run` lists the steps.
 It keeps uv, Python, git, your AI CLI with its login, and the `.agent/` folder of each project. Delete `.agent/` to
 start a project clean. Without `ap`, run `uv tool uninstall dev-autopilot` (or `pip uninstall dev-autopilot`).
 
@@ -782,7 +771,7 @@ Run `python scripts/premerge.py` before you merge a branch of Autopilot.
 
 - On Windows, it runs the full suite on WSL. Then it runs the test files that changed on the branch on the Windows Python.
 - On Linux, it runs the suite once.
-- When `uv` and Python 3.13 are available, it runs the changed test files again on Python 3.13, and it skips this step with one line if they are not.
+- When `uv` and Python 3.13 are available, it runs the changed test files again on Python 3.13. If they are not, it skips this step with one line.
 - With `--ci`, it also starts the CI workflow on the branch and prints the result of each job.
 
 The command exits 1 when a step is red. `tests/test_hygiene.py` also finds five traps that pass on WSL and fail in CI.
@@ -820,7 +809,7 @@ The install script runs these commands. Use them when the script fails, or when 
    ap doctor
    ```
 
-## Retries, reviews and scoped files
+## Retries, reviews, and scoped files
 
 - **Escalation on hard work.** Test files and `scope_always` docs do not count toward `escalate.max_diff_files` or `escalate.max_diff_lines`. A failure with only mechanical problems retries on the same model. The task prompt names the lines left for a scoped file near its growth budget.
 - **Review findings drive the retry.** After a failed review, the retry prompt lists that review's findings. The next review checks the listed findings first. A new defect that breaks no acceptance criterion goes to `FOLLOWUPS.md`, and the task merges.

@@ -40,3 +40,6 @@ aider
 Ollama
 Anthropic's
 [Ll]oopback
+VS Code
+Claude Code Routines
+[Kk]ill

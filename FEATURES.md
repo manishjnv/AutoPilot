@@ -13,30 +13,30 @@ Words on this page: a *task* is one piece of work from your plan. A *phase* is a
 
 | Feature | What it does | Why it helps you |
 |---|---|---|
-| **One-line install** | You run one line in your shell. The script installs Python, Autopilot and the AI program you pay for. No administrator prompt. | **You start in minutes on Windows, macOS or Linux.** |
+| **One-line install** | You run one line in your shell. The script installs Python, Autopilot and the AI program you pay for. No administrator prompt. | **You start in minutes on Windows, macOS, or Linux.** |
 | **One question at setup** | Setup asks only "Which AI do you pay for?" (Claude, GitHub Copilot, Codex, Cursor or Kiro). | **You do not need to know technical settings.** |
 | **Setup continues after a failure** | If setup stops half way, you run it again. Finished steps show as done. | **You never start from zero again.** |
 | **Setup ends with a real test** | The last step sends one small prompt to your AI and waits for the word "ready." | **You know the AI works before you start a build.** |
 | **Errors in one sentence** | Every install error shows one plain sentence and the one command to run. | **You do not need to read a long error text.** |
-| **Login without a browser** | On a server or over a text connection, the login address and the code print as text. | **You can set up Autopilot on any computer.** |
-| **Checks your computer** | `ap doctor` checks the AI login, git, disk space, the clock, the console and more. It repairs what it can. | **A build does not stop on a problem that Autopilot can fix.** |
+| **Login without a browser** | On a server or over a text connection, the login address, and the code print as text. | **You can set up Autopilot on any computer.** |
+| **Checks your computer** | `ap doctor` checks the AI login, git, disk space, the clock, the console, and more. It repairs what it can. | **A build does not stop on a problem that Autopilot can fix.** |
 | **Bad folder warning** | A project in OneDrive or on a network drive gets a warning. `ap move` copies it to a safe folder. | **Slow or broken builds in these folders are prevented.** |
 | **Checksums for the installer** | Each release ships a checksum file. A dry run shows every step before it changes anything. | **You can check what the script does before you run it.** |
 | **Updates itself** | Before a build, Autopilot installs a newer release and starts the same command on the new version. Every update line names the way back. | **You always run the newest version, and you can go back.** |
-| **Clean removal** | `ap uninstall --all` removes Autopilot, its rights and its folder. It keeps your projects and your AI tool. | **Nothing is left behind.** |
+| **Clean removal** | `ap uninstall --all` removes Autopilot, its rights, and its folder. It keeps your projects and your AI tool. | **Nothing is left behind.** |
 
 ## Start a project
 
 | Feature | What it does | Why it helps you |
 |---|---|---|
-| **Type `ap` and go** | In a folder, you type `ap`. Autopilot decides what to do: ask for the idea, read existing code or continue the build. | **One short command does the right thing.** |
+| **Type `ap` and go** | In a folder, you type `ap`. Autopilot decides what to do: ask for the idea, read existing code, or continue the build. | **One short command does the right thing.** |
 | **Plan from an idea** | You write your idea in a few sentences. The AI writes the plan and the tasks for you. | **You do not need to write a technical plan.** |
 | **Plan from your own file** | Autopilot finds your plan file by its content, whatever its name. | **You can use the notes you already have.** |
-| **Start an existing project** | In a folder with code, Autopilot reads the code, the git log and your notes. Finished work stays done. | **You can use Autopilot on work you already started, and nothing is built twice.** |
+| **Start an existing project** | In a folder with code, Autopilot reads the code, the git log, and your notes. Finished work stays done. | **You can use Autopilot on work you already started, and nothing is built twice.** |
 | **One-screen summary** | Before the start, you see what is done, what is open and what comes next. | **You know the state of the project in one look.** |
 | **Starts without a question** | A plan with no risky task starts at once. The status page opens once. `ap --ask` keeps the question. | **You do not need to confirm each step.** |
 | **Installs project dependencies** | Before a run, Autopilot installs missing packages of your project with the standard command. | **You do not install anything by hand.** |
-| **Rules for your editor** | `ap init` writes a short Autopilot block into the rule files of Claude Code, Cursor, Kiro, Copilot and Gemini. | **Your editor chat knows how to use Autopilot.** |
+| **Rules for your editor** | `ap init` writes a short Autopilot block into the rule files of Claude Code, Cursor, Kiro, Copilot, and Gemini. | **Your editor chat knows how to use Autopilot.** |
 | **Checks the plan** | `ap validate` finds an error in the settings or the plan, and shows which phases can run side by side. | **A bad plan is found before the run.** |
 | **Finds your AI tool** | Autopilot uses the AI program that is installed and logged in. | **No setting to write.** |
 
@@ -77,7 +77,7 @@ Words on this page: a *task* is one piece of work from your plan. A *phase* is a
 
 | Feature | What it does | Why it helps you |
 |---|---|---|
-| **Live view in the terminal** | `ap watch` shows the tasks, the live output, the progress, the cost and the issues. | **You see the whole build on one screen.** |
+| **Live view in the terminal** | `ap watch` shows the tasks, the live output, the progress, the cost, and the issues. | **You see the whole build on one screen.** |
 | **Status page in the browser** | The same view opens as a web page. With a token, you can open it from another computer. | **You can follow the build from any device.** |
 | **Card for the current task** | A card at the top shows the task in work, its steps, an end-time range and what changed so far. | **You know what happens now and when it ends.** |
 | **What the run waits for** | The screen tells you what the run waits for, and its clock ticks every second. | **You never wonder if the build is stuck.** |
@@ -92,21 +92,21 @@ Words on this page: a *task* is one piece of work from your plan. A *phase* is a
 | **Alerts on your phone** | Autopilot sends a message to Telegram, Slack, ntfy or a web address when it needs you or when the build ends. | **You do not need to watch the screen.** |
 | **Control from Telegram** | You send `status`, `answer`, `approve`, `unblock` or `hint` to your bot. | **You steer the build from your phone.** |
 | **Fix tasks from GitHub issues** | An issue with the label `autopilot` becomes a fix task. A failed CI run on main becomes one too. Off by default. | **Bugs that users report get fixed without you.** |
-| **Work from the editor** | A Claude Code plugin gives you start, answer and stop. Your IDE chat can ask for the status. | **You use Autopilot from the tools you already open.** |
+| **Work from the editor** | A Claude Code plugin gives you start, answer, and stop. Your IDE chat can ask for the status. | **You use Autopilot from the tools you already open.** |
 | **Status page without a run** | `ap serve` opens the status page and the full report after a run. | **You can read the result later.** |
-| **Numbers of a run** | `ap stats` and `ap report --tokens` show the tasks done, the time, the cost and the tokens per model. | **You see what the run cost.** |
+| **Numbers of a run** | `ap stats` and `ap report --tokens` show the tasks done, the time, the cost, and the tokens per model. | **You see what the run cost.** |
 
 ## Proof of the work
 
 | Feature | What it does | Why it helps you |
 |---|---|---|
-| **One word at the end** | Every run ends with VERIFIED, BLOCKED, STOPPED, BUDGET_STOP, STALLED or FAILED. | **You know the result in one look.** |
+| **One word at the end** | Every run ends with VERIFIED, BLOCKED, STOPPED, BUDGET_STOP, STALLED, or FAILED. | **You know the result in one look.** |
 | **What is not proven** | Each phase lists the criteria that no test covers. "Nothing" means everything was checked. | **You see the gaps before you ship.** |
-| **Fresh review of each task** | A new AI session reads the task, the change and the test output. It can send the task back. Every task above low risk gets one. | **A second pair of eyes checks each task.** |
+| **Fresh review of each task** | A new AI session reads the task, the change, and the test output. It can send the task back. Every task over low risk gets one. | **A second pair of eyes checks each task.** |
 | **Signed record per phase** | Each closed phase gets a signed record. `ap verify` checks it offline and says CHANGED when a record was edited. | **Nobody can edit the proof unnoticed.** |
 | **Proof card** | Each phase gets a small image with the merged count, the cost and the date, and a line for your README. | **You can show the result.** |
 | **Draft pull requests** | In pull-request mode, each task opens a pull request. A task with open items opens a draft with the list. A clean task opens a ready one. | **A reviewer sees what is still open.** |
-| **Record of every step** | Every session, decision, cost and bug is written to the history, a decisions log and a bug log. | **You can see what happened and why.** |
+| **Record of every step** | Every session, decision, cost and bug is written to the history, a decisions log, and a bug log. | **You can see what happened and why.** |
 | **Docs written for you** | At the end of each phase, a session writes the README sections, the changelog, the bug log and the developer notes of your app. | **Your app comes with its own documentation.** |
 | **Replay a run** | `ap tour` replays a recorded build. No login, no key, no cost. | **You can see Autopilot work before you install it.** |
 
@@ -115,21 +115,21 @@ Words on this page: a *task* is one piece of work from your plan. A *phase* is a
 | Feature | What it does | Why it helps you |
 |---|---|---|
 | **Separate copy per task** | Every task works in its own copy of the project. The main branch changes only when the checks pass. | **A failed task cannot break your code.** |
-| **Only Autopilot uses git** | A session cannot commit, push or change branches. | **The AI cannot damage your history.** |
+| **Only Autopilot uses git** | A session cannot commit, push, or change branches. | **The AI cannot damage your history.** |
 | **Broken main found at once** | After each merge, the main branch is tested before the next task starts. A fixer session repairs it. | **A problem is found at its source.** |
-| **Tests cannot be weakened** | The gate refuses a deleted test, fewer tests, fewer checks, a skip marker or a changed CI file. | **The AI cannot pass by removing the test.** |
+| **Tests cannot be weakened** | The gate refuses a deleted test, fewer tests, fewer checks, a skip marker, or a changed CI file. | **The AI cannot pass by removing the test.** |
 | **Tests of key features are guarded** | A matured feature has a written contract. A task cannot remove its tests without a reason. | **Important features cannot shrink unnoticed.** |
 | **Files outside the task fail** | A task may change only the files in its scope. Docs are always allowed. In a new project, a new file needs a reason. | **The AI cannot make changes you did not ask for.** |
 | **Files cannot grow without limit** | A file that grows too much in one task fails the gate. A clean-up task runs when duplicates grow. | **The code stays small and tidy.** |
 | **Secrets stay out** | Keys and passwords are found in a change and refused. Logs and error texts hide secret values. | **Your secrets do not leak.** |
 | **Only allowed variables** | A session sees only the environment variables on a list, not your whole environment. | **Your tokens stay private.** |
-| **Same behaviour everywhere** | A session does not load your own plugins, hooks or extra servers. | **A run acts the same on each computer, and costs less.** |
-| **Network allowlist** | A session can reach only the addresses you allow. Off by default. Linux, WSL and macOS only. | **The AI cannot send your code elsewhere.** |
+| **Same behaviour everywhere** | A session does not load your own plugins, hooks, or extra servers. | **A run acts the same on each computer, and costs less.** |
+| **Network allowlist** | A session can reach only the addresses you allow. Off by default. Linux, WSL, and macOS only. | **The AI cannot send your code elsewhere.** |
 | **Container mode** | Each session runs in a plain Docker container. Only the project folder is mounted. It does not limit the network by itself. | **The AI cannot reach the rest of your computer.** |
 | **Your email stays private** | Each commit uses your GitHub no-reply address. Your git settings do not change. | **Your email does not appear in the history.** |
 | **Own Python environment** | Python packages go into a project environment, never into the system Python. | **Your computer stays clean.** |
 | **No stop by name** | A session can stop only its own processes, never all programs with a name. | **Your other programs are safe.** |
-| **Cost caps** | You set a limit per session, task, phase, day and run. `ap budget` changes it during a run. | **You never get a surprise bill.** |
+| **Cost caps** | You set a limit per session, task, phase, day, and run. `ap budget` changes it during a run. | **You never get a surprise bill.** |
 | **Cost forecast** | The run estimates the end cost early. On a subscription it asks you before it stops at the cap. | **You know before the money is spent.** |
 | **Keeps usage for you** | On a subscription, the run pauses when only 15 percent of your usage window is left. You get an alert at 90 percent of the weekly limit. | **You can still use Claude yourself.** |
 | **Production stays safe** | A deploy has a health check and a rollback. `ap run --no-prod` skips the production step until you approve it. | **Nothing goes live without you.** |
@@ -155,8 +155,8 @@ A build on a server with Docker, and a scheduled cloud run with the laptop off. 
 
 | Feature | What it does | Why it helps you |
 |---|---|---|
-| **Finds what to fix next** | `ap audit --signals` counts unknown errors, blocked tasks and retries by cause. | **Each run makes the next one better.** |
+| **Finds what to fix next** | `ap audit --signals` counts unknown errors, blocked tasks, and retries by cause. | **Each run makes the next one better.** |
 | **Measures the models** | `ap audit --ladder` shows which model is fast and cheap for each kind of task, and proposes a change. After every 20 finished tasks, Autopilot also suggests a cheaper model where the data shows it is safe. | **You pay less for the same result.** |
 | **Cost of your retries** | `ap audit --history` reads your Claude Code history and prices repeated failing commands. | **You see where money goes.** |
-| **Bug log** | Each bug gets a line with the symptom, the cause, the fix and the prevention. | **The same bug does not come back.** |
+| **Bug log** | Each bug gets a line with the symptom, the cause, the fix, and the prevention. | **The same bug does not come back.** |
 | **Release notes in simple words** | Every release starts with a plain-words summary. | **You understand what changed without technical words.** |

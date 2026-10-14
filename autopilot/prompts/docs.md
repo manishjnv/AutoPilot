@@ -32,6 +32,7 @@ One section per feature the phase shipped: heading `## <feature title>`, then wh
 journey and the acceptance criteria. If the README has no title yet, add one from the project name. If a section with
 that heading exists, update it in place; never add a second one. Keep every other section as it is.
 Keep the README short. A test may cap its length: Autopilot's own `tests/test_opening.py` allows at most 1200 words, so stay under the cap. Add detail to HOWTO.md (or a file under `docs/` when there is no HOWTO) and link it from the README.
+When the project has a `.vale.ini`, a doc edit must pass `vale --minAlertLevel=warning <file>` and the project's docs tests (for example `tests/test_docs_*.py`) before it is kept: keep sentences under 25 words and table cells under 40 words.
 
 ### Features shipped in this phase
 {{features}}

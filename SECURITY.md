@@ -13,7 +13,7 @@ Autopilot masks the values of known secret variables in the error text of a fail
 - A way for a session to change the files that only Autopilot writes, for example `.agent/plan.yaml` (the task list).
 - A secret that Autopilot writes to git, to a log, or to the status page.
 - A way to read the status page from a different computer without the token.
-- A way to read the status page without its token, also on the same computer: each run makes a random token and the page link holds it.
+- A way to read the status page without its token, also on the same computer. Each run makes a random token, and the page link holds it.
 - A key, certificate or credentials file that Autopilot stages into a commit: such names are always left out.
 
 ## How to report
@@ -69,9 +69,9 @@ The installer takes rights once, with one prompt, so a later run never asks. Thi
 | Linux and WSL | The file `/etc/sudoers.d/autopilot` | Your user runs `apt-get`, `dpkg`, `snap` and `brew` as root, with no password. |
 | macOS | Nothing | `brew` needs no rights. |
 
-**Why Autopilot needs this.** A task sometimes needs a system tool, such as a compiler or a database. Without these rights, the run stops and waits for a password. With them, Autopilot installs the tool, writes it to the log, and goes on.
+**Why Autopilot needs this.** A task sometimes needs a system tool, such as a compiler, or a database. Without these rights, the run stops, and waits for a password. With them, Autopilot installs the tool, writes it to the log, and goes on.
 
-**What this means for you.** You accept a standing elevation. Any process that runs as your user can install packages as root (Linux) or as administrator (Windows), without a prompt. This includes a Claude Code session that Autopilot starts. Package installs can run code, so treat these rights as admin rights.
+**What this means for you.** You accept a standing elevation. Any process that runs as your user can install packages as root (Linux) or as administrator (Windows), without a prompt. This includes a Claude Code session that Autopilot starts. Package installs can run code, so treat these rights as administrator rights.
 
 **Who should not use it.** Do not run the installer on a shared PC or on a machine with data that you cannot lose. Use a personal PC or a virtual machine for the build.
 
@@ -80,12 +80,12 @@ The installer takes rights once, with one prompt, so a later run never asks. Thi
 ## Docker sandbox
 
 With `sandbox.mode: docker` each Claude Code session runs in a container from `sandbox.image`. The container protects
-the rest of the computer: only the worktree (at `/work`), its git folders (the shared one read-only) and a temp copy
+the rest of the computer. Only the worktree (at `/work`), its git folders (the shared one read-only), and a temp copy
 of the login file are mounted. Your home folder is not mounted, and secret variables pass by name only, so their values
 never appear in the command line. The container and the temp folder are removed after each session.
 
 It does not protect the network. The API host must be reachable, and the default `bridge` network is open egress
-unless `sandbox.enabled: true` also turns on the allowlist. A mount outside the worktree, such as an absolute
+unless `sandbox.enabled: true` also enables the allowlist. A mount outside the worktree, such as an absolute
 `mcp_config` path, is not visible inside the container.
 
 ## The plugin Stop hook and the project list

@@ -16,10 +16,10 @@ Python decides when a task is done, not the model. Every step is recorded. Works
 | | Claude Code alone | With Autopilot |
 |---|---|---|
 | Direction | Claude can choose the design as it works. | Your plan sets the design. The gate refuses plan changes. |
-| Checks | The model can say that work is done. | Autopilot runs your build, lint and test commands. A task merges only if they pass. |
+| Checks | The model can say that work is done. | Autopilot runs your build, lint, and test commands. A task merges only if they pass. |
 | Failures | You find and repair a problem. | A stronger model tries again. Autopilot repairs a missing tool or a red main branch. |
 | Questions | The chat waits for you. | That task waits. Other tasks continue. |
-| Status | You scroll the chat. | `ap watch` shows tasks, output, progress and usage. |
+| Status | You scroll the chat. | `ap watch` shows tasks, output, progress, and usage. |
 
 The [full comparison](ARCHITECTURE.md#13-claude-code-alone-and-with-autopilot) has ten rows.
 
@@ -73,9 +73,9 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 
 ## What every run proves
 
-- [Outcome word](REFERENCE.md#run-outcome): every run ends with VERIFIED, BLOCKED, STOPPED, BUDGET_STOP, STALLED or FAILED.
+- [Outcome word](REFERENCE.md#run-outcome): every run ends with VERIFIED, BLOCKED, STOPPED, BUDGET_STOP, STALLED, or FAILED.
 - [Not proven list](REFERENCE.md#not-proven-list): each phase lists the criteria that no changed test mentions.
-- [Replay](REFERENCE.md#commands): `ap tour` replays a recorded run offline, with no login and no network.
+- [Replay](REFERENCE.md#commands): `ap tour` replays a recorded run offline, with no login, and no network.
 - [Fresh review](REFERENCE.md#fresh-context-review): a fresh session reviews each task before it merges.
 - [Signed receipt](REFERENCE.md#signed-receipt): `ap verify` checks each closed phase against its signature.
 - [Draft PR](REFERENCE.md#draft-pull-request): a task with a warning or an untested criterion opens as a draft.
@@ -84,7 +84,7 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 
 ## Safety
 
-- The gate runs your build, lint and test commands before each merge.
+- The gate runs your build, lint, and test commands before each merge.
 - The plan cannot change during a run.
 - Budget caps apply per task, phase, day and run ([settings](REFERENCE.md#settings)).
 - A network allowlist applies when `sandbox.enabled` is true or `sandbox.mode` is `allowlist`.
@@ -96,13 +96,8 @@ Both runs used a subscription. The envguard audits found 8 real bugs; Autopilot 
 
 ## Docs always in scope, and tests run once
 
-A task may change `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md` and `README.md` without a scope addition. Add more paths to `gate.scope_always` in `project.yaml` to free other files. A code file outside the task scope still fails the gate.
-
-The task gate runs only the tests of the changed modules (`gate.tests: changed`, the default). The phase close always runs the full test command. Set `gate.tests: full` to run the full command for every task.
-
-## Retries, contracts, budget, learning
-
-A retry fixes the review's findings. Scoped files enter the task prompt. Contracts, budget, task time and `ap audit` are in `HOWTO.md`.
+A task may change the four docs pages without a scope addition (`gate.scope_always`). A code file outside the task scope still fails the gate.
+The task gate runs only the tests of the changed modules; the phase close runs the full test command (`gate.tests`).
 
 ## Install
 
@@ -131,8 +126,7 @@ Three steps, no administrator prompt.
    Python 3.10 or newer? `pip install dev-autopilot && ap setup`.
 
 2. Answer one question: which AI do you pay for (Claude, GitHub Copilot, Codex, Cursor or Kiro)? The script
-   installs that one CLI and prints its login command. Copilot in VS Code is not a command-line tool. Autopilot
-   needs the Copilot CLI, which uses the same subscription.
+   installs that one CLI and prints its login command.
 3. Open a project folder and type `ap`.
 
 See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot [updates itself](HOWTO.md#update-or-remove-autopilot) once a day;
@@ -140,7 +134,7 @@ See [What `ap` does](HOWTO.md#what-ap-does-in-a-folder). Autopilot [updates itse
 
 ## Example output
 
-Shortened real output:
+Real output, cut short:
 
 ```text
 task P02-T01 attempt 1 failed: PROBLEM: skip/focus marker added in tests/test_walker.py
@@ -151,14 +145,14 @@ audit: completion audit: 92% complete, 8 corrective tasks (FIX001)
 
 ## Documentation
 
-| To | Read |
-|---|---|
-| See what Autopilot can do | [Features](FEATURES.md) |
-| Build your first project | [Tutorial](GUIDE.md) |
-| Do one job: a server, phone alerts, an existing project | [How-to guides](HOWTO.md) |
-| Look up a command, setting, file or term | [Reference](REFERENCE.md) |
-| How Autopilot works and why | [Architecture](ARCHITECTURE.md) |
-| Skills tell the model how. Autopilot proves it did. | [Compare](COMPARE.md) |
+| To | For | Read |
+|---|---|---|
+| See what Autopilot can do | anyone | [Features](FEATURES.md) |
+| Build your first project | beginners | [Tutorial](GUIDE.md) |
+| Do one job: a server, phone alerts, an existing project | users | [How-to guides](HOWTO.md) |
+| Look up a command, setting, file, or term | users | [Reference](REFERENCE.md) |
+| How Autopilot works and why | developers | [Architecture](ARCHITECTURE.md) |
+| Skills tell the model how. Autopilot proves it did. | evaluators | [Compare](COMPARE.md) |
 
 ## Good to know
 

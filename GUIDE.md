@@ -52,7 +52,7 @@ Kiro) and installs its CLI.
 
 The install adds two commands: `autopilot` and its short name `ap`. This tutorial uses `ap`.
 
-## Step 2: Log in
+## Step 2: log in
 
 Nothing to type. The first `ap` run opens the Claude login in your browser when you are not logged in yet.
 You need a paid Claude plan (Pro or Max).
@@ -73,8 +73,8 @@ This one command:
 4. Starts the build.
 
 > [!TIP]
-> To answer the same questions step by step, run `ap` with no arguments. In a folder that already has code, `ap` adopts it: it reads the code and the plan
-> documents, keeps finished work done and shows a short summary before it asks to start. If you have your own plan, see
+> To answer the same questions step by step, run `ap` with no arguments. In a folder that already has code, `ap` adopts it. It reads the code and the plan
+> documents, keeps finished work done, and shows a short summary before it asks to start. If you have your own plan, see
 > [Use a project that already exists](HOWTO.md#use-a-project-that-already-exists).
 
 While the build runs:
