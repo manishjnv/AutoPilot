@@ -20,7 +20,7 @@ from test_autopilot import FakeBackend, make_project
 from test_routing import Recorder
 
 REPO = Path(__file__).resolve().parents[1]
-PAGES = ["gate.md", "watch-screen.md"]
+PAGES = sorted(p.name for p in (REPO / "features").glob("*.md"))
 
 
 def task_prompt(tmp_path, scope):
@@ -34,8 +34,8 @@ def task_prompt(tmp_path, scope):
 
 def test_a_task_scoped_to_dash_term_gets_the_watch_contract(tmp_path):
     pages = contracts_for(REPO, ["autopilot/dash_term.py"])
-    assert len(pages) == 1 and pages[0].startswith("# Feature contract: the watch screen")
-    assert contracts_for(REPO, [r"autopilot\dash_term.py", "autopilot/gate.py"])[1].startswith(
+    assert len(pages) == 2 and pages[1].startswith("# Feature contract: the watch screen")  # outcome-word.md names dash_term too
+    assert contracts_for(REPO, [r"autopilot\dash_term.py", "autopilot/gate.py"])[2].startswith(
         "# Feature contract: the watch screen")  # Windows separators and a second page, in file name order
     prompt = task_prompt(tmp_path, ["autopilot/dash_term.py"])
     assert HEADING in prompt and "the watch screen" in prompt and "the gate" not in prompt.split(HEADING)[1][:200]
@@ -49,16 +49,16 @@ def test_a_task_scoped_to_plan_py_gets_no_contract(tmp_path):
 
 
 def test_a_glob_scope_matches_and_the_block_is_capped():
-    assert len(contracts_for(REPO, ["autopilot/*.py"])) == 2
+    assert len(contracts_for(REPO, ["autopilot/*.py"])) == len(PAGES)
     block = contracts_block(REPO, ["autopilot/*.py"], cap=500)
     assert block.startswith(HEADING) and len(block) < 500 + len(HEADING) + 60
 
 
-def test_both_committed_pages_parse_and_name_real_tests():
+def test_every_committed_page_parses_and_names_real_files_and_tests():
     for name in PAGES:
         text = (REPO / "features" / name).read_text(encoding="utf-8")
         assert all(s in sections(text) and sections(text)[s].strip() for s in SECTIONS), name
-        assert all((REPO / f).is_file() for f in named(text, "Files")), name
+        assert all((REPO / f).is_file() or list(REPO.glob(f)) for f in named(text, "Files")), name
         tests = named(text, "Tests that guard it")
         assert tests, name
         for node in tests:

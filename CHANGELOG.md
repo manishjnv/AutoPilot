@@ -21,6 +21,9 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - The log now rotates at 10 MB, and a stuck git command stops after five minutes instead of hanging.
 - The status page needs a random link code, and key or credential files never go into a commit.
 - Alerts, session logs and crash reports no longer carry secret values, and `ap validate` warns about a public alert channel.
+- The `ap` command now starts in about half the time, because the network code loads only when a step needs it.
+- The pre-merge check now also runs the changed tests on the newest Python, and the test lint finds two more host traps.
+- Four more features have written contracts, so their tests cannot be removed without a reason: the outcome word, the receipt, install and setup, and upgrade.
 
 ## [0.8.0] - 2026-10-14
 
