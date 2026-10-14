@@ -111,4 +111,4 @@ def test_dashboard_data_and_bar_carry_the_word(tmp_path):
     data = dashboard_data(orch.cfg, orch.plan, orch.state, run)
     assert data["project"]["word"] == "BUDGET_STOP"
     bar = status_bar(normalize(data), 160, False)
-    assert "Stopped BUDGET_STOP" in bar or ("stopped" in bar and "BUDGET_STOP" in bar)
+    assert "⏸ BUDGET_STOP 12:50" in bar  # W18b: the ended bar names the outcome and the end time

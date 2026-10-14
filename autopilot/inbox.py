@@ -65,6 +65,16 @@ def latest(root) -> dict | None:
             "reply": rep["reply"] if rep else "", "partial": rep.get("partial", False) if rep else True}
 
 
+def recent(root, secs: float = 60) -> dict | None:
+    """latest(), but only for `secs` seconds after the last line was written (the screens' You / Reply line)."""
+    try:
+        if time.time() - _file(root).stat().st_mtime > secs:
+            return None
+    except OSError:
+        return None
+    return latest(root)
+
+
 def wait_reply(root, rid: str, timeout: float = 15, poll: float = 0.1) -> str | None:
     """The final reply of line `rid`, or None when it does not come within `timeout` seconds."""
     end = time.monotonic() + timeout

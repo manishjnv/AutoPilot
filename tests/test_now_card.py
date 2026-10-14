@@ -205,3 +205,35 @@ def test_every_state_of_the_card_draws_at_exact_size_and_without_a_card_nothing_
                 assert len(out) == rows and all(len(x) == cols for x in strip(out)), (kind, cols)
     plain = term_data()
     assert normalize(plain)["card"] is None and "Task 21 of 21" in "\n".join(frame(plain, 120, 40))  # the old Now group stays
+
+
+def ended_data(word="VERIFIED", sym="✓", tone="green"):
+    d = with_card(kind="ended", word=word, sym=sym, tone=tone, at="06:50", done=22, total=22, retries=0, elapsed="6h44m",
+                  title="", pending=[])
+    d["spin"] = {"kind": "stopped", "text": "✗ stopped 06:50", "age": 5, "data_age": 5, "clock": T, "utf": True}
+    d["asof"] = {"age": 5, "stopped": "06:50", "live": False}
+    d["tasks"][17]["status"] = "running"  # the last row still says running in the state files
+    return d
+
+
+def cells_of(s: str) -> int:
+    import unicodedata
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
+
+
+def test_an_ended_run_has_no_active_row_no_spinner_mark_and_every_line_has_the_same_width():
+    for cols, rows in ((133, 37), (190, 60)):
+        out = frame(ended_data(), cols, rows, True)
+        assert "\x1b[1;30;46m" not in next(x for x in out if "Task title 18" in x)  # no filled row
+        plain = strip(out)
+        assert not any("✗15" in x or "✗18" in x for x in plain)
+        assert {cells_of(x) for x in plain} == {cols}
+    assert "\x1b[1;30;46m" in "".join(frame(with_card(), 190, 60, True))  # a live run still has it
+
+
+def test_the_ended_bar_shows_the_outcome_word_and_the_time_never_an_x_for_a_complete_plan():
+    bar = strip(frame(ended_data(), 133, 37))[-1]
+    assert "✓ VERIFIED 06:50" in bar and "✗" not in bar
+    assert "\x1b[32m✓ VERIFIED" in frame(ended_data(), 133, 37, True)[-1]
+    for word, sym, tone, code in (("BLOCKED", "⏸", "yellow", "33"), ("FAILED", "✗", "red", "31")):
+        assert f"\x1b[{code}m{sym} {word}" in frame(ended_data(word, sym, tone), 133, 37, True)[-1]

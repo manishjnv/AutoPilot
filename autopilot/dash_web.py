@@ -325,6 +325,14 @@ def _project(p: dict, total: int, sz, asof=None, spin=None) -> str:
     return out
 
 
+def _you(y) -> str:
+    """W48a: the line the person typed and the reply, read-only."""
+    if not isinstance(y, dict) or not y.get("text"):
+        return ""
+    return (f'<p id="you" role="status"><b>You:</b> {e(str(y["text"]))} &nbsp; <b>Reply:</b> '
+            f'{e(str(y.get("reply") or "…"))}</p>')
+
+
 def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     p, g, u = data.get("project") or {}, data.get("progress") or {}, data.get("usage") or {}
     tasks, health, files = data.get("tasks") or [], data.get("health") or {}, data.get("files")
@@ -418,5 +426,5 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
             f"<noscript><meta http-equiv=refresh content={int(refresh)}></noscript></head><body>"
             "<p id=off hidden>The build stopped, or the status server is off. This page shows the last status. "
             "For the status now, run: ap status</p>"
-            f'<main><h1>{e(str(p.get("name") or "Autopilot"))}</h1>{needs}{card}<div class="grid">{"".join(cells)}</div>'
+            f'<main><h1>{e(str(p.get("name") or "Autopilot"))}</h1>{_you(data.get("you"))}{needs}{card}<div class="grid">{"".join(cells)}</div>'
             f"{nxt}{bar}{rep}</main>{SCRIPT.replace('REFRESH_MS', str(ms))}</body></html>")

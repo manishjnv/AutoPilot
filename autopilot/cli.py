@@ -986,7 +986,9 @@ def watch_dashboard(root: Path, color, hold: bool, tick: float = 1.0, size_fn=No
         data()
     except Exception:  # noqa: BLE001 — no plan yet
         return None
-    out, done, ended = sys.stdout, 0, False
+    from .watch_input import Input, open_keys
+    inp = Input(root, open_keys())  # W48a: the input row; no tty, no row
+    out, done, ended, typed = sys.stdout, 0, False, False
     out.write("\x1b[?1049h\x1b[?25l\x1b[?7l")  # the second screen, no cursor, no line wrap
     try:
         while True:
@@ -994,6 +996,7 @@ def watch_dashboard(root: Path, color, hold: bool, tick: float = 1.0, size_fn=No
             try:
                 d = data()
                 spin = d["spin"] = spinner(d, d["asof"]["mtime"], time.time(), spin, utf)
+                d["input"] = inp.row
                 rows = frame(d, size.columns, size.lines, color)
                 end = d['project'].get('end_title') or ''  # W18b: the outcome word is the title at the end, green/yellow/red
                 title = "".join(c for c in (end or f"{spin['text']} {d.get('line', '')}".strip()) if c.isprintable())
@@ -1003,11 +1006,13 @@ def watch_dashboard(root: Path, color, hold: bool, tick: float = 1.0, size_fn=No
             except Exception:  # noqa: BLE001 — e.g. the plan is being rewritten right now: keep the last picture
                 pass
             out.flush()
-            done = done + 1 if run_over(run_journal(root)) else 0
+            if not typed:  # a redraw after a key is not a tick
+                done = done + 1 if run_over(run_journal(root)) else 0
             if done >= 3 and restarting(root):
                 done = 0
             if done >= 3:
                 ended = True
+                inp.close()
                 if sys.stdin and sys.stdin.isatty():  # W18b: the end screen stays until Enter (the --hold behaviour)
                     out.write(f"\x1b[{size.lines};1H\x1b[2K Press Enter to close this window.")
                     out.flush()
@@ -1017,10 +1022,15 @@ def watch_dashboard(root: Path, color, hold: bool, tick: float = 1.0, size_fn=No
                         pass
                     hold = False
                 break
-            time.sleep(tick)
+            end_at, typed = time.time() + tick, False
+            while time.time() < end_at and not typed:  # keys redraw at once; no key waits for the tick
+                typed = inp.poll()
+                if not typed:
+                    time.sleep(0.05 if inp.keys else max(end_at - time.time(), 0))
     except KeyboardInterrupt:
         pass
     finally:
+        inp.close()
         out.write("\x1b[?7h\x1b[?25h\x1b[?1049l")
         out.flush()
         if "state" in box:

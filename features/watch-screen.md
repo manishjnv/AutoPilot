@@ -95,6 +95,13 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
 
 ## Changes
 
+- 2026-10-14: W48a screen: `ap watch` has one input row above the status bar when stdin is a terminal (Enter sends
+  through `inbox.submit` in a thread, Esc clears; keys are read without blocking, redraw at once). One line above the
+  Now card shows `You: <text>  Reply: <reply>` for 60 s after the last inbox line (the card has no free inner line, so
+  the line is above it, not inside it); the status page shows the same line, read-only. W18b fixes: an ended or stopped
+  run has no active row and no spinner mark before a row number; the ended bar shows `✓ VERIFIED hh:mm` (outcome symbol,
+  word, colour), never a red `✗ stopped` for a complete plan. Rules kept. New files `autopilot/watch_input.py`,
+  `tests/test_watch_input.py`.
 - 2026-10-14: W18b: the Now card, the progress total with end steps, the end screen, the active row. Replaced the rule
   "Now card: Task time with `data Ns old`" (the time is now the work time, the age is at the card's right end) and the
   `COLOUR_MEANING` map gained `active`. New files `autopilot/dash_card.py`, `tests/test_now_card.py`.

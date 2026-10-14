@@ -372,10 +372,12 @@ def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
                  next((i for i, t in enumerate(tasks) if t["status"] != "done"), len(tasks) - 1))
     start = min(max(focus - room // 2, 0), max(len(tasks) - room, 0))
     spin = spin_cell(d)
+    # W18b: only a live run has an active row (and a spinner in front of it); an ended or stopped run has none
+    live = not (d["card"] and d["card"]["kind"] == "ended") and not (d["asof"] and d["asof"]["stopped"])         and not (d.get("spin") and d["spin"]["kind"] == "stopped")
     for t in tasks[start:start + room]:
         sym, word, st = STATUS.get(t["status"], ("○", t["status"] or "Pending", "dim"))
         risk, rstyle = RISK.get(t["risk"], (t["risk"][:4] or "—", None))
-        on = t["status"] == "running"  # W18b: the task in work has a filled background and bold text, one accent
+        on = t["status"] == "running" and live  # W18b: the task in work has a filled background and bold text, one accent
         n = t["n"]
         if on and spin and len(n) <= 2:  # and the spinner turns at the start of its row
             n = spin[0].split(" ")[0] + n.rjust(2)
@@ -428,7 +430,8 @@ def status_bar(d: dict, cols: int, color: bool) -> str:
         if p["status"] and p["status"] != "running" or a and a["stopped"] else \
         (({"Commit": "Merge", "Block": "Wait"}.get(st, st)), "cyan")
     sp = spin_cell(d)  # J13/18: the spinner sits before the state word; a stopped run says so instead of the word
-    state_cells = [(sp[0], sp[1]), (" ", None), state] if sp and d["spin"]["kind"] != "stopped" else \
+    c = d["card"]
+    state_cells = [(f"{c['sym']} {c['word']}", c["tone"]), (f" {c['at']}" if c["at"] else "", "dim")]         if c and c["kind"] == "ended" else [(sp[0], sp[1]), (" ", None), state] if sp and d["spin"]["kind"] != "stopped" else \
         [sp] + ([(" ", None), (p["word"], "dim")] if p.get("word") else []) if sp else [state]
     age = (f"{a['age']}s" if a["age"] < 60 else f"{a['age'] // 60}m", "yellow" if a["age"] > 30 else "dim") \
         if a and a["age"] is not None and not a["stopped"] else ("", None)
@@ -499,6 +502,9 @@ def normalize(data) -> dict:
                     "wait": ({"text": clean(w.get("text")), "since": float(w.get("since") or 0),
                               "secs": count(w.get("secs"))} if isinstance(w := p.get("wait"), dict) else None)},
         "spin": spin, "card": dash_card.norm(data.get("card"), clean),
+        "you": ({"text": clean(y.get("text")), "reply": clean(y.get("reply"))}
+                if isinstance(y := data.get("you"), dict) and y.get("text") else None),
+        "input": clean(data["input"]) if isinstance(data.get("input"), str) else None,
         "progress": {**pr, "word": clean(pr.get("word")), "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6],
                      "warned_why": [x for x in (one(r, ("id", "why")) for r in pr.get("warned_why") or []) if x]},
         "share": num(share) or 0.0, "now": now, "size": size,
@@ -524,13 +530,30 @@ def normalize(data) -> dict:
     }
 
 
+def you_line(y: dict, cols: int, color) -> str:
+    """W48a: what the person typed and the reply, one line at the top; it grows while the reply streams."""
+    return render(fit_segs([(" You: ", "dim"), (y["text"], "value"), ("  Reply: ", "dim"), (y["reply"] or "...", None)],
+                           cols), color)
+
+
+def input_row(text: str, cols: int, color) -> str:
+    """W48a: the typing row; the end of a long text stays in view."""
+    room = cols - 4
+    if not text:
+        return render(fit_segs([(" > ", "dim"), ("type a question or a command, Enter sends, Esc clears", "dim")], cols), color)
+    return render(fit_segs([(" > ", "dim"), (text[-(room - 1):] + "_", "value")], cols), color)
+
+
 def frame(data: dict, cols: int, rows: int, color: bool = False) -> list[str]:
     if cols < MIN_COLS or rows < MIN_ROWS:
         raise ValueError(f"the window must be at least {MIN_COLS}x{MIN_ROWS}")
     d = normalize(data)
     cardh = dash_card.height(d, cols)  # W18b: the Now card is the first block under the title bar
-    body = rows - 1 - cardh
+    inp = d["input"] is not None  # W48a: one input row above the bar, one You / Reply line above the card
+    body = rows - 1 - cardh - inp - bool(d["you"])
     top = max(8, round(body * 0.45))
     mid = tasks_panel(d, cols - LEFT_W - RIGHT_W, top, color) + live_panel(d, cols - LEFT_W - RIGHT_W, body - top, color)
-    return (dash_card.box(d, cols, color) if cardh else []) +         [a + b + c for a, b, c in zip(left_panel(d, LEFT_W, body, color, cols < dash_card.MID), mid,
-                                      right_column(d, RIGHT_W, body, color))] + [status_bar(d, cols, color)]
+    cells = [a + b + c for a, b, c in zip(left_panel(d, LEFT_W, body, color, cols < dash_card.MID), mid,
+                                          right_column(d, RIGHT_W, body, color))]
+    return ([you_line(d["you"], cols, color)] if d["you"] else []) + (dash_card.box(d, cols, color) if cardh else []) \
+        + cells + ([input_row(d["input"], cols, color)] if inp else []) + [status_bar(d, cols, color)]

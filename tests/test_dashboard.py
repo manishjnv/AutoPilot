@@ -19,7 +19,7 @@ def test_data_is_plain_and_has_every_part(tmp_path):
     data = dashboard_data(orch.cfg, orch.plan, orch.state, {})
     json.dumps(data)  # only plain types: a view never needs the plan or the state
     assert set(data) == {"project", "progress", "tasks", "live", "usage", "files", "health", "next", "line",
-                         "needs_you", "blocked_why", "size", "phases", "recent", "asof", "card"}
+                         "needs_you", "blocked_why", "size", "phases", "recent", "asof", "card", "you"}
     assert data["phases"][0] == {"id": "P01", "title": data["phases"][0]["title"], "total": 2, "done": 2, "status": "done"}
     assert len(data["recent"]) == 3 and {"n", "title", "time"} == set(data["recent"][0])
     assert data["project"]["status"] == "idle" and data["project"]["state_words"] == "No build is active."

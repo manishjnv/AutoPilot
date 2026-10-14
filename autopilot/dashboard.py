@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 
-from . import dash_live
+from . import dash_live, inbox
 from .decisions import problems
 from .plain import SimpleView, ending
 from .report import (MODEL_NAMES, STATE_WORDS, _n, _runtime, _shares, next_steps, open_window, run_alive,
@@ -429,6 +429,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "active": working[0]["n"] if live and working else 0,
         },
         "card": card,
+        "you": inbox.recent(root),  # W48a: the You / Reply line
         "needs_you": [{"id": str(d["id"]), "title": _first(d["title"] or d["question"], 70)} for d in asked[:2]],
         # the same simple sentence as docs/NEEDS-YOU.md gives for this problem
         "blocked_why": ({"id": stuck["id"], "why": (problems(stuck["last_error"] or stuck["note"])
