@@ -61,7 +61,9 @@ def window_line(state, live: bool = True) -> str:
     if not five:
         return ""
     week = (state.get_meta(key, {}) or {}).get("seven_day") or {}
-    text = (f"Usage window (login: {login_name(state, live)}): {round(100 * five['pct'])}% of the 5-hour window "
+    name = login_name(state, live)
+    who = f" (login: {name})" if name != "default" else ""  # W50: the default login keeps the old wording
+    text = (f"Usage window{who}: {round(100 * five['pct'])}% of the 5-hour window "
             f"(resets {dt.datetime.fromtimestamp(five['reset']):%H:%M})")
     return text + (f" · {round(100 * week['pct'])}% of the weekly limit" if "pct" in week else "")
 

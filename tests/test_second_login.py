@@ -100,7 +100,7 @@ def test_status_and_dashboard_follow_the_active_login(tmp_path, monkeypatch):  #
     st.set_meta("active_account", folder)
     line = window_line(st)
     assert "login: claude-2" in line and "50%" in line  # the second login's figures, not the default's 20%
-    assert "login: default" in window_line(st, live=False) and "20%" in window_line(st, live=False)
+    assert "login:" not in window_line(st, live=False) and "20%" in window_line(st, live=False)  # default login: old wording
     assert dashboard_data(orch.cfg, orch.plan, st, {})["project"]["account"] == "default"  # no run: default login
     run = {"status": "running", "pid": os.getpid()}
     data = dashboard_data(orch.cfg, orch.plan, st, run)
