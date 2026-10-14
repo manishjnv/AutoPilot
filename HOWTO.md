@@ -150,7 +150,7 @@ One replan session adds the new ideas to the plan. It ignores ideas that the pla
 
    It shows the unknown session errors (the most frequent first), the blocked tasks by cause, the gate failures by
    kind and the retries by cause, for the last 30 days. Add `--days 7` for a shorter window. It reads only your
-   computer and writes nothing.
+   computer and writes nothing. The slow-steps table shows which step of a task takes longest. To report a problem, run `ap report --issue --show` to see the text first, then `ap report --issue`.
 2. Start each release from this table. Each unknown wording in it becomes one line in the error catalogue plus a
    test that proves the line matches it.
 
@@ -791,7 +791,8 @@ The command exits 1 when a step is red. `tests/test_hygiene.py` also finds five 
 
 1. Open `CHANGELOG.md`. Make sure the Unreleased block starts with the line `**In plain words:**`.
 2. Write each entry as one sentence of 25 words or fewer. Do not name a config key or a file.
-3. Run `python scripts/bump.py X.Y.Z`.
+3. Run `ap audit --signals`. Turn each new unknown wording into a catalogue line, and copy the scrubbed line into the traces fixture folder.
+4. Run `python scripts/bump.py X.Y.Z`.
 
 The script refuses the bump with `release notes rule: ...` when a rule fails. CI lints the Unreleased block with Vale.
 

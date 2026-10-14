@@ -1,0 +1,8 @@
+{"date": "2026-10-14", "cause": "unknown", "text": "the frobnicator returned a strange answer: widget mismatch 42"}
+{"date": "2026-10-14", "cause": "scope", "text": "PROBLEM: outside files_in_scope: ['x.py']"}
+{"date": "2026-10-14", "cause": "tests", "text": "$ pytest -q\n(exit 1)\nFAILED tests/test_a.py::test_b"}
+{"date": "2026-10-14", "cause": "infra", "text": "API Error: Connection error."}
+{"date": "2026-10-14", "cause": "limit", "text": "You've hit your limit · resets 3pm"}
+{"date": "2026-10-14", "cause": "environment", "text": "curl: (6) Could not resolve host: astral.sh"}
+{"date": "2026-10-14", "cause": "environment", "text": "bash: ap: command not found"}
+{"date": "2026-10-14", "cause": "environment", "text": "OSError: [Errno 28] No space left on device"}

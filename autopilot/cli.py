@@ -1677,6 +1677,9 @@ def cmd_review(args):
 
 
 def cmd_report(args):
+    if args.issue:  # W51: opt-in scrubbed issue payload
+        from .commands.issue import cmd_issue
+        return cmd_issue(args)
     from .report import build_report, tokens_report
     cfg, plan, state = _open_state(Path(args.path).resolve())
     print(tokens_report(state) if args.tokens else build_report(cfg, plan, state))
@@ -1898,6 +1901,8 @@ def main(argv=None):
     p.add_argument("usd", type=float, help="the new cap in US dollars")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
     p.add_argument("--tokens", action="store_true", help="tokens and cost per step: build, retry, review, verify, audit, ...")
+    p.add_argument("--issue", action="store_true", help="W51: build a scrubbed issue from the last run and open it with gh (opt-in)")
+    p.add_argument("--show", action="store_true", help="with --issue: print the issue text and send nothing")
     p = add("verify", cmd_verify, "check the signed receipt of each closed phase, offline")
     p.add_argument("phase", nargs="?", help="one phase id (default: all)")
     p = add("audit", cmd_review, "run the completion audit now (the lean profile never runs it by itself)")

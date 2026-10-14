@@ -114,6 +114,21 @@ def cmd_history(args) -> int:
     return 0
 
 
+def slow_steps(root: Path, since: float) -> dict[str, tuple[float, str]]:
+    """W51: per W18b step (read, write, tests, gate+merge) of this project's task sessions since `since` (epoch):
+    median seconds and the slowest task id. Gate and merge share one row: the log holds no mark between them."""
+    from .. import dash_live
+    cols: dict[str, list[tuple[float, str]]] = {}
+    for s in dash_live.sessions(root):
+        edit, test, last = dash_live.marks(s)
+        if s["start"] < since or not s["task"] or None in (edit, test, last) or s["done_at"] is None:
+            continue
+        for name, secs in (("read", edit - s["start"]), ("write", test - edit), ("tests", last - test),
+                           ("gate+merge", s["done_at"] - last)):
+            cols.setdefault(name, []).append((max(secs, 0.0), s["task"]))
+    return {k: (_median([x for x, _ in v]), max(v)[1]) for k, v in cols.items()}
+
+
 def cmd_signals(args) -> int:
     """W29b: unknown wordings from unknown.jsonl and the parked tasks and retries of every known project, as one
     plain table. Read-only, offline; a missing file or project is skipped with one line."""
@@ -133,7 +148,8 @@ def cmd_signals(args) -> int:
         else:
             projects.append(got)
     t = signals.tally(unknown or [], projects)
-    if not any(t.values()):  # one line, whatever was missing
+    slow = slow_steps(Path(getattr(args, "path", None) or ".").resolve(), time.time() - days * 86400)
+    if not any(t.values()) and not slow:  # one line, whatever was missing
         print(f"No signals in the last {days} days: no unknown errors, parked tasks or retries.")
         return 0
     print("\n".join(skipped + [f"Signals of the last {days} days"]))
@@ -144,6 +160,12 @@ def cmd_signals(args) -> int:
         print(f"\n{title}\n{'Count':>5}  Cause")
         for name, n in sorted(t[key].items(), key=lambda x: (-x[1], x[0])) or [("(none)", 0)]:
             print(f"{n:>5}  {name}")
+    if slow:
+        print(f"\nSlow steps\n{'Median s':>8}  {'Step':<10} Slowest task")
+        for name, (sec, tid) in slow.items():
+            print(f"{sec:>8.0f}  {name:<10} {tid}")
+    else:
+        print("\nskipped: no step marks in the log of this project")
     return 0
 
 
