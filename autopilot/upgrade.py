@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -85,8 +86,34 @@ def latest_release(ref=None, run=run_proc, urlopen=_open, which=shutil.which) ->
     return {"tag": data["tag"], "wheel_url": data["assets"][wheel], "sha256": want.lower()}
 
 
-def fetch_wheel(rel: dict, urlopen=_open) -> Path | None:
-    """Download the wheel to a temp folder; None (and one line) when its SHA256 differs from SHA256SUMS."""
+FIRST_ATTESTED = (0, 9, 0)  # X9: release.yml signs build provenance from v0.9.0; older releases have SHA256SUMS only
+SIGNER = f"{REPO}/.github/workflows/release.yml"
+
+
+def verify_attestation(wheel: Path, tag: str, run=run_proc, which=shutil.which, old_ok: bool = False) -> bool:
+    """X9: True when the wheel may install. `gh attestation verify` must pass when `gh` is present and logged in; a
+    failed check refuses with one line. Without gh (or its login) one line says the attestation was not checked and
+    SHA256SUMS stays the check. Only an explicit `--ref vX.Y.Z` below FIRST_ATTESTED skips the check (`old_ok`): the
+    latest release is never trusted on its tag alone. Never prompts; silent on success."""
+    if old_ok and re.fullmatch(r"v\d+\.\d+\.\d+", tag) and _ver(tag) < FIRST_ATTESTED:
+        return True
+    if not which("gh"):
+        print("attestation not checked (no gh)")
+        return True
+    if run(["gh", "auth", "status", "--hostname", "github.com"], timeout=30).rc != 0:
+        print("attestation not checked (gh not logged in)")
+        return True
+    p = run(["gh", "attestation", "verify", str(wheel), "--repo", REPO, "--signer-workflow", SIGNER,
+             "--source-ref", f"refs/tags/{tag}", "--hostname", "github.com"], timeout=120)
+    if p.rc != 0:
+        print(f"refused: the attestation of {wheel.name} did not verify: {(p.stderr or p.stdout).strip()[:120]}")
+        return False
+    return True
+
+
+def fetch_wheel(rel: dict, urlopen=_open, run=run_proc, which=shutil.which, old_ok: bool = False) -> Path | None:
+    """Download the wheel to a temp folder; None (and one line) when its SHA256 differs from SHA256SUMS or its
+    attestation does not verify (X9). `old_ok`: an explicit old `--ref` may skip the attestation."""
     blob = _get(rel["wheel_url"], urlopen)
     got = hashlib.sha256(blob).hexdigest()
     if got != rel["sha256"]:
@@ -94,12 +121,14 @@ def fetch_wheel(rel: dict, urlopen=_open) -> Path | None:
         return None
     folder = Path(tempfile.mkdtemp(prefix="autopilot-"))
     path = folder / rel["wheel_url"].rsplit("/", 1)[-1]
+    ok = False
     try:
         path.write_bytes(blob)
-    except OSError:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise
-    return path
+        ok = verify_attestation(path, rel["tag"], run=run, which=which, old_ok=old_ok)
+    finally:
+        if not ok:
+            shutil.rmtree(folder, ignore_errors=True)
+    return path if ok else None
 
 
 def _ver(s: str) -> tuple:
@@ -150,7 +179,7 @@ def cmd_upgrade(args, run=run_proc, urlopen=_open, detect=detect_install, root=N
     if check:
         print("run `ap upgrade` to install it")
         return 0
-    wheel = fetch_wheel(rel, urlopen)
+    wheel = fetch_wheel(rel, urlopen, run=run, old_ok=bool(getattr(args, "ref", None)))
     if wheel is None:
         return 1
     cmd = (["uv", "tool", "install", "--reinstall", str(wheel)] if kind == "uv"
@@ -189,7 +218,7 @@ def cmd_install(args, run=run_proc, urlopen=_open, which=shutil.which, setup=_se
     except (OSError, ValueError, KeyError) as e:
         print(f"cannot read the release: {e}")
         return 1
-    wheel = fetch_wheel(rel, urlopen)
+    wheel = fetch_wheel(rel, urlopen, run=run, old_ok=bool(getattr(args, "ref", None)))
     if wheel is None:
         return 1
     try:
@@ -274,7 +303,7 @@ def auto_update(cmd: str, root=None, *, env=None, run=run_proc, urlopen=_open, d
         if kind == "editable":
             return line  # a developer's checkout pulls only on request
         rel = latest_release(run=run, urlopen=urlopen)
-        wheel = fetch_wheel(rel, urlopen)
+        wheel = fetch_wheel(rel, urlopen, run=run)
         if wheel is None:
             return ""
         spawn(["uv", "tool", "install", "--reinstall", str(wheel)] if kind == "uv"
@@ -315,7 +344,7 @@ def update_before_run(cmd: str, root, argv: list[str], *, env=None, run=run_proc
         rel = latest_release(run=run, urlopen=urlopen)
         if _ver(rel["tag"]) <= _ver(__version__):
             return ""  # the day's stamp was written by an older version
-        wheel = fetch_wheel(rel, urlopen)
+        wheel = fetch_wheel(rel, urlopen, run=run)
         if wheel is None:
             return ""
         install = (["uv", "tool", "install", "--reinstall", str(wheel)] if kind == "uv"

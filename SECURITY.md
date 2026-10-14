@@ -49,7 +49,9 @@ Four presets let the agent run every tool without a prompt. This is not limited 
 ## What the updater trusts
 
 The update that runs by itself gets the newest release from GitHub (`gh` when present, else the public releases
-API, no login). It installs a wheel only when its SHA256 matches the `SHA256SUMS` file of that release. A release
+API, no login). It installs a wheel only when its SHA256 matches the `SHA256SUMS` file of that release. From v0.9.0 each release also
+carries signed build provenance; with `gh` logged in, a wheel whose attestation does not verify is refused. This
+protects against a swapped release asset, not against a person who controls the whole repository. A release
 exists only after CI is green on Linux and Windows. The updater never runs while a build is active, and the way back
 is one command: `ap upgrade --ref vX.Y.Z`. Stop it with `upgrade.auto: false` in `.agent/project.yaml` or
 `AUTOPILOT_NO_AUTO_UPGRADE=1`.

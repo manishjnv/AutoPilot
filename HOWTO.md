@@ -696,7 +696,8 @@ Before `ap run` or `ap start`, the same check runs first, once a day. When a new
 then starts your command again on the new version, on the same screen. You confirm nothing. If the new version gives
 trouble, the printed line names the way back: `ap upgrade --ref v0.7.1` (your old version).
 
-To update now, run `ap upgrade`. It gets the newest release and checks the file against `SHA256SUMS`.
+To update now, run `ap upgrade`. It gets the newest release and checks the file against `SHA256SUMS`. With `gh`
+logged in, it also checks the signed build provenance of the release (from v0.9.0) and refuses a wheel that fails.
 `ap upgrade --check` only prints the version. For a repair, or for a second machine, run `ap install`. The install
 script replaces an Autopilot that is older than the script itself.
 

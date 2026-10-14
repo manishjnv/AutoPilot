@@ -148,7 +148,7 @@ def test_equal_version_is_the_latest(capsys, monkeypatch):
 
 
 def test_fetch_wheel_accepts_a_matching_hash():
-    p = fetch_wheel({"wheel_url": WHEEL_URL, "sha256": SHA}, fake_open())
+    p = fetch_wheel({"tag": "v0.4.0", "wheel_url": WHEEL_URL, "sha256": SHA}, fake_open(), which=no_gh)
     assert p is not None and p.read_bytes() == WHEEL
 
 
@@ -293,3 +293,73 @@ def test_the_temp_folder_is_removed_after_the_install():
     run = FakeRun({"gh release view": GH_JSON})
     cmd_install(Namespace(rights=False), run=run, urlopen=fake_open(), which=lambda n: "/bin/" + n, setup=lambda a: 0)
     assert not Path(run.calls[-1][-1]).parent.exists()
+
+
+# ---------- X9: build provenance ----------
+def _attested_release(tag="v0.9.0"):
+    return {"tag": tag, "wheel_url": WHEEL_URL, "sha256": SHA}
+
+
+class GhRun(FakeRun):
+    """gh is logged in; `gh attestation verify` answers with `verify_rc`."""
+    def __init__(self, verify_rc, out=None):
+        super().__init__(out)
+        self.verify_rc = verify_rc
+
+    def __call__(self, cmd, **kw):
+        if cmd[:3] == ["gh", "attestation", "verify"]:
+            self.calls.append(list(cmd))
+            return Proc(self.verify_rc, "", "no matching attestations" if self.verify_rc else "")
+        return super().__call__(cmd, **kw)
+
+
+def test_a_bad_attestation_is_refused_and_the_file_is_gone(capsys):
+    run = GhRun(1)
+    assert fetch_wheel(_attested_release(), fake_open(), run=run, which=lambda n: "/usr/bin/gh") is None
+    out = capsys.readouterr().out.strip().splitlines()
+    assert out[-1].startswith("refused: the attestation") and "no matching attestations" in out[-1]
+    verify = next(c for c in run.calls if c[:3] == ["gh", "attestation", "verify"])
+    assert verify[4:] == ["--repo", "manishjnv/AutoPilot", "--signer-workflow", "manishjnv/AutoPilot/.github/workflows/release.yml",
+                          "--source-ref", "refs/tags/v0.9.0", "--hostname", "github.com"]
+    assert not Path(verify[3]).exists()
+
+
+def test_a_good_attestation_installs_silently(capsys):
+    run = GhRun(0)
+    p = fetch_wheel(_attested_release(), fake_open(), run=run, which=lambda n: "/usr/bin/gh")
+    assert p is not None and p.read_bytes() == WHEEL and capsys.readouterr().out == ""
+
+
+def test_without_gh_one_line_says_not_checked_and_old_releases_skip_the_check(capsys):
+    run = FakeRun()
+    assert fetch_wheel(_attested_release(), fake_open(), run=run, which=no_gh) is not None
+    assert capsys.readouterr().out.strip() == "attestation not checked (no gh)"
+    assert not any(c[:2] == ["gh", "attestation"] for c in run.calls)
+    gh = lambda n: "/usr/bin/gh"  # noqa: E731
+    assert fetch_wheel(_attested_release("v0.8.0"), fake_open(), run=GhRun(1), which=gh, old_ok=True) is not None
+    assert capsys.readouterr().out == ""  # an explicit old --ref has no attestation: SHA256SUMS is the check
+    for tag in ("v0.8.9", "v0.9.0-rc", "latest"):  # the latest release is never trusted on its tag alone
+        assert fetch_wheel(_attested_release(tag), fake_open(), run=GhRun(1), which=gh) is None
+        assert "refused: the attestation" in capsys.readouterr().out
+    assert fetch_wheel(_attested_release("v0.9.0-rc"), fake_open(), run=GhRun(1), which=gh, old_ok=True) is None
+
+
+def test_gh_present_but_not_logged_in_says_so_and_keeps_the_sha_check(capsys):
+    class NoLogin(FakeRun):
+        def __call__(self, cmd, **kw):
+            self.calls.append(list(cmd))
+            return Proc(1 if cmd[:3] == ["gh", "auth", "status"] else 0, "", "")
+    run = NoLogin()
+    assert fetch_wheel(_attested_release(), fake_open(), run=run, which=lambda n: "/usr/bin/gh") is not None
+    assert capsys.readouterr().out.strip() == "attestation not checked (gh not logged in)"
+    assert not any(c[:2] == ["gh", "attestation"] for c in run.calls)
+
+
+def test_upgrade_keeps_the_current_version_on_a_bad_attestation(capsys, monkeypatch):
+    monkeypatch.setattr("autopilot.upgrade.__version__", "0.8.0")
+    api = API_JSON.replace("v0.4.0", "v0.9.0")
+    run = GhRun(1, {"gh release view": GH_JSON.replace("v0.4.0", "v0.9.0")})
+    monkeypatch.setattr("autopilot.upgrade.shutil.which", lambda n: "/usr/bin/gh")
+    rc = cmd_upgrade(Namespace(check=False, ref=None), run=run, urlopen=fake_open(api=api), detect=lambda: "uv")
+    assert rc == 1 and not any(c[:3] == ["uv", "tool", "install"] for c in run.calls)
+    assert "refused: the attestation" in capsys.readouterr().out

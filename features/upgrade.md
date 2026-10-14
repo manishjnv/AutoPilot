@@ -10,6 +10,9 @@ makes a release (version bump, tag) and refuses to tag without CI green.
 
 - The install kind is detected (editable, pip, uv). A dirty checkout is not pulled; `--check` never installs.
 - A wheel is installed only when its SHA256 matches the sums file; a mismatch refuses.
+- A release from v0.9.0 on carries build provenance: with `gh` logged in, `gh attestation verify` must pass, else the
+  wheel is refused with one line and the current version stays; without `gh` one line says the attestation was not
+  checked. Never a prompt; silent on success.
 - The daily check asks once a day. Auto-update never runs during a run, in CI, for long commands or when off.
 - Auto-update and update-before-run never raise; update-before-run relaunches the same command after an install.
 - An editable checkout only gets a hint.
@@ -33,7 +36,10 @@ makes a release (version bump, tag) and refuses to tag without CI green.
 - `tests/test_upgrade.py::test_uninstall_all_dry_run_lists_the_steps_and_the_real_run_spawns_the_package_removal`
 - `tests/test_upgrade.py::test_update_before_run_installs_then_relaunches_the_same_command`
 - `tests/test_upgrade.py::test_update_before_run_never_raises`
+- `tests/test_upgrade.py::test_a_bad_attestation_is_refused_and_the_file_is_gone`
+- `tests/test_upgrade.py::test_upgrade_keeps_the_current_version_on_a_bad_attestation`
 
 ## Changes
 
+- 2026-10-14: X9: build provenance (release.yml `attest-build-provenance`; `upgrade.verify_attestation` inside `fetch_wheel`).
 - 2026-10-14: first contract, written from the code and the tests (W52).
