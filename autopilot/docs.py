@@ -10,14 +10,16 @@ from .context import bullets
 from .gate import TEST_GLOBS, _match, scan_secrets, verify_commands
 
 
-def redact_secrets(text: str) -> str:
+def redact_secrets(text: str, hits: list | None = None) -> str:
     """Agent text that the orchestrator commits without a gate (feature evidence): drop each line that looks like a
     secret, with the same patterns as the gate's secret scan. A PEM block goes whole: its body lines match nothing."""
     out, in_pem = [], False
-    for ln in str(text).splitlines():
+    for n, ln in enumerate(str(text).splitlines(), 1):
         if not in_pem and re.search(r"-----BEGIN [A-Z ]*PRIVATE KEY", ln):
             in_pem = True
-        if in_pem or scan_secrets([ln]):
+        if in_pem or (found := scan_secrets([ln])):
+            if hits is not None:  # W44: line number and pattern name, never the value
+                hits.append((n, "private key" if in_pem else found[0].removeprefix("possible ").split(" added:")[0]))
             if not out or out[-1] != REDACTED:
                 out.append(REDACTED)
         else:

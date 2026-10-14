@@ -79,3 +79,5 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
   "blocker": "only when status is blocked"
 }
 ```
+
+A fake secret in a test is built from pieces (`'sk-' + 'a' * 24`), never written as one literal: the secret scan cannot tell a fake key from a real one.

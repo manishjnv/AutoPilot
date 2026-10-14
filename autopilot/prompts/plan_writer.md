@@ -39,3 +39,5 @@ over many features.
 ```json
 {"summary": "...", "phases": 0, "tasks": 0, "assumptions": ["..."]}
 ```
+
+When a task tests scrubbing or secret detection, its description names the rule: the test builds its fake secret from pieces (`'sk-' + 'a' * 24`), never as one literal.

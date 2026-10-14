@@ -47,6 +47,8 @@ PLACEHOLDER_RX = re.compile(r"(?i)example|placeholder|change_?me|dummy|fake|samp
 SKIP_HINT = (" (skips are not allowed, `skipif` on a platform condition too: make the test run on this machine, "
              "or test the behavior another way and list the gap under followups)")
 FAKE_HINT = " (test data? put example, dummy or fake inside the value itself, e.g. AKIAIOSFODNN7EXAMPLE, ghp_fakefake…)"
+FAKE_SECRET_RULE = ("A fake secret in a test is built from pieces (`'sk-' + 'a' * 24`), never written as one literal: "
+                    "the secret scan cannot tell a fake key from a real one.")
 # N7: the new-file rule; system.md repeats it word for word and the gate (P07-T02) quotes it in the retry
 # (only with `gate.new_file_reasons: true`)
 NEW_FILE_RULE = ("Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) "
@@ -357,6 +359,11 @@ def file_growth(cfg, git) -> list[str]:
     return out
 
 
+def _added(git, path: str) -> list[str]:
+    out = git.run("diff", "--cached", "-U0", "--no-color", "--no-textconv", "--no-ext-diff", "--", path)
+    return [l[1:] for l in out.splitlines() if l.startswith("+") and not l.startswith("+++")]
+
+
 def task_gate(cfg, git, task, report=None, attempt: int = 1, log_path=None) -> GateResult:
     """Run on the task branch with the agent's changes staged. `attempt`: the try this diff comes from (O1).
     `log_path`: the session log; a kill by name in it fails the gate (W37)."""
@@ -369,7 +376,10 @@ def task_gate(cfg, git, task, report=None, attempt: int = 1, log_path=None) -> G
         gate.problems.append(f"session modified protected files: {touched_protected}")
     (gate.warnings if task.allow_test_changes else gate.problems).extend(test_tamper(cfg, git, task.allow_test_changes))
     gate.problems += contract_problems(cfg, git, report)  # W36b: always a problem, even with allow_test_changes
-    gate.problems += scan_secrets(git.staged_added_lines())
+    found = scan_secrets(git.staged_added_lines())
+    if found and any(scan_secrets(_added(git, f)) for f in files if _match(f, cfg.get("gate.test_globs") or TEST_GLOBS)):
+        found[0] += " " + FAKE_SECRET_RULE  # W44: the flagged file is a test
+    gate.problems += found
     log_text = Path(log_path).read_text(encoding="utf-8", errors="replace") if log_path and Path(log_path).is_file() else ""
     gate.problems += [f"the session ran a process-wide kill: {c}. Stop only the processes you started, by pid."
                       for c in kill_commands(log_text)]

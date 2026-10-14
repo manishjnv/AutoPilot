@@ -2383,9 +2383,11 @@ class Orchestrator:
                 text = p.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            if (clean := redact_secrets(text)) != text:
+            hits: list = []
+            if (clean := redact_secrets(text, hits)) != text:
                 p.write_text(clean, encoding="utf-8")
-                log.info("docs session for %s: a line in %s looked like a secret and was redacted", phase.id, f)
+                for n, name in hits:
+                    log.info("docs session for %s: %s:%d matched %s and was redacted", phase.id, f, n, name)
         files = self.git.staged_files()  # re-stage the redacted text
         bad += scan_secrets(self.git.staged_added_lines())
         for f in (f for f in files if f.endswith(".md")):  # W36b: a second section on the same topic drops the result
