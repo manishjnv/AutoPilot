@@ -136,3 +136,24 @@ def test_run_log_starts_with_the_package_path(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger="autopilot"):
         orch_for(make_project(tmp_path, phases_basic()), FakeBackend()).run()
     assert caplog.records[0].getMessage() == package_line()
+
+
+ROW = r"(?m)^(done|not done|found|fixed|skipped|FAIL)\s+\S"
+
+
+def test_q17_shared_format_exit_codes_and_json(tmp_path, monkeypatch, capsys):
+    import json
+    import re
+    from autopilot import cli
+    from autopilot.doctor import row
+    assert cli_main(["doctor", "-C", str(tmp_path)]) == 1  # machine mode, no project: FAIL row
+    assert re.search(r"(?m)^FAIL\s+project\n {10}\S", capsys.readouterr().out)
+    monkeypatch.setattr(cli, "doctor_runner", lambda root, quiet=False: [row("ok", "codex", "answered ready")])
+    assert cli_main(["doctor", "--runner", "-C", str(tmp_path)]) == 0
+    assert re.search(ROW, capsys.readouterr().out)
+    monkeypatch.setattr(cli, "doctor_project", lambda root: [row("FAIL", "project place", "bad", "ap move x")])
+    assert cli_main(["doctor", "--runner", "--project", "-C", str(tmp_path)]) == 1  # union
+    out = capsys.readouterr().out
+    assert re.search(r"(?m)^done\s+codex", out) and re.search(r"(?m)^FAIL\s+project place\n {10}bad ap move x", out)
+    assert cli_main(["doctor", "--runner", "--project", "--json", "-C", str(tmp_path)]) == 1
+    assert set(json.loads(capsys.readouterr().out.splitlines()[0])) == {"status", "item", "detail", "command"}

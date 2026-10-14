@@ -1309,56 +1309,61 @@ def cmd_serve(args):
     return 0
 
 
-def doctor_runner(root: Path) -> int:
+def doctor_runner(root: Path, quiet: bool = False) -> list[dict]:
     """Q11: `ap doctor --runner`: send the one probe prompt through the runner of this project (or of this PC)."""
     from .commands.setup import PROBE_TIMEOUT, probe
-    from .doctor import runner
+    from .doctor import row, runner
     pj = root / AGENT_DIR / "project.yaml"
     cfg = Config.load(root) if pj.exists() else None
     key = (cfg.get("agent.preset") if cfg is not None else "") or setup_choice() or "claude_cli"
-    row = runner(key) if key else None
-    exe = row.which() if row else None
-    if row is None or not exe:
-        print("FAIL  runner         no runner is set up on this PC: run `ap setup`")
-        return 1
-    print(f"probe  {row.name}: sending one prompt, up to {PROBE_TIMEOUT} seconds")
-    ok, sentence, fix = probe(row, exe, env={**os.environ, "CI": "1"})
-    print(f"ok    {row.name} answered ready" if ok else f"FAIL  {sentence}\n      Run by hand: {fix or 'ap setup'}")
-    return 0 if ok else 1
+    r = runner(key) if key else None
+    exe = r.which() if r else None
+    if r is None or not exe:
+        return [row("FAIL", "runner", "no runner is set up on this PC.", "ap setup")]
+    if not quiet:
+        print(f"probe     {r.name}: sending one prompt, up to {PROBE_TIMEOUT} seconds")
+    ok, sentence, fix = probe(r, exe, env={**os.environ, "CI": "1"})
+    return [row("ok", r.name, "answered ready") if ok else row("FAIL", r.name, sentence, "Run by hand: " + (fix or "ap setup"))]
+
+
+def doctor_project(root: Path) -> list[dict]:
+    """Q15: where the project lives."""
+    from .doctor import row
+    from .move import warning
+    lines = warning(root)
+    return [row("WARN", "project place", lines[0], lines[1]) if lines else row("ok", "project place", "this folder is a good place for a project")]
 
 
 def cmd_doctor(args):
-    from .doctor import FAIL, autofix, checks
+    """Q17: three modes, one checklist format, exit 0 = all OK, 1 = a FAIL row. Flags combine (union)."""
+    from .doctor import FAIL, autofix, checks, emit, row, tuples_to_rows
     root = Path(args.path).resolve()
-    if getattr(args, "runner", False):
-        return doctor_runner(root)
-    if getattr(args, "project", False):  # Q15: where the project lives
-        from .move import warning
-        lines = warning(root)
-        print("ok    project place  this folder is a good place for a project" if not lines else "WARN  project place  " + lines[0])
-        if lines:
-            print("      " + lines[1])
-        return 0
-    if not (root / AGENT_DIR / "project.yaml").exists():
-        print(f"FAIL  project        no {AGENT_DIR}/project.yaml in {root}: run `autopilot init` first")
-        return 1
-    cfg = Config.load(root)
-    rows = checks(cfg)
-    if getattr(args, "fix", False):
-        done = autofix(rows)
-        if not os.environ.get("AUTOPILOT_NO_AUTOFIX"):  # Q20: the five repairs, without a question
-            from .repairs import fix_all
-            done += [f"repairs: {line}" for line in fix_all(root)]
-        for line in done:
-            print(f"fix   {line}")
-        if done:
-            rows = checks(cfg)
-            print()
-    for level, name, detail in rows:
-        print(f"{level:5s} {name:14s} {detail}")
-    bad = sum(r[0] == FAIL for r in rows)
-    print(f"\n{bad} problem(s) to fix before `autopilot run`" if bad else "\nready for `autopilot run`")
-    return 1 if bad else 0
+    js = getattr(args, "json", False)
+    rows, runner_f, project_f = [], getattr(args, "runner", False), getattr(args, "project", False)
+    if runner_f:
+        rows += doctor_runner(root, quiet=js)
+    if project_f:
+        rows += doctor_project(root)
+    if not (runner_f or project_f):
+        if not (root / AGENT_DIR / "project.yaml").exists():
+            rows.append(row("FAIL", "project", f"no {AGENT_DIR}/project.yaml in {root}.", "autopilot init"))
+        else:
+            cfg = Config.load(root)
+            found = checks(cfg)
+            if getattr(args, "fix", False):
+                done = autofix(found)
+                if not os.environ.get("AUTOPILOT_NO_AUTOFIX"):  # Q20: the five repairs, without a question
+                    from .repairs import fix_all
+                    done += [f"repairs: {line}" for line in fix_all(root)]
+                rows += [row("fix", d) for d in done]
+                if done:
+                    found = checks(cfg)
+            rows += tuples_to_rows(found)
+    code = emit(rows, js)
+    if not js and not (runner_f or project_f) and rows and rows[0]["item"] != "project":
+        bad = sum(r["status"] == "FAIL" for r in rows)
+        print(f"\n{bad} problem(s) to fix before `autopilot run`" if bad else "\nready for `autopilot run`")
+    return code
 
 
 def cmd_next(args):
@@ -1837,6 +1842,7 @@ def main(argv=None):
     p.add_argument("--fix", action="store_true", help="also fix what needs no person: PATH, reinstall the claude CLI")
     p.add_argument("--runner", action="store_true", help="send one test prompt through the runner and say if it answers")
     p.add_argument("--project", action="store_true", help="say if the project folder is in a bad place (OneDrive, a share, /mnt)")
+    p.add_argument("--json", action="store_true", help="print the rows as JSON lines (status, item, detail, command)")
     p = add("run", cmd_run, "run autonomously until the app is complete")
     p.add_argument("--max-sessions", type=int); p.add_argument("--clear-stop", action="store_true")
     p.add_argument("--no-page", action="store_true", help="don't start the live status page")

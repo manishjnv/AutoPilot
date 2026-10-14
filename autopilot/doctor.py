@@ -14,6 +14,30 @@ from .config import Config, allowlist_on, sandbox_mode
 from .proc import WINDOWS, run_proc
 
 OK, WARN, FAIL = "ok", "WARN", "FAIL"
+STATUS_WORD = {OK: "done", WARN: "not done", FAIL: "FAIL", "fix": "fixed"}  # Q17: the words `ap setup` uses
+
+
+def row(level: str, item: str, detail: str = "", command: str = "") -> dict:
+    return {"status": STATUS_WORD.get(level, level), "item": item, "detail": detail, "command": command}
+
+
+def tuples_to_rows(rows) -> list[dict]:
+    return [row(level, name, detail) for level, name, detail in rows]
+
+
+def emit(rows: list[dict], as_json: bool = False, say=print) -> int:
+    """Q17: one printer for all `ap doctor` modes, in the `ap setup` layout (status in a 10-column field). A FAIL or
+    `not done` row puts its sentence and command on the next indented line. Returns 1 when a row is FAIL, else 0."""
+    for r in rows:
+        if as_json:
+            import json
+            say(json.dumps(r))
+        elif r["status"] in ("FAIL", "not done") and (r["detail"] or r["command"]):
+            say(f"{r['status']:<10}{r['item']}")
+            say("          " + " ".join(x for x in (r["detail"], r["command"]) if x))
+        else:
+            say(f"{r['status']:<10}{r['item']:<14} {r['detail']}".rstrip())
+    return int(any(r["status"] == "FAIL" for r in rows))
 NOTIFY_ENVS = ("telegram_token_env", "slack_webhook_env", "webhook_env", "ntfy_topic_env")
 
 

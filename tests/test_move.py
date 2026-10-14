@@ -57,7 +57,7 @@ def test_setup_and_doctor_project_print_the_warning_and_the_command(tmp_path, ca
     (root / ".agent" / "project.yaml").write_text("name: app\n", encoding="utf-8")
     assert main(["doctor", "--project", "-C", str(root)]) == 0
     out = capsys.readouterr().out
-    assert "WARN  project place" in out and "ap move" in out
+    assert "not done  project place" in out and "ap move" in out
 
 def make_repo(tmp_path):
     root = tmp_path / "OneDrive" / "app"
