@@ -141,7 +141,7 @@ def fetch(folder: str = "", *, cfg=None, urlopen=_open, now=time.time, cache=_ca
 META = "usage_live"  # state meta key (per login: `usage_live@<folder>`): the last live bars, shared by every process
 
 
-def figures(state, cfg=None, acct: str = "default", *, now=time.time, live_fetch=None) -> dict:
+def figures(state, cfg=None, acct: str = "default", *, now=time.time, live_fetch=None, fresh: bool = False) -> dict:
     """The bars of one login: the live endpoint figures when they are fresh (at most one call per CACHE_SEC, the row
     is kept in state meta so the watch, the status page and the run share it), else the CLI stream figures marked
     `cli`. {five_hour, seven_day, models, surfaces, source: live|cli|'', check}. `check` is set when the live and the
@@ -150,8 +150,8 @@ def figures(state, cfg=None, acct: str = "default", *, now=time.time, live_fetch
     key = META if acct == "default" else f"{META}@{acct}"
     row = state.get_meta(key, {}) or {}
     bars = row.get("bars") or {}
-    if not row or now() - float(row.get("at") or 0) >= CACHE_SEC:
-        bars = (live_fetch or fetch)(folder, cfg=cfg, now=now)
+    if fresh or not row or now() - float(row.get("at") or 0) >= CACHE_SEC:
+        bars = (live_fetch or fetch)(folder, cfg=cfg, now=now, cache={} if fresh else _cache)
         prev = (row.get("bars") or {}).get("five_hour") if row else None
         if prev and bars.get("five_hour") and abs(float(prev.get("reset") or 0) - bars["five_hour"]["reset"]) < 120:
             state.set_meta(f"{key}:prev", {"at": float(row.get("at") or 0), "pct": float(prev["pct"])})  # W62: the rate
@@ -600,3 +600,51 @@ def eta_text(secs) -> str:
     if s <= 0:
         return ""
     return f"5h ends in ~{round(s / 60)} min at this rate" if s < 5400 else f"5h ends in ~{s / 3600:.1f} h at this rate"
+
+
+# ---------- W63: wait for the earliest refill ----------
+def token_expired(folder: str = "", *, now=time.time) -> bool:
+    """True when the login's OAuth token has an `expiresAt` (milliseconds) in the past: its fetch would fail, so that
+    login is never a wake target."""
+    try:
+        creds = json.loads((config_dir(folder) / ".credentials.json").read_text(encoding="utf-8"))
+        exp = float((creds.get("claudeAiOauth") or {}).get("expiresAt") or 0)
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+    if exp > 1e12:  # milliseconds
+        exp /= 1000
+    return 0 < exp < now()
+
+
+def has_room(figs: dict, need: float = 0.0, reserve_pct: float = 95) -> bool:
+    """A login has room for the next task: every known bar under the reserve and leaving `need`."""
+    bars = [float(b["pct"]) for k in ("five_hour", "seven_day") for b in [figs.get(k) or {}] if "pct" in b]
+    if not bars:
+        return False
+    return all(b * 100 < reserve_pct and 1 - b >= need for b in bars)
+
+
+def wake_target(logins: list, figs_of, *, now=time.time, expired=token_expired) -> tuple[float, str]:
+    """(the earliest reset among every login's 5-hour, weekly and per-model resets, the login name); (0, '') when
+    nothing is known. A login whose token expired is skipped."""
+    best, who = 0.0, ""
+    for folder, name in logins:
+        if expired(folder, now=now):
+            continue
+        figs = figs_of(folder)
+        resets = [float(b.get("reset") or 0) for k in ("five_hour", "seven_day") for b in [figs.get(k) or {}] if b]
+        resets += [float(b.get("reset") or 0) for b in (figs.get("models") or {}).values()]
+        for r in resets:
+            if r > now() and (not best or r < best):
+                best, who = r, name
+    return best, who
+
+
+def waiting_line(login: str, wake: float, *, now=time.time) -> str:
+    """The one W63 line, the same in the status bar, the Now card, the status page and `ap status`:
+    `Waiting · all logins out · default refills Thu 01:50 (in 2h14m)`."""
+    if not wake:
+        return "Waiting · all logins out · no reset time known"
+    left = max(0, int(wake - now()))
+    h, m = divmod(left // 60, 60)
+    return f"Waiting · all logins out · {login} refills {_hm(wake)} (in {h}h{m:02d}m)"

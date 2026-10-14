@@ -143,7 +143,7 @@ Words on this page: a *task* is one piece of work from your plan. A *phase* is a
 | Feature | What it does | Why it helps you |
 |---|---|---|
 | **Waits out an outage** | When the AI service is down, the run waits 15 minutes and tries again, up to four times. No try is spent. | **A short outage does not end the build.** |
-| **Sleeps at a usage limit** | At a usage limit, the run sleeps until the window resets. | **The build continues on its own.** |
+| **Sleeps at a usage limit** | At a usage limit, the run sleeps until the window resets. When every login is out, it waits for the earliest refill and resumes on the login that has room, with one line that says when. | **The build continues on its own.** |
 | **Repairs a missing tool** | A missing project package is installed again. A broken Claude program is installed again. A missing system tool gets one printed command for you to run. | **A small problem does not end the build.** |
 | **Restarts after a crash** | After a crash or a restart of the computer, the run continues from its saved state. | **You do not lose the night.** |
 | **Restores damaged files** | A damaged plan or state file is restored from the last good copy. | **The plan is never lost.** |

@@ -198,6 +198,8 @@ usage:                    # the subscription's 5-hour window (claude -p draws fr
   model_reserve_pct: 95   # a model whose weekly bar is at or over this gives way to the next model down the ladder
   switch: suggest         # W60: suggest (one line, you apply it with `ap source`) | auto (switch logins between tasks)
   idle_pct: 50            # a second login whose weekly bar is under this in its last two days counts as idle
+  wait_for_refill: true   # W63: when every login is out, wait for the earliest refill and resume by itself (false = the old sleep)
+  wait_max_hours: 48      # the run stops with STOPPED when no login has room for this long
 
 budget_usd:
   per_session: 8

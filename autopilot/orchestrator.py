@@ -244,6 +244,7 @@ class Orchestrator:
         self.git = Git(self.root)
         self.backend = backend or get_backend(self.cfg)
         self._nap = sleep  # every pause goes through sleep(), which shows it as Wait (G8)
+        self._now, self._mono = time.time, time.monotonic  # W63: the wait loop's clocks (tests inject both)
         self.notify = Notifier(self.cfg, self.state)
         self.docs = Documenter(self.cfg)
         self.main = self.cfg.main_branch
@@ -508,6 +509,11 @@ class Orchestrator:
             rows = usage_mod.sources(self.cfg, self.state, now=lambda: now)
             current = f"login:{usage_mod._login_name(self._account())}"
             need = self.expected_share(task) if task is not None else 0.0  # W61 rule 2
+            logins = [r for r in rows if r["kind"] == "login" and not r["off"]]
+            if logins and all(r["room"] is not None and (r["room"] <= 0 or not usage_mod._fits(r, need)) for r in logins):
+                if self.wait_for_refill(need):  # W63: every login is out for the next task
+                    rows = usage_mod.sources(self.cfg, self.state)
+                    current = f"login:{usage_mod._login_name(self._account())}"
             pick = usage_mod.plan_source(rows, current, float(self.cfg.get("usage.idle_pct", 50) or 50), need=need, now=lambda: now)
             line = usage_mod.suggest_line(pick)
             self.state.set_meta("source_suggest", line)
@@ -559,6 +565,81 @@ class Orchestrator:
             return usage_mod.expected_share(costs, cap)
         except Exception:  # noqa: BLE001
             return 0.0
+
+    WAIT_SLICE, WAIT_FETCH, WAIT_WINDOW = 5.0, 600.0, 1800.0  # W63: STOP check, re-fetch period, re-fetch window
+
+    def wait_for_refill(self, need: float = 0.0) -> bool:
+        """W63: every login is out for the next task: wait for the earliest refill across logins (5-hour, weekly and
+        per-model resets; a login with an expired token is never the target), in 5 s slices that see the STOP file,
+        with a fresh fetch of every login every 10 min only inside the last 30 min before the target and after it.
+        Resume only on a fresh fetch that shows room (then that login takes the run); at the target with a failed
+        fetch, resume once anyway. `usage.wait_max_hours` (48) stops the run cleanly with STOPPED. One notification
+        at the start and one at the resume. The outage counters never move. Returns True when the run may go on,
+        False when the feature is off (the old sleep applies)."""
+        if self.cfg.get("usage.billing", "subscription") != "subscription" or self.cfg.get("usage.wait_for_refill", True) is False:
+            return False
+        reserve = float(self.cfg.get("usage.model_reserve_pct", 95) or 95)
+        cap = float(self.cfg.get("usage.wait_max_hours", 48) or 48) * 3600
+        fallback = [e for e in (self.cfg.get("agent.fallback") or []) if usage_mod._entry_folder(e)]
+        logins = [("", "default")] + [(usage_mod._entry_folder(e), usage_mod._login_name(usage_mod._entry_folder(e))) for e in fallback]
+        off = set(str(x) for x in (self.cfg.get("usage.sources_off") or []))
+        logins = [(f, n) for f, n in logins if f"login:{n}" not in off]
+        figs_of = lambda f, fresh=False: usage_mod.figures(self.state, self.cfg, f or "default", now=self._now, fresh=fresh)  # noqa: E731
+        start, last_fetch, was = self._mono(), self._mono(), self.run_info.get("state")
+        wake, who = usage_mod.wake_target(logins, figs_of, now=self._now)
+        if wake and wake - self._now() > cap:
+            raise Stop(f"no login had room for {round(cap / 3600)} h; run ap start to continue", word="STOPPED")
+        line = usage_mod.waiting_line(who, wake, now=self._now)
+        self.notify.send("wait", line)
+        self._journal(state="Wait", current=line)
+        watched = self._watch_files()
+        while True:
+            if (self.ad / "STOP").exists():
+                raise Stop("stopped by .agent/STOP file", word="STOPPED")
+            if self._mono() - start > cap:
+                raise Stop(f"no login had room for {round(cap / 3600)} h; run ap start to continue", word="STOPPED")
+            t = self._now()
+            near = not wake or abs(wake - t) <= self.WAIT_WINDOW or t > wake
+            changed = self._watch_files() != watched
+            if changed or (near and self._mono() - last_fetch >= self.WAIT_FETCH) or (wake and t >= wake and last_fetch < 0):
+                watched, last_fetch = self._watch_files(), self._mono()
+                fresh = {f: figs_of(f, fresh=True) for f, _ in logins}
+                live = {f: g for f, g in fresh.items() if g.get("source") == "live"}
+                room = next(((f, n) for f, n in logins if f in live and usage_mod.has_room(live[f], need, reserve)), None)
+                if room is not None:
+                    self._resume(room[0], room[1], line, was)
+                    return True
+                if not live and wake and t >= wake:  # the fetch failed at the target: resume once, the CLI answer decides
+                    self._resume("", usage_mod._login_name(self._account()), line, was)
+                    return True
+                wake, who = usage_mod.wake_target(logins, lambda f: fresh.get(f) or figs_of(f), now=self._now)
+                if not wake:  # every reset passed and nothing shows room: try again in one fetch period
+                    wake = t + self.WAIT_FETCH
+            line = usage_mod.waiting_line(who, wake, now=self._now)
+            self._journal(current=line, beat_at=now())
+            self._nap(self.WAIT_SLICE)
+
+    def _watch_files(self) -> tuple:
+        """W63: what the owner can change during a wait: the credentials files, project.yaml, `ap source` / `ap budget`."""
+        folders = [""] + [usage_mod._entry_folder(e) for e in (self.cfg.get("agent.fallback") or [])]
+        stamps = []
+        for f in folders:
+            try:
+                stamps.append((usage_mod.config_dir(f) / ".credentials.json").stat().st_mtime)
+            except OSError:
+                stamps.append(0.0)
+        try:
+            stamps.append((self.ad / "project.yaml").stat().st_mtime)
+        except OSError:
+            stamps.append(0.0)
+        stamps.append(str(self.state.get_meta("active_account") or ""))
+        return tuple(stamps)
+
+    def _resume(self, folder: str, name: str, line: str, was) -> None:
+        if folder != ("" if self._account() == "default" else self._account()):
+            self.switch_login(folder, f"limit: login {name} has room after the wait", self._now() + 7 * 86400)
+        self.notify.send("wait", f"Resumed on login {name} after: {line}")
+        self._journal(state=was if was and was != "Wait" else "Code", current="")
 
     def switch_login(self, folder: str, why: str, until: float) -> None:
         """W60 (subsumes W28): put the run on login `folder` ('' = the default login) until `until`, through the one
@@ -995,6 +1076,8 @@ class Orchestrator:
         except Exception:  # noqa: BLE001
             out = 0.0
         if out:
+            if self.wait_for_refill():  # W63: the earliest refill across every login, then resume by itself
+                return
             when = f"{dt.datetime.fromtimestamp(out):%a %H:%M}"
             self.notify.send("window", f"{model} is out on its weekly limit until {when}; no lower model has room. "
                                        f"Pausing until then.")

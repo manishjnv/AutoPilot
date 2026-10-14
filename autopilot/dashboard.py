@@ -431,7 +431,8 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         "asof": {"age": data_age(root, run), "live": live, "mtime": data_mtime(root, run),
                  "stopped": "" if live else dead_since or str(run.get("updated_at") or "")[11:16],
                  "dead_since": dead_since, "pulse": dash_live.pulse(run, data_mtime(root, run)) if live else None,
-                 "wait_text": str(run.get("current") or "") if live and dash_live.gate_label(run.get("current")) else ""},
+                 "wait_text": str(run.get("current") or "") if live and (dash_live.gate_label(run.get("current"))
+                                                                        or str(run.get("current") or "").startswith("Waiting ·")) else ""},
         "project": {
             "name": str(cfg.get("name", root.name)), "branch": main, "commit": facts["commit"],
             "last_commit": _first(facts["subject"], 60),

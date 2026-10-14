@@ -139,7 +139,7 @@ def digest(cfg, plan, state) -> str:
 
 SEP = " │ "
 MODEL_SHORT = {"haiku": "Hai", "sonnet": "Son", "opus": "Opus"}
-LINE_ORDER = ("state", "task", "tasks", "phases", "blocked", "tok", "models", "cost", "win", "health")
+LINE_ORDER = ("state", "wait", "task", "tasks", "phases", "blocked", "tok", "models", "cost", "win", "health")
 LINE_DROP = ("health", "runtime", "models", "cost", "tok", "win", "task")  # what goes first when the line is too wide
 
 
@@ -186,7 +186,10 @@ def status_panel(cfg, plan, state, run: dict, width: int | None = None) -> list[
             phase = tasks[ids.index(run["task"])].phase_id
             build = [f"Ph {phases.index(phase) + 1}/{len(phases)}"] if phase in phases else []
             build.append(f"Task {ids.index(run['task']) + 1}/{len(ids)}")
-        build.append(STATE_WORDS.get(str(run.get("state") or ""), "Works.").rstrip("."))
+        if str(run.get("current") or "").startswith("Waiting ·") and run.get("state") == "Wait":  # W63: the one line
+            build.append(str(run["current"]))
+        else:
+            build.append(STATE_WORDS.get(str(run.get("state") or ""), "Works.").rstrip("."))
         if int(run.get("attempt") or 1) > 1:
             build.append(f"Try {int(run['attempt'])}")
         used = int(run.get("context_tokens") or 0)
@@ -267,6 +270,8 @@ def status_line(cfg, plan, state, run: dict, width: int | None = None) -> str:
                 if run.get("status") == "finished" else "Idle",
         "runtime": _runtime(run.get("started_at")) if live else "",
         "state": str(run.get("state") or "") if live else "",
+        "wait": str(run.get("current") or "") if live and run.get("state") == "Wait"
+                and str(run.get("current") or "").startswith("Waiting ·") else "",  # W63: the same line everywhere
         "task": f"{run['task']} Try {run.get('attempt') or 1}/{run.get('max_attempts') or '?'}" if live and run.get("task") else "",
         "tasks": f"Task {done}/{len(tasks)} {100 * done // len(tasks) if tasks else 0}%",
         "phases": f"Ph {sum(1 for p in plan.phases if p.tasks and all(status.get(t.id) == 'done' for t in p.tasks))}"
