@@ -107,3 +107,12 @@ def test_the_discovery_pack_lists_the_top_three_with_scores_and_first_lines(tmp_
     sec = pack.split("## Plan candidates")[1]
     assert "- docs/architecture.md (score" in sec and "24 checkboxes, 12 phase headings" in sec
     assert "# Architecture" in sec
+
+
+def test_hidden_cache_and_deep_folders_are_pruned(tmp_path):
+    for d in (".mypy_cache", ".github", "target", "vendor", "coverage", "docs/changes/deep"):
+        (tmp_path / d).mkdir(parents=True)
+        (tmp_path / d / "PLAN.md").write_text(PLAN)
+    (tmp_path / "docs" / "changes" / "PLAN.md").write_text(PLAN)
+    (tmp_path / "docs" / "roadmap.md").write_text(SMALL)
+    assert [c.path for c in plan_candidates(tmp_path)] == ["docs/roadmap.md"]

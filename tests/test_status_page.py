@@ -80,6 +80,7 @@ def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, caps
     import threading
     import time
 
+    import autopilot.orchestrator  # noqa: F401  the watch loads it lazily (about 2 s on WSL): load it before the clock
     from autopilot.cli import main as cli_main
     root = make_project(tmp_path, phases_basic())
     log = root / ".agent" / "logs" / "autopilot.log"
@@ -88,7 +89,7 @@ def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, caps
     (root / ".agent" / "run.json").write_text(json.dumps({"status": "running", "current": "task P01-T01"}))
 
     def finish():
-        time.sleep(1.5)
+        time.sleep(3)
         with open(log, "a", encoding="utf-8") as fh:
             fh.write("2026-10-02 09:01:00 INFO   ▸ P01-T01 · Write src/x.py · 0m30s\n")
         (root / ".agent" / "run.json").write_text(json.dumps({"status": "finished", "outcome": "plan complete"}))

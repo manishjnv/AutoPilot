@@ -169,3 +169,10 @@ def test_docs_prompt_says_edit_the_existing_section():
     text = (REPO / "autopilot" / "prompts" / "docs.md").read_text(encoding="utf-8")
     assert "find the section that already covers the change and edit it there" in text
     assert "Never add a second section on the same topic" in text
+
+
+def test_a_glob_in_the_contract_files_list_matches_a_literal_scope(tmp_path):
+    (tmp_path / "features").mkdir()
+    (tmp_path / "features" / "g.md").write_text("# G\n\n## Files\n\n- `autopilot/dash_*.py`\n", encoding="utf-8")
+    assert len(contracts_for(tmp_path, ["autopilot/dash_term.py"])) == 1
+    assert contracts_for(tmp_path, ["autopilot/gate.py"]) == []

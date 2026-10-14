@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
-SKIP_DIRS = {"node_modules", ".venv", "venv", ".git", ".agent", "dist", "build", "__pycache__"}
+SKIP_DIRS = {"node_modules", ".venv", "venv", ".git", ".agent", "dist", "build", "__pycache__", "target", "vendor", "coverage"}
 EXTS = (".md", ".txt", ".rst")
 READ_CAP = 200_000  # bytes read per file
 MIN_SCORE = 6  # below this a file is not a plan
@@ -46,7 +46,8 @@ def score_text(text: str) -> tuple[float, str]:
 
 def _files(root: Path):
     for dp, dns, fns in os.walk(root):
-        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS)  # pruned: never enter node_modules and friends
+        # pruned: never enter node_modules, hidden or cache folders; a plan sits at most 2 levels down (docs/PLAN.md)
+        dns[:] = [] if Path(dp) != root else sorted(d for d in dns if d not in SKIP_DIRS and not d.startswith("."))
         for f in sorted(fns):
             if f.lower().endswith(EXTS):
                 yield Path(dp) / f

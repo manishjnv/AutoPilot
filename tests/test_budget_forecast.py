@@ -178,3 +178,11 @@ def test_ap_budget_rejects_zero_and_adds_a_missing_key(tmp_path):
     assert forecast.write_total(proj, 7)
     assert proj.read_text(encoding="utf-8") == "budget_usd:\n  total: 7\n  daily: 3  # a day\nname: x\n"
     assert forecast.read_total(proj) == 7
+
+
+def test_write_total_edits_only_a_direct_child_of_budget_usd(tmp_path):
+    proj = tmp_path / "project.yaml"
+    proj.write_text("budget_usd:\n  per_phase:\n    total: 9\n  daily: 3\n", encoding="utf-8")
+    assert forecast.write_total(proj, 7)
+    assert proj.read_text(encoding="utf-8") == "budget_usd:\n  total: 7\n  per_phase:\n    total: 9\n  daily: 3\n"
+    assert forecast.read_total(proj) == 7

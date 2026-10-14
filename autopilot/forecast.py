@@ -49,9 +49,10 @@ def write_total(path: Path, usd: float) -> bool:
         end = re.search(r"(?m)^\S", text[head.end():])
         stop = head.end() + end.start() if end else len(text)
         block = text[head.end():stop]
-        m = re.search(r"(?m)^([ \t]+total:[ \t]*)([^#\n]*?)([ \t]*(?:#.*)?)$", block)
+        kid = re.search(r"(?m)^([ \t]+)[^\s#]", block)  # total counts only as a direct child of budget_usd
+        m = kid and re.search(rf"(?m)^{re.escape(kid.group(1))}total:[ \t]*([^#\n]*?)[ \t]*(?:#.*)?$", block)
         if m:
-            block = block[:m.start(2)] + val + block[m.end(2):]
+            block = block[:m.start(1)] + val + block[m.end(1):]
         else:
             nxt = re.search(r"(?m)^([ \t]+)\S", block)
             block = f"\n{nxt.group(1) if nxt else '  '}total: {val}" + block

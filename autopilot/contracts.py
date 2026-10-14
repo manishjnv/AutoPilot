@@ -39,7 +39,7 @@ def _norm(p: str) -> str:
 
 def _touches(page_files: list[str], files) -> bool:
     scope = [_norm(f) for f in files or []]
-    return any(f == p or fnmatch.fnmatch(p, f) for p in map(_norm, page_files) for f in scope)
+    return any(f == p or fnmatch.fnmatch(p, f) or fnmatch.fnmatch(f, p) for p in map(_norm, page_files) for f in scope)
 
 
 def contracts_for(root, files) -> list[str]:
