@@ -627,10 +627,14 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
         out.append((FAIL if missing else OK, "sandbox", f"missing {', '.join(missing)} (apt install bubblewrap socat)"
                     if missing else "bubblewrap and socat found"))
     if sandbox_mode(cfg) == "docker":  # W11: the docker mode needs the docker CLI on PATH
-        rc, txt = _run(["docker", "--version"])
-        ver = re.search(r"version ([\w.+-]+)", txt)
-        out.append((OK, "docker", f"found {ver.group(1) if ver else txt.splitlines()[0]}") if rc == 0 and txt
-                   else (FAIL, "docker", "not found (needed for sandbox.mode: docker)"))
+        rc, txt = _run(["docker", "version", "--format", "{{.Server.Version}}"]) if sys.platform == "win32" else (1, "")
+        if rc == 0 and txt:  # W32: Docker Desktop on native Windows; the engine reports its version
+            out.append((OK, "docker", f"{txt.splitlines()[0]} (Docker Desktop)"))
+        else:
+            rc, txt = _run(["docker", "--version"])
+            ver = re.search(r"version ([\w.+-]+)", txt)
+            out.append((OK, "docker", f"found {ver.group(1) if ver else txt.splitlines()[0]}") if rc == 0 and txt
+                       else (FAIL, "docker", "not found (needed for sandbox.mode: docker)"))
 
     channels = [cfg.get(f"notify.{k}") for k in NOTIFY_ENVS if _env(str(cfg.get(f"notify.{k}") or ""))]
     out.append((OK if channels else WARN, "notifications", f"via {', '.join(channels)}" if channels else

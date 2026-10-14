@@ -219,8 +219,8 @@ class Config:
             return [f"{what} needs agent.backend: claude_cli (it runs the Claude CLI)"]
         if mode == "docker" and not str(self.get("sandbox.image", "") or "").strip():
             return ["sandbox.mode: docker needs sandbox.image: the name of the image you built from deploy/Dockerfile."]
-        if NATIVE_WINDOWS:  # Claude Code's sandbox and the Docker mode run on Linux, WSL2 and macOS only
-            return ["sandbox is not supported on native Windows: run Autopilot in WSL2 or the Docker image"]
+        if NATIVE_WINDOWS and mode == "allowlist":  # W32: Claude Code's sandbox is Linux, WSL2 and macOS only; docker runs on Docker Desktop
+            return ["sandbox.mode: allowlist is not supported on native Windows: use sandbox.mode: docker (Docker Desktop) or run Autopilot in WSL2"]
         if not allowlist_on(self):
             return []
         if not isinstance(self.get("sandbox.allowed_domains", []), list):

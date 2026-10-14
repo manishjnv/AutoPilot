@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
 import uuid
 from contextlib import contextmanager
@@ -80,12 +81,14 @@ def host_user():
 
 
 @contextmanager
-def login_dir():
+def login_dir(env=None):
     """A fresh 0700 temp folder outside the worktree with a copy of ~/.claude/.credentials.json (0600) when it exists;
-    deleted on exit. The home folder itself is never mounted."""
+    deleted on exit. The home folder itself is never mounted. W32: on Windows the source folder is CLAUDE_CONFIG_DIR
+    of the session env when set."""
     path = tempfile.mkdtemp(prefix="autopilot-claude-")
     try:
-        src = Path.home() / ".claude" / ".credentials.json"
+        cfg_dir = (env or {}).get("CLAUDE_CONFIG_DIR") if sys.platform == "win32" else None
+        src = Path(cfg_dir or Path.home() / ".claude") / ".credentials.json"
         if src.is_file():
             dst = os.path.join(path, ".credentials.json")
             shutil.copyfile(src, dst)
@@ -101,7 +104,7 @@ def wrapped(cfg, cmd, cwd, env):
     even with --rm) and the login folder is deleted."""
     name = f"autopilot-{uuid.uuid4().hex[:12]}"
     try:
-        with login_dir() as login:
+        with login_dir(env) as login:
             yield docker_argv(cfg, cmd, os.path.abspath(cwd), login, git_dirs(cwd), host_user(), env, name)
     finally:
         try:
