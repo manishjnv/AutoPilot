@@ -6,6 +6,8 @@ import logging
 import os
 import urllib.request
 
+from .signals import redact
+
 log = logging.getLogger("autopilot")
 
 
@@ -31,7 +33,7 @@ class Notifier:
         return val
 
     def send(self, event: str, message: str):
-        text = f"[Autopilot · {self.project}] {event}: {message}"
+        text = redact(f"[Autopilot · {self.project}] {event}: {message}")  # M7: the one choke point for alerts
         log.info(text)
         if self.state is not None:
             self.state.event(event, message)
@@ -49,7 +51,7 @@ class Notifier:
     def reply(self, text: str):
         """A chat answer (P5): Telegram only, whatever `notify.events` says."""
         try:
-            self._telegram("reply", f"[Autopilot · {self.project}] {text}")
+            self._telegram("reply", redact(f"[Autopilot · {self.project}] {text}"))
         except Exception as exc:  # noqa: BLE001
             log.warning("chat reply failed: %s", type(exc).__name__)
 

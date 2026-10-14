@@ -45,12 +45,17 @@ def cause_of(text: str) -> str:
     return "tests" if _TESTS.search(text) else "unknown"
 
 
-def scrub(text: str) -> str:
-    """Secret variable values and token-shaped strings are replaced, then the text is cut to TEXT_MAX."""
+def redact(text: str) -> str:
+    """Secret variable values and token-shaped strings are replaced. No cut: logs and alerts keep their length."""
     text = scrub_secrets(text or "", secrets())
     for rx, label in SECRET_PATTERNS:
         text = rx.sub(f"***REDACTED[{label}]***", text)
-    return text[:TEXT_MAX]
+    return text
+
+
+def scrub(text: str) -> str:
+    """`redact`, then the text is cut to TEXT_MAX."""
+    return redact(text)[:TEXT_MAX]
 
 
 def folder_name(project) -> str:

@@ -657,6 +657,9 @@ def cmd_validate(args):
     for e in cfg.validate():
         if e not in blocking:
             print(f"config  WARN  {e}")
+    topic = os.environ.get(cfg.get("notify.ntfy_topic_env") or "AUTOPILOT_NTFY_TOPIC", "")
+    if topic and not topic.startswith("http") and "/" not in topic:  # L7: a bare topic is a public ntfy.sh channel
+        print(f"notify  WARN  ntfy topic {topic} is public on ntfy.sh; anyone who guesses it reads your alerts")
     fb = cfg.get("agent.fallback") or []
     if fb:  # W28: the order in which a usage limit moves the work
         from .handoff import entry_folder

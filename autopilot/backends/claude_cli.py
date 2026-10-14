@@ -343,9 +343,11 @@ class ClaudeCLIBackend:
 
         meter, told, beat = usage_meter(), [float("-inf")], [float("-inf")]
 
+        from ..signals import redact  # lazy: signals imports this package
+
         def on_line(line: str) -> str:
             if log:
-                log.write(line)
+                log.write(redact(line))  # M8: a secret in tool output stays out of the transcript
                 log.flush()
             if req.on_event and time.monotonic() - beat[0] >= 10:  # W18a: the runner heartbeat, at most every 10 s
                 beat[0] = time.monotonic()

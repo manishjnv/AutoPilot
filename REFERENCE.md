@@ -88,7 +88,7 @@ A read-only command (`status`, `watch`, `next`, `report`) first prints `project:
 | Variable | Result |
 |---|---|
 | `AUTOPILOT_TG_TOKEN`, `AUTOPILOT_TG_CHAT` | Telegram alerts. With `chat.enabled: true`, also Telegram commands |
-| `AUTOPILOT_NTFY_TOPIC` | ntfy alerts |
+| `AUTOPILOT_NTFY_TOPIC` | ntfy alerts; a bare topic is public; `ap validate` warns |
 | `AUTOPILOT_SLACK_WEBHOOK` | Slack alerts |
 | `AUTOPILOT_WEBHOOK` | Alerts to a different web service |
 | `AUTOPILOT_STATUS_TOKEN` | Sets the token of the status page. Without it, each run makes a random token. A page on an address that is not local needs it |

@@ -4,7 +4,7 @@ Autopilot builds your software project while you are away. You write what you wa
 It is for one developer, or for a person with an idea and a developer friend.
 
 Autopilot runs a coding agent, Claude Code (the program that writes the code), that has shell access. A fault in its guards can damage a computer or leak a secret.
-Autopilot masks the values of known secret variables in the error text of a failed deploy.
+Autopilot masks the values of known secret variables in the error text of a failed deploy. Alerts, session logs and crash reports are scrubbed of known secret values before they are written or sent.
 
 ## What to report
 

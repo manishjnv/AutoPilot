@@ -18,6 +18,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - A staged file with shell characters in its name can no longer run a command in the check, and uninstall steps run without a shell.
 - The log now rotates at 10 MB, and a stuck git command stops after five minutes instead of hanging.
 - The status page needs a random link code, and key or credential files never go into a commit.
+- Alerts, session logs and crash reports no longer carry secret values, and `ap validate` warns about a public alert channel.
 
 ## [0.8.0] - 2026-10-14
 

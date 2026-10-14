@@ -70,10 +70,11 @@ class OpenAICompatBackend:
         self.cfg = cfg
 
     def log(self, req: SessionRequest, lines: list[str]) -> None:
+        from ..signals import redact  # lazy: signals imports this package
         if req.log_path:  # URL, model, status and the answer: never headers, never the key
             try:
                 Path(req.log_path).parent.mkdir(parents=True, exist_ok=True)
-                Path(req.log_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+                Path(req.log_path).write_text(redact("\n".join(lines) + "\n"), encoding="utf-8")
             except OSError:
                 pass
 

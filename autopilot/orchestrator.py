@@ -102,11 +102,11 @@ def _crash_report(root: Path, exc: BaseException, task: str) -> tuple[str, str]:
     path = d / f"{dt.datetime.now():%Y%m%d-%H%M%S}.md"
     log_file = root / AGENT_DIR / "logs" / "autopilot.log"
     tail = tail_lines(log_file, 40)
-    path.write_text(
+    path.write_text(signals.redact(  # L7
         f"# Autopilot crash {dt.datetime.now():%Y-%m-%d %H:%M:%S}\n\n- Signature: `{sig}`\n- Task in flight: "
         f"{task or '(none)'}\n- Autopilot {__version__}, Python {platform.python_version()}, {platform.platform()}\n\n"
         "## Traceback\n```\n" + "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) + "```\n\n"
-        "## Last log lines\n```\n" + "\n".join(tail) + "\n```\n", encoding="utf-8")
+        "## Last log lines\n```\n" + "\n".join(tail) + "\n```\n"), encoding="utf-8")
     return sig, str(path.relative_to(root)).replace("\\", "/")
 
 

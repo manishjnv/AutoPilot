@@ -113,7 +113,8 @@ class CommandBackend:
         out = p.stdout
         if req.log_path:
             Path(req.log_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(req.log_path).write_text(f"$ {cmd}\n\nSTDOUT:\n{out}\n\nSTDERR:\n{p.stderr}", encoding="utf-8")
+            from ..signals import redact  # lazy: signals imports this package
+            Path(req.log_path).write_text(redact(f"$ {cmd}\n\nSTDOUT:\n{out}\n\nSTDERR:\n{p.stderr}"), encoding="utf-8")
         if p.stopped:  # W39: `ap stop --now` ended it
             return SessionResult(ok=False, error=p.stopped, text=out)
         err = "" if p.rc == 0 else (p.stderr or out)[-3000:]
