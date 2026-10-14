@@ -237,3 +237,23 @@ def test_the_ended_bar_shows_the_outcome_word_and_the_time_never_an_x_for_a_comp
     assert "\x1b[32m✓ VERIFIED" in frame(ended_data(), 133, 37, True)[-1]
     for word, sym, tone, code in (("BLOCKED", "⏸", "yellow", "33"), ("FAILED", "✗", "red", "31")):
         assert f"\x1b[{code}m{sym} {word}" in frame(ended_data(word, sym, tone), 133, 37, True)[-1]
+
+
+def test_w53_step_bar_mid_gate_and_no_median():
+    for cols in (130, 170):
+        text = "\n".join(box(cols, step=3, since=T - 60, step_eta=120.0))
+        assert "gate █" in text and "of ~2m" in text, cols
+    text = "\n".join(box(170, step=3, since=T - 60, step_eta=None))
+    assert "gate 1m 00s" in text and "of ~" not in text
+
+
+def test_w53_findings_noted(tmp_path):
+    from autopilot.state import State
+    (tmp_path / ".agent").mkdir()
+    st = State(tmp_path / "state.db")
+    assert dash_live.findings_noted(tmp_path, st) == 0
+    st.set_meta("review_list:P01-T01", ["a", "b"])
+    assert dash_live.findings_noted(tmp_path, st) == 2
+    c = normalize(with_card(kind="end", title="Audit", what="x", then="y", steps=list(dash_live.END_STEPS), findings=2,
+                            weights=[1 / 3] * 3, step=0))["card"]
+    assert "2 findings noted" in "".join(t for t, _ in dash_card.findings_part(c))

@@ -3,6 +3,7 @@ version and the run number. dashboard.py calls the data helpers; dash_term.py an
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 import time
 from functools import lru_cache
@@ -314,6 +315,23 @@ def _why(state, tid) -> str:
     return " ".join(str(r[0] or "").split())[:80] if r else ""
 
 
+def findings_noted(root, state) -> int:
+    """W53: review findings kept per task (meta review_list:<id>, W40) plus the lines of FOLLOWUPS.md.
+    ponytail: FOLLOWUPS.md has no dates; it is emptied when the auditor consumes it, so it counts since then."""
+    from . import AGENT_DIR
+    n = 0
+    for r in state.db.execute("SELECT value FROM meta WHERE key LIKE 'review_list:%'"):
+        try:
+            n += len(json.loads(r[0]) or [])
+        except (ValueError, TypeError):
+            pass
+    try:
+        n += sum(1 for x in (root / AGENT_DIR / "FOLLOWUPS.md").read_text(encoding="utf-8").splitlines() if x.startswith("- ["))
+    except OSError:
+        pass
+    return n
+
+
 def end_card(root, state, run: dict, name: str, clock: float, wait) -> dict:
     """The Now card of an end-phase step: the completion audit, the functional check, the docs, the replan."""
     key = end_kind(run)
@@ -335,7 +353,8 @@ def end_card(root, state, run: dict, name: str, clock: float, wait) -> dict:
     return {"kind": "end", "title": title, "what": what, "model": name, "steps": list(END_STEPS), "step": idx,
             "since": since, "weights": [1 / 3] * 3, "step_eta": None, "then": THEN[key],
             "work": max(0.0, clock - base) if base else 0.0, "work_at": clock, "eta": eta_text(past, name, key),
-            "tokens": tokens + int(run.get("live_tokens") or 0), "cost": cost, "wait": wait}
+            "tokens": tokens + int(run.get("live_tokens") or 0), "cost": cost, "wait": wait,
+            "findings": findings_noted(Path(root), state)}
 
 
 def pending(cfg, plan, state, run: dict, root, status: dict) -> list[dict]:

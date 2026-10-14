@@ -1796,6 +1796,27 @@ def _version_line():
     return f"{__version__} ({sha})"
 
 
+INBOX_CMDS = ("stop", "hint", "skip", "answer", "budget", "change")
+
+
+class _Tee:
+    """Writes to the real stdout and to a buffer (the reply text of the inbox line)."""
+    def __init__(self, *outs):
+        self.outs = outs
+
+    def write(self, t):
+        for o in self.outs:
+            o.write(t)
+        return len(t)
+
+    def flush(self):
+        for o in self.outs:
+            o.flush()
+
+    def __getattr__(self, name):  # isatty, encoding ...
+        return getattr(self.outs[0], name)
+
+
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
@@ -1979,7 +2000,18 @@ def main(argv=None):
     if line := update_before_run(args.cmd, Path(args.path).resolve(), list(argv or sys.argv[1:])):  # W56
         print(line)
         return 0
-    rc = args.fn(args) or 0
+    if args.cmd in INBOX_CMDS:  # W53: a command typed in a shell also lands in the inbox, with its reply
+        import io
+
+        from .inbox import record
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(_Tee(sys.stdout, buf)):
+            rc = args.fn(args) or 0
+        words = [a for i, a in enumerate(argv or sys.argv[1:]) if a not in ("-C", "--path") and (i == 0 or (argv or sys.argv[1:])[i - 1] not in ("-C", "--path"))]
+        with contextlib.suppress(Exception):
+            record(Path(args.path).resolve(), " ".join(words), " ".join(buf.getvalue().split())[:300] or "done")
+    else:
+        rc = args.fn(args) or 0
 
     line = auto_update(args.cmd, Path(args.path).resolve())
     if line:

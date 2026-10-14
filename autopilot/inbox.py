@@ -224,7 +224,29 @@ def _helper(root, rid: str, text: str, fallback: str, backend):
     _append(root, {"id": rid, "reply": final, "partial": False})
 
 
-def submit(root, text: str, backend=None) -> tuple[str, threading.Thread | None]:
+def record(root, text: str, reply: str):
+    """W53: a command typed in a shell (`ap hint ...`) goes into the inbox with its reply, as the watch row does."""
+    rid = uuid.uuid4().hex[:8]
+    _append(root, {"id": rid, "text": " ".join(text.split()), "kind": "command"})
+    _append(root, {"id": rid, "reply": reply, "partial": False})
+
+
+def spawn_helper(root, rid: str, text: str, fb: str):
+    """W53: the helper call as its own process, so a short-lived shell does not take it down when it exits."""
+    import os
+    import subprocess
+    import sys
+    code = "import sys; from autopilot import inbox; inbox._helper(*sys.argv[1:5], None)"
+    kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+              env={**os.environ, "PYTHONSAFEPATH": "1"})
+    if os.name == "nt":
+        subprocess.Popen([sys.executable, "-c", code, str(root), rid, text, fb],  # noqa: S603
+                         creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP, **kw)
+    else:
+        subprocess.Popen([sys.executable, "-c", code, str(root), rid, text, fb], start_new_session=True, **kw)  # noqa: S603
+
+
+def submit(root, text: str, backend=None, spawn=None) -> tuple[str, threading.Thread | None]:
     """Take one typed line: write it, answer a command or a local question at once, else start the helper thread.
     Returns (id, thread); the thread is None when the final reply is already written."""
     from .answers import answer, fallback
@@ -244,18 +266,25 @@ def submit(root, text: str, backend=None) -> tuple[str, threading.Thread | None]
     if local:
         _append(root, {"id": rid, "reply": local, "partial": False})
         return rid, None
+    if spawn:
+        spawn(root, rid, text, fallback(root))
+        return rid, None
     th = threading.Thread(target=_helper, args=(root, rid, text, fallback(root), backend), daemon=True)
     th.start()
     return rid, th
 
 
-def cmd_line(root, text: str, wait: float = 15, backend=None) -> int:
-    """`ap <anything>`: send the line, print the reply, wait up to `wait` seconds for it."""
-    rid, th = submit(root, text, backend)
+def cmd_line(root, text: str, wait: float = 15, backend=None, spawn=None) -> int:
+    """`ap <anything>`: send the line, print the reply, wait up to `wait` seconds for it. The model call runs as a
+    detached process (W53): when it is slow the local reply is printed and the model reply still lands in the inbox."""
+    rid, th = submit(root, text, backend, spawn or (None if backend else spawn_helper))
     reply = wait_reply(root, rid, wait)
-    if reply is None:  # the helper is slow: give the local reply
+    slow = reply is None
+    if slow:  # the helper is slow: give the local reply
         from .answers import fallback
         reply = fallback(root)
         _append(root, {"id": rid, "reply": reply, "partial": False})
     print(f"You: {' '.join(text.split())}\nReply: {reply}")
+    if slow:
+        print("(the full answer lands in ap watch)")
     return 0

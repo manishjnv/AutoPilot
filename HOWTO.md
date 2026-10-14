@@ -87,10 +87,10 @@ Type a line to `ap` while a build runs. You get a reply in about one second.
 A line that starts with `stop`, `hint`, `skip`, `answer`, `budget`, `change` or `status` runs that command. The reply
 says where it went and about when it takes effect. Any other line is a question. Common questions get an answer from
 the run files, with the source named. Other questions get a short answer from a small model, at most 20 for each run.
-The reply shows on the top line of the watch window and on the status page for 60 seconds.
+The reply shows on the top line of the watch window and on the status page for 60 seconds. A command that you type in a shell (`ap stop`, `ap hint`, `ap skip`, `ap answer`, `ap budget`, `ap change`) also shows there. If a question takes more than 15 seconds, the shell prints the local answer and the full answer lands in `ap watch`.
 
 The Now card at the top of the watch window shows the task in work. `about 55%` is the weighted share of its five
-steps. At the end, the card names the outcome and lists what is still open. The window stays open until you press
+steps. The wide card also shows the current step with a small bar and its time against the median. At the end, the card names the outcome and lists what is still open and `N findings noted`. The window stays open until you press
 Enter.
 
 > [!NOTE]

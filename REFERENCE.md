@@ -127,7 +127,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports. The log rotates at 10 MB and Autopilot keeps three old copies | No |
 | `STOP` | The stop flag from `autopilot stop`; the first line `now` means `ap stop --now` | No |
-| `inbox.jsonl` | Every line that you type to `ap` and its reply, append-only: `{t, id, text, kind}` for a typed line, `{t, id, reply, partial}` for a reply. The last reply line of an id has `partial: false` | No |
+| `inbox.jsonl` | Every line that you type to `ap` (also the commands `stop`, `hint`, `skip`, `answer`, `budget` and `change` typed in a shell) and its reply, append-only: `{t, id, text, kind}` for a typed line, `{t, id, reply, partial}` for a reply. The last reply line of an id has `partial: false` | No |
 | `helper.lock` | Allows one helper model call at a time | No |
 
 **Task key `status` in `plan.yaml`:** `status: done` says the work exists already (in the code or the git log). When the task is new, or still pending, Autopilot records it as done with the note `done before Autopilot`. It never changes a task that is running, blocked, skipped or done. If you remove the key later, the task stays done. `status: dropped` says the item left the plan document; Autopilot skips the task and keeps it in the file. Any other value is an error that names the task.

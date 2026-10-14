@@ -7,6 +7,8 @@
 .agent/STOP
 .agent/REPORT.md
 .agent/run.json
+.agent/inbox.jsonl
+.agent/helper.lock
 .agent/status.port
 .agent/status.token
 .agent/approvals/

@@ -22,7 +22,7 @@ def norm(c, clean) -> dict | None:
     e, d, wt = c.get("eta"), c.get("diff"), c.get("wait")
     return {"kind": c["kind"], **{k: clean(c.get(k)) for k in ("title", "what", "then", "model", "first_start", "why",
                                                                "word", "sym", "tone", "at", "elapsed")},
-            **{k: cnt(k) for k in ("n", "attempt", "max_attempts", "step", "tokens", "done", "total", "retries")},
+            **{k: cnt(k) for k in ("n", "attempt", "max_attempts", "step", "tokens", "done", "total", "retries", "findings")},
             **{k: num(k) for k in ("work", "work_at", "since", "step_eta", "cost")},
             "steps": steps, "weights": w if len(w) == len(steps) else [1 / max(len(steps), 1)] * len(steps),
             "eta": ({"lo": num2(e, "lo"), "mid": num2(e, "mid"), "hi": num2(e, "hi"), "basis": clean(e.get("basis"))}
@@ -113,6 +113,25 @@ def sofar(c: dict) -> list:
     bits.append([(f"{_n(c['tokens'])} tokens", None)])
     bits.append([(f"${c['cost'] or 0:.2f}", "magenta")])
     return [("So far: ", "dim"), *join(bits)]
+
+
+def step_part(c: dict, clock, utf: bool) -> list:
+    """W53: the current step with a small bar filled by its time against the median for that step; with no median
+    only the elapsed time and no fill."""
+    if not c["steps"] or not clock or not c["since"]:
+        return []
+    idx, frac, _ = progress(c, clock)
+    secs = max(0.0, clock - c["since"])
+    txt = dash_live.span(secs)
+    if not c["step_eta"]:
+        return [(f"{c['steps'][idx]} ", "cyan"), (txt, None)]
+    f = int(frac * 8)
+    b = ("█" * f + "░" * (8 - f)) if utf else "[" + "=" * f + " " * (8 - f) + "]"
+    return [(f"{c['steps'][idx]} ", "cyan"), (b, "cyan"), (f" {txt} of ~{minutes(c['step_eta'])}", None)]
+
+
+def findings_part(c: dict) -> list:
+    return [(f"{c['findings']} finding{'' if c['findings'] == 1 else 's'} noted", None)] if c["kind"] == "end" else []
 
 
 def last_line(c: dict, clock) -> list:
@@ -293,12 +312,12 @@ def box(d: dict, cols: int, color) -> list[str]:
             ctext = join([clip([(head, None)], max(room, 12)), facts], SEP)
         line1 = [*join([time_, eta]), (" · ", "dim")]
         line1 += bar(c, max(iw - length(line1) - len(pct), 20), clock, utf) + [(pct, "value")]
-        line2 = join([sofar(c), last_line(c, clock), dont, why_part(c)])
+        line2 = join([step_part(c, clock, utf), findings_part(c), sofar(c), last_line(c, clock), dont, why_part(c)])
         lines = [line1, line2]
     else:
         ctext = join([[(head, None)] if c["kind"] == "task" else [(c["title"], None)], facts], SEP)
         l1 = [(c["title"] if c["kind"] == "task" else f"{c['what']} · {c['then']}", "bold")]
-        lines = [l1, rest, [*bar(c, iw - len(pct), clock, utf), (pct, "value")], join([sofar(c), last_line(c, clock)])]
+        lines = [l1, rest, [*bar(c, iw - len(pct), clock, utf), (pct, "value")], join([step_part(c, clock, utf), findings_part(c), sofar(c), last_line(c, clock)])]
     return [top(d, ctext, cols, color), *inner(lines, cols, color), bottom]
 
 

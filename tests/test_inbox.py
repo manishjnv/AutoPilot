@@ -138,3 +138,29 @@ def test_existing_commands_and_help_are_unchanged(tmp_path, capsys):
     except SystemExit as e:
         assert e.code == 0
     assert "stop" in capsys.readouterr().out
+
+
+def test_w53_shell_command_lands_in_the_inbox(tmp_path, capsys, monkeypatch):
+    root = setup(tmp_path)
+    monkeypatch.chdir(root)
+    assert main(["hint", "P01-T01", "use the cache"]) == 0
+    rows = [json.loads(x) for x in (root / ".agent" / "inbox.jsonl").read_text().splitlines()]
+    asks = [r for r in rows if "text" in r]
+    assert len(asks) == 1 and asks[0]["kind"] == "command" and asks[0]["text"].startswith("hint P01-T01")
+    assert inbox.latest(root)["reply"]
+
+
+def test_w53_slow_helper_falls_back_in_the_shell_and_lands_later(tmp_path, capsys):
+    import threading
+    root = setup(tmp_path)
+
+    def slow(root_, rid, text, fb):  # stands in for the detached process
+        def run():
+            time.sleep(0.6)
+            inbox._append(root_, {"id": rid, "reply": "the model answer", "partial": False})
+        threading.Thread(target=run, daemon=True).start()
+
+    assert inbox.cmd_line(root, "why is the sky blue", wait=0.2, spawn=slow) == 0
+    assert "(the full answer lands in ap watch)" in capsys.readouterr().out
+    time.sleep(1.0)
+    assert inbox.latest(root)["reply"] == "the model answer"
