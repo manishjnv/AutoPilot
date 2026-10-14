@@ -135,6 +135,19 @@ def result_event(raw: str) -> dict:
         return {}
 
 
+def is_result_line(line: str) -> bool:
+    """W46: this stream line is the final `result` event."""
+    return '"result"' in line and _line_type(line) == "result"
+
+
+def _line_type(line: str) -> str:
+    try:
+        ev = json.loads(line)
+    except ValueError:
+        return ""
+    return str(ev.get("type")) if isinstance(ev, dict) else ""
+
+
 def window_info(raw: str) -> dict:
     """G1: the usage window as the CLI reports it in the stream's last `rate_limit_event`:
     {five_hour: {pct, reset}, seven_day: {pct, reset}, status}; pct is 0..1, reset is unix seconds. The field names
@@ -347,13 +360,16 @@ class ClaudeCLIBackend:
 
         p = None
         try:
-            p = stream_proc(cmd, input=prompt, cwd=req.cwd, env=self.env(), timeout=req.timeout_sec, on_line=on_line)
+            p = stream_proc(cmd, input=prompt, cwd=req.cwd, env=self.env(), timeout=req.timeout_sec, on_line=on_line,
+                            done=is_result_line)
         except OSError as exc:
             return SessionResult(ok=False, error=f"cannot start claude ({cmd[0]}): {exc}", infra="cli")
         finally:
             if log:
                 log.write(f"\n\nSTDERR:\n{p.stderr if p else ''}")
                 log.close()
+        if p.ended:
+            progress.info("session ended at its final answer; its child processes were stopped")
         if p.timed_out or p.stopped:  # killed: no result event, so tokens come from the messages seen so far
             usage = partial_usage(p.stdout, req.model)
             killed = dict(ok=False, session_id=first_session_id(p.stdout), usage=usage,

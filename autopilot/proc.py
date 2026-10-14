@@ -65,6 +65,7 @@ class Proc:
     stderr: str
     timed_out: bool = False
     stopped: str = ""      # why the tree was killed early: on_line's reason (stream_proc) or OWNER_STOP
+    ended: bool = False    # stream_proc: `done` fired and the tree had to be stopped after the grace time
 
 
 def safe_env(passthrough=(), extra: dict | None = None) -> dict:
@@ -256,9 +257,10 @@ def run_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: floa
 
 
 def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: float | None = None,
-                on_line=None) -> Proc:
+                on_line=None, done=None, grace: float = 10) -> Proc:
     """run_proc for long agent sessions: stdout is read line by line as it arrives, and when `on_line(line)` returns a
-    reason the whole tree is killed and the reason lands in `Proc.stopped`. stderr goes to a temp file (no pipe deadlock)."""
+    reason the whole tree is killed and the reason lands in `Proc.stopped`. W46: once `done(line)` is true (the final
+    answer) the process gets `grace` seconds to exit, then its tree is killed and the run counts as finished (rc 0). stderr goes to a temp file (no pipe deadlock)."""
     group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS else {"start_new_session": True}
     with tempfile.TemporaryFile() as errf:
         p = subprocess.Popen(cmd, cwd=cwd, env=env, text=True, encoding="utf-8", errors="replace",
@@ -267,6 +269,7 @@ def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: f
         _attach_job(p)
         lines: list[str] = []
         stopped: list[str] = []
+        ended: list[bool] = []
 
         def feed():
             with contextlib.suppress(OSError):  # the agent may exit before reading everything
@@ -280,13 +283,19 @@ def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: f
                 if why:
                     stopped.append(why)
                     _kill_tree(p)
+                elif done and not ended and done(line):
+                    try:
+                        p.wait(timeout=grace)
+                    except subprocess.TimeoutExpired:
+                        ended.append(True)
+                        _kill_tree(p)
 
         threads = [threading.Thread(target=read, daemon=True)]
         if input is not None:
             threads.append(threading.Thread(target=feed, daemon=True))
         for t in threads:
             t.start()
-        done = _start_watch(p, stopped)
+        watching = _start_watch(p, stopped)  # not `done`: that name is the W46 final-answer callback
         timed_out = False
         try:
             p.wait(timeout=timeout)
@@ -299,13 +308,13 @@ def stream_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: f
             _kill_tree(p)
             raise
         finally:
-            done.set()
+            watching.set()
             _close_job(p)
         threads[0].join(15)  # ponytail: a detached grandchild may still hold stdout; keep what was read
         errf.seek(0)
         err = errf.read().decode("utf-8", "replace")
-    rc = 124 if timed_out else (p.returncode if p.returncode is not None else -1)
-    return Proc(rc, "".join(lines), err, timed_out=timed_out, stopped=stopped[0] if stopped else "")
+    rc = 124 if timed_out else 0 if ended else (p.returncode if p.returncode is not None else -1)
+    return Proc(rc, "".join(lines), err, timed_out=timed_out, stopped=stopped[0] if stopped else "", ended=bool(ended))
 
 
 @contextlib.contextmanager
