@@ -176,10 +176,13 @@ class Config:
         if fallback:  # N11 reads the runner table (Q1): a name that is no preset can never run
             from .backends.command import PRESETS
             from .doctor import RUNNERS
+            from .handoff import entry_folder
             known = set(PRESETS) | {r.preset for r in RUNNERS if r.preset}
-            bad = [str(n) for n in (fallback if isinstance(fallback, list) else [fallback]) if n not in known]
+            items = fallback if isinstance(fallback, list) else [fallback]
+            bad = [str(n) for n in items if not isinstance(n, dict) and n not in known]
+            bad += [str(n) for n in items if isinstance(n, dict) and not entry_folder(n)]  # W28
             if bad:
-                errs.append(f"agent.fallback names must be presets ({', '.join(sorted(known))}), got {', '.join(bad)}")
+                errs.append(f"agent.fallback names must be presets ({', '.join(sorted(known))}) or {{claude_cli: {{CLAUDE_CONFIG_DIR: folder}}}}, got {', '.join(bad)}")
         for env in ("staging", "prod"):
             if self.get(f"deploy.{env}.enabled") and not self.get(f"deploy.{env}.cmd"):
                 errs.append(f"deploy.{env}.enabled but deploy.{env}.cmd is empty")

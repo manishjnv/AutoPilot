@@ -65,6 +65,7 @@ agent:
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
   # preset: codex          # backend=command without a command: codex | copilot | gemini | opencode | kiro | cursor | aider (ready-made invocations)
   # fallback: [codex, copilot]   # N11: at a usage limit that resets in over 30 min, the task continues with the first runner here (own login)
+  # fallback: [{claude_cli: {CLAUDE_CONFIG_DIR: ~/.claude-2}}]   # W28: or the same runner on a second Claude login (own usage window)
   # model_map: {haiku: <small model>, sonnet: <main model>, opus: <largest model>}   # ladder names -> CLI models;
   #                         an unmapped haiku/sonnet/opus uses the CLI's default model
   permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing; or dontAsk + allowed_tools

@@ -652,6 +652,11 @@ def cmd_validate(args):
     for e in cfg.validate():
         if e not in blocking:
             print(f"config  WARN  {e}")
+    fb = cfg.get("agent.fallback") or []
+    if fb:  # W28: the order in which a usage limit moves the work
+        from .handoff import entry_folder
+        print("runner  OK    fallback chain: " + " -> ".join(
+            f"claude_cli on {entry_folder(e)}" if isinstance(e, dict) else str(e) for e in (fb if isinstance(fb, list) else [fb])))
     try:
         plan = Plan.load(root / AGENT_DIR / "plan.yaml")
         tasks = plan.all_tasks()

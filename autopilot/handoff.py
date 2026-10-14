@@ -9,9 +9,27 @@ from .config import Config
 MIN_WAIT = 1800  # seconds to the reset; below this the normal pause is shorter than a handoff
 
 
-def fallback_backend(cfg, name: str):
-    """The backend of runner `name` (a command preset), built by the normal factory."""
-    agent = {**(cfg.data.get("agent") or {}), "backend": "command", "preset": name, "command": ""}
+def entry_folder(entry) -> str:
+    """W28: the CLAUDE_CONFIG_DIR of an `agent.fallback` entry `{claude_cli: {CLAUDE_CONFIG_DIR: folder}}`, else ''."""
+    if not isinstance(entry, dict):
+        return ""
+    env = next(iter(entry.values()), None)
+    return str(env.get("CLAUDE_CONFIG_DIR") or "") if isinstance(env, dict) else ""
+
+
+def account_of(cfg) -> str:
+    """W28: the Claude config folder the main runner uses (`agent.env`), else `default`."""
+    return str((cfg.get("agent.env") or {}).get("CLAUDE_CONFIG_DIR") or "default")
+
+
+def fallback_backend(cfg, entry):
+    """The backend of fallback `entry`: a runner name (a command preset), or W28 `{claude_cli: {CLAUDE_CONFIG_DIR: f}}`
+    = the same runner with that env added (this backend only), both built by the normal factory."""
+    agent = dict(cfg.data.get("agent") or {})
+    if isinstance(entry, dict):
+        agent["env"] = {**(agent.get("env") or {}), "CLAUDE_CONFIG_DIR": entry_folder(entry)}
+    else:
+        agent.update(backend="command", preset=entry, command="")
     return get_backend(Config(cfg.root, {**cfg.data, "agent": agent}))
 
 

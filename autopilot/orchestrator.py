@@ -33,7 +33,7 @@ from .gate import (TEST_GLOBS, CmdResult, GateResult, _match, main_gate, protect
                    test_tamper)
 from .gitops import Git, GitError
 from .growth import consolidate
-from .handoff import MIN_WAIT, fallback_backend, write_handoff
+from .handoff import MIN_WAIT, account_of, entry_folder, fallback_backend, write_handoff
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .proc import agent_env, exclusive_lock, run_proc, stop_when
@@ -816,6 +816,19 @@ class Orchestrator:
     # ------------------------------------------------------------------ U4: the subscription's 5-hour window
     OPUS_HEAVY = ("decide", "audit", "replan", "onboard")
 
+    def _account(self) -> str:
+        """W28: the Claude config folder the next session runs on: the fallback account while a handoff window is
+        closed, else the one in `agent.env`, else `default`."""
+        run = self.state.get_meta("handoff_runner")
+        if isinstance(run, dict) and float(self.state.get_meta("handoff_until", 0) or 0) > time.time():
+            return entry_folder(run)
+        return account_of(self.cfg)
+
+    def _wk(self, name: str) -> str:
+        """W28: the meta key of window state `name` for the current account (`default` keeps the plain key)."""
+        acct = self._account()
+        return name if acct == "default" else f"{name}@{acct}"
+
     def _window_used(self, start: float) -> float:
         since = dt.datetime.fromtimestamp(start).isoformat(timespec="seconds")
         return float(self.state.db.execute("SELECT COALESCE(SUM(cost),0) FROM sessions WHERE started_at >= ?",
@@ -833,18 +846,18 @@ class Orchestrator:
         opus_by = float(u("usage.opus_by_pct", 0) or 0) / 100
         heavy = opus_by and kind in self.OPUS_HEAVY and model_rank(model) == 2
         share = (1 - reserve) * (opus_by if heavy else 1)  # the part of the window this session may start in
-        five = open_window(self.state, float(u("usage.window_hours", 5) or 5))
+        five = open_window(self.state, float(u("usage.window_hours", 5) or 5), self._wk("window_seen"))
         if five:
             if not (reserve or opus_by) or five["pct"] < share:
                 return
             wake, used = five["reset"] + 120, f"{round(100 * five['pct'])}% of this usage window is used"
         else:
             span = float(u("usage.window_hours", 5) or 5) * 3600
-            start = float(self.state.get_meta("window_start", 0) or 0)
+            start = float(self.state.get_meta(self._wk("window_start"), 0) or 0)
             if time.time() >= start + span:  # no open window: this session opens one
-                self.state.set_meta("window_start", time.time())
+                self.state.set_meta(self._wk("window_start"), time.time())
                 return
-            cap = float(u("usage.window_usd", 0) or 0) or float(self.state.get_meta("window_capacity_usd", 0) or 0)
+            cap = float(u("usage.window_usd", 0) or 0) or float(self.state.get_meta(self._wk("window_capacity_usd"), 0) or 0)
             if not cap or not (reserve or opus_by):
                 return
             spent = self._window_used(start)
@@ -855,8 +868,8 @@ class Orchestrator:
         self.notify.send("window", f"{used}; {why}. Pausing until {dt.datetime.fromtimestamp(wake):%H:%M}.")
         self._journal(current="waiting for the usage window to reset")
         self.sleep(max(60.0, wake - time.time()))
-        self.state.set_meta("window_start", 0)
-        self.state.set_meta("window_seen", {})  # that figure belonged to the window that just ended
+        self.state.set_meta(self._wk("window_start"), 0)
+        self.state.set_meta(self._wk("window_seen"), {})  # that figure belonged to the window that just ended
 
     def note_window(self, res: SessionResult):
         """G1: keep the CLI's own usage figure for `window_gate`, and say once when the weekly limit is nearly used."""
@@ -864,7 +877,7 @@ class Orchestrator:
             self.state.set_meta("config_load", res.config)
         if not res.window:
             return
-        self.state.set_meta("window_seen", res.window)
+        self.state.set_meta(self._wk("window_seen"), res.window)
         week = res.window.get("seven_day") or {}
         day = int(week.get("reset", 0) // 86400)  # once per weekly window, even if its reset time drifts
         if week.get("pct", 0) >= 0.9 and self.state.get_meta("week_warned") != day:
@@ -878,10 +891,10 @@ class Orchestrator:
         if self.cfg.get("usage.billing", "subscription") != "subscription":
             return
         start = reset_at - float(self.cfg.get("usage.window_hours", 5) or 5) * 3600
-        self.state.set_meta("window_start", start)
+        self.state.set_meta(self._wk("window_start"), start)
         used = self._window_used(start)
-        if used > float(self.state.get_meta("window_capacity_usd", 0) or 0):
-            self.state.set_meta("window_capacity_usd", round(used, 2))
+        if used > float(self.state.get_meta(self._wk("window_capacity_usd"), 0) or 0):
+            self.state.set_meta(self._wk("window_capacity_usd"), round(used, 2))
             log.info("usage window size learned: about $%.2f", used)
 
     def backoff(self, res):
@@ -970,6 +983,9 @@ class Orchestrator:
         self.note_window(res)
         if res.rate_limited and res.reset_at:
             self.learn_window(res.reset_at)
+            until = float(self.state.get_meta("handoff_until", 0) or 0)
+            if isinstance(self.state.get_meta("handoff_runner"), dict) and until > time.time():
+                res.reset_at = min(res.reset_at, until)  # W28: both logins limited: wait for the earlier reset
         if res.rate_limited:
             self.backoff(res)
         else:
@@ -992,7 +1008,10 @@ class Orchestrator:
         if (not names or not task or not res.reset_at or res.reset_at - time.time() <= MIN_WAIT
                 or self._runner() is not self.backend):
             return None
-        runner = str(names[0])
+        acct = self._account()  # W28: skip an entry that is the account this session just ran on
+        runner = next((n for n in names if not isinstance(n, dict) or entry_folder(n) != acct), None)
+        if runner is None:
+            return None
         try:
             backend = self._fallback_backend(runner)
             self.git.commit_all("wip: handoff at usage limit")
@@ -1000,10 +1019,13 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001 — a failed handoff is just the old pause
             log.warning("handoff to %s failed: %s", runner, exc)
             return None
+        self.learn_window(res.reset_at)  # the first account's window, before the switch (keyed by its folder)
         self.state.set_meta("handoff_until", res.reset_at)
         self.state.set_meta("handoff_runner", runner)
-        self.notify.send("handoff", f"{task_id}: usage limit until {dt.datetime.fromtimestamp(res.reset_at):%H:%M}; "
-                                    f"the task continues with {runner}")
+        reset = f"{dt.datetime.fromtimestamp(res.reset_at):%H:%M}"
+        self.notify.send("handoff", f"{task_id}: usage limit on {acct} (resets {reset}): next session on "
+                                    f"{entry_folder(runner)}" if isinstance(runner, dict) else
+                         f"{task_id}: usage limit until {reset}; the task continues with {runner}")
         try:
             out = backend.run(replace(req, prompt=f"{text}\n\n---\n\n{req.prompt}", resume="", resume_totals={}))
         except Exception as exc:  # noqa: BLE001

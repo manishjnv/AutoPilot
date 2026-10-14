@@ -31,10 +31,10 @@ def token_footer(state, since_session: int = 0) -> str:
     return f"Tokens: {_n(total)} total — " + " · ".join(parts + [f"verification {round(100 * verif)}%"])
 
 
-def open_window(state, hours: float = 5) -> dict:
+def open_window(state, hours: float = 5, key: str = "window_seen") -> dict:
     """G1: the five-hour figure {pct, reset} the CLI last reported, if it is for a window still open; else {}.
     A reset further away than a window lasts means a wrong clock, so that figure is ignored as well."""
-    five = (state.get_meta("window_seen", {}) or {}).get("five_hour") or {}
+    five = (state.get_meta(key, {}) or {}).get("five_hour") or {}
     left = float(five.get("reset") or 0) - time.time()
     return five if "pct" in five and 0 < left <= hours * 3600 + 600 else {}
 
