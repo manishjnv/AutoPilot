@@ -5,12 +5,13 @@ import platform
 import re
 import shutil
 import subprocess
+import os
 import tempfile
 from pathlib import Path
 
 REPO = "manishjnv/AutoPilot"
 COPY = f"gh is not logged in; copy the file into a new issue at https://github.com/{REPO}/issues/new"
-_LEAK = re.compile(r"/home/|C:\\Users|/Users/|@", re.I)
+_LEAK = re.compile(r"/home/|/Users/|/mnt/|/root/|/tmp/|/var/|/etc/|[A-Za-z]:[\\/]|\\\\|~|%|://|@|!\[|\]\(", re.I)  # paths, users, links
 
 
 def build(root: Path) -> str:
@@ -38,7 +39,7 @@ def build(root: Path) -> str:
            f"OS: {platform.system()} {platform.release()}", f"Runner: {runner}", "", "Top unknown wordings:"]
     out += [f"- {n}x {cause}: {text}" for n, cause, text in top] or ["- none"]
     out += ["", "Blocked tasks by cause:"] + ([f"- {c}: {n}" for c, n in sorted(parked.items())] or ["- none"])
-    out += ["", "Last log lines:"] + log
+    out += ["", "Last log lines:"] + log  # every line still passes redact and the _LEAK drop below
     body = signals.redact("\n".join(out))
     return "\n".join(ln for ln in body.splitlines() if not _LEAK.search(ln)) + "\n"
 
@@ -50,7 +51,10 @@ def cmd_issue(args) -> int:
         return 0
     f = Path(tempfile.mkdtemp(prefix="ap-issue-")) / "issue.md"
     f.write_text(body, encoding="utf-8")
+    os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"  # Windows: never a gh.exe planted in the checkout
     gh = shutil.which("gh")
+    if gh and Path(gh).resolve().parent in (Path.cwd().resolve(), Path(getattr(args, "path", None) or ".").resolve()):
+        gh = None
     try:
         ok = bool(gh) and subprocess.run([gh, "auth", "status"], capture_output=True, timeout=30).returncode == 0
         if ok:

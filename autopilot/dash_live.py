@@ -326,8 +326,9 @@ def findings_noted(root, state) -> int:
         except (ValueError, TypeError):
             pass
     try:
-        n += sum(1 for x in (root / AGENT_DIR / "FOLLOWUPS.md").read_text(encoding="utf-8").splitlines() if x.startswith("- ["))
-    except OSError:
+        n += sum(1 for x in (root / AGENT_DIR / "FOLLOWUPS.md").read_text(encoding="utf-8", errors="replace").splitlines()
+                 if x.startswith("- ["))
+    except (OSError, ValueError):
         pass
     return n
 

@@ -69,7 +69,10 @@ class State:
                 if col not in have:
                     self.db.execute(f"ALTER TABLE sessions ADD COLUMN {col} INTEGER DEFAULT 0")
             if "account" not in have:  # W50: the login a session ran on ('' = the default login)
-                self.db.execute("ALTER TABLE sessions ADD COLUMN account TEXT DEFAULT ''")
+                try:
+                    self.db.execute("ALTER TABLE sessions ADD COLUMN account TEXT DEFAULT ''")
+                except sqlite3.OperationalError:
+                    pass  # two processes opened the old file at once; the other one added it
         except sqlite3.DatabaseError:
             self.db.close()
             raise

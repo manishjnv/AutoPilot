@@ -226,9 +226,10 @@ def _helper(root, rid: str, text: str, fallback: str, backend):
 
 def record(root, text: str, reply: str):
     """W53: a command typed in a shell (`ap hint ...`) goes into the inbox with its reply, as the watch row does."""
+    from .signals import redact
     rid = uuid.uuid4().hex[:8]
-    _append(root, {"id": rid, "text": " ".join(text.split()), "kind": "command"})
-    _append(root, {"id": rid, "reply": reply, "partial": False})
+    _append(root, {"id": rid, "text": redact(" ".join(text.split())), "kind": "command"})
+    _append(root, {"id": rid, "reply": redact(reply), "partial": False})
 
 
 def spawn_helper(root, rid: str, text: str, fb: str):
@@ -236,9 +237,10 @@ def spawn_helper(root, rid: str, text: str, fb: str):
     import os
     import subprocess
     import sys
-    code = "import sys; from autopilot import inbox; inbox._helper(*sys.argv[1:5], None)"
-    kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-              env={**os.environ, "PYTHONSAFEPATH": "1"})
+    import tempfile
+    code = "import sys; sys.path[:] = [p for p in sys.path if p]; from autopilot import inbox; inbox._helper(*sys.argv[1:5], None)"
+    kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=tempfile.gettempdir(),
+              env={**os.environ, "PYTHONSAFEPATH": "1"})  # never the checkout: a planted autopilot/ package must not load
     if os.name == "nt":
         subprocess.Popen([sys.executable, "-c", code, str(root), rid, text, fb],  # noqa: S603
                          creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP, **kw)
