@@ -54,7 +54,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
 3. {{test_rule}}
 4. Run the build, lint and typecheck commands below and fix failures before finishing. Run the tests of the files you changed. The gate runs the full suite at the phase close. Do not run the full test command yourself. Tests that already fail before your change: list them in the report under `failing_before` (node ids such as `tests/test_x.py::test_y`). Never skip, deselect, xfail or delete a test to get green; each name is checked against main, and a name that passes on main fails your attempt.
 {{verify_cmds}}
-5. Update documentation touched by this change (README, API docs, docstrings, the docs listed above).
+5. Update documentation touched by this change (README, API docs, docstrings, the docs listed above). A CHANGELOG entry is one sentence of at most 25 words in simple words: what the user gets. No config key and no file name in it; the detail goes to REFERENCE.
 6. If the task is genuinely impossible (missing external dependency, contradictory spec), stop and report "blocked" with a precise reason — do not fake it.
 
 ## Final report (required, last thing in your reply)

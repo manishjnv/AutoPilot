@@ -27,3 +27,8 @@ jobs:
             [ -f "$f" ] && files="$files $f"
           done
           vale --minAlertLevel=error $files
+      - name: Lint the Unreleased block of CHANGELOG.md (W49; older release blocks are history and stay as they are)
+        run: |
+          mkdir -p /tmp/notes && cp -r .vale.ini .vale /tmp/notes/
+          awk '/^## \[Unreleased\]/{f=1} /^## \[[0-9]/{f=0} f' CHANGELOG.md > /tmp/notes/CHANGELOG.md
+          cd /tmp/notes && vale --minAlertLevel=error CHANGELOG.md

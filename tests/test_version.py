@@ -17,7 +17,7 @@ def test_bump_updates_files_commits_and_tags(tmp_path):
     (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.1.0"\n')
     (tmp_path / "plugin/.claude-plugin/plugin.json").write_text('{\n  "version": "0.1.0"\n}\n')
     (tmp_path / "autopilot/__init__.py").write_text('__version__ = "0.1.0"\n')
-    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n\n- a fix\n")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n\n**In plain words:** one fix.\n\n- a fix\n")
     (tmp_path / "install.sh").write_text("DEFAULT_REF=main\nMIN_VERSION=0.1.0\n")
     (tmp_path / "install.ps1").write_text("$DefaultRef = 'main'\n$MinVersion = '0.1.0'\n")
     for a in (["init", "-q"], ["config", "user.name", "t"], ["config", "user.email", "t@t"],
