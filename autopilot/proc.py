@@ -193,7 +193,7 @@ def _kill_tree(p: subprocess.Popen):
         if job:
             with contextlib.suppress(Exception):
                 _job_call("TerminateJobObject", job, 1)
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True, timeout=60)
     else:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(p.pid, signal.SIGKILL)
@@ -242,6 +242,18 @@ def _start_watch(p: subprocess.Popen, stopped: list) -> threading.Event:
     if _STOP_CHECK is not None:
         threading.Thread(target=_owner_watch, args=(p, stopped, done), daemon=True).start()
     return done
+
+
+def tail_lines(path, n: int, max_bytes: int = 262144) -> list[str]:
+    """The last `n` lines of a text file, read from the end (never the whole file). [] when it cannot be read."""
+    try:
+        with open(path, "rb") as fh:
+            size = fh.seek(0, 2)
+            fh.seek(max(0, size - max_bytes))
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    return lines[-n:] if size <= max_bytes else lines[1:][-n:]  # the first line of a cut read may be partial
 
 
 def run_proc(cmd, *, cwd=None, env=None, input: str | None = None, timeout: float | None = None,

@@ -108,8 +108,8 @@ def live_rows(root, plan, lines: int = 40, live: bool = False) -> list[dict]:
     log = root / AGENT_DIR / "logs" / "autopilot.log"
     ids = plan.all_tasks()
     view = SimpleView({t.id: (i + 1, len(ids), t.title, t.description) for i, t in enumerate(ids)})
-    # ponytail: reads the end of the log on each call; read by offset if a log grows to many MB
-    raw = log.read_text(encoding="utf-8", errors="replace").splitlines()[-600:] if log.exists() else []
+    from .proc import tail_lines
+    raw = tail_lines(log, 600)
     # J13/8: the time of a step = the session clock of the line that ends it minus the clock of the line that began it
     clock = lambda row: (lambda m: int(m.group(1)) * 60 + int(m.group(2)) if m else None)(  # noqa: E731
         re.search(r"· (\d+)m(\d\d)s\s*$", row))

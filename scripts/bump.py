@@ -30,22 +30,23 @@ def sub(path, pattern, repl):
 
 
 def git(*args, **kw):
+    kw.setdefault("timeout", 300)
     return subprocess.run([*GIT, *args], check=True, env={**os.environ, **identity_env()}, **kw)
 
 
 def head():
-    return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True, timeout=300).stdout.strip()
 
 
 def has_origin() -> bool:
     """A repository without `origin` (a test fixture, a plain clone) bumps and tags locally; the guard needs a remote."""
-    return subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True).returncode == 0
+    return subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True, timeout=300).returncode == 0
 
 
 def ci_state(sha) -> str:
     """'success', 'failure', 'pending' or 'none' for the CI workflow on this commit (needs gh)."""
     p = subprocess.run(["gh", "run", "list", "--commit", sha, "--workflow", "CI", "--json", "status,conclusion",
-                        "--limit", "1"], capture_output=True, text=True)
+                        "--limit", "1"], capture_output=True, text=True, timeout=300)
     if p.returncode != 0:
         sys.exit("gh run list failed; is gh logged in?\n" + p.stderr)
     runs = json.loads(p.stdout or "[]")
@@ -117,7 +118,7 @@ def tag(ver):
 def main(argv):
     if len(argv) not in (1, 2) or not re.fullmatch(r"\d+\.\d+\.\d+", argv[0]) or (len(argv) == 2 and argv[1] != "--tag"):
         sys.exit(__doc__)
-    if subprocess.run([*GIT, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True).stdout.strip() \
+    if subprocess.run([*GIT, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True, timeout=300).stdout.strip() \
             and len(argv) == 1:
         sys.exit("the working tree has changes; commit or stash them first")
     (tag if len(argv) == 2 else bump)(argv[0])

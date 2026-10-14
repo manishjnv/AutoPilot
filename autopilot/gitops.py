@@ -15,6 +15,7 @@ LOCK_WORDS = ("unlink", "permission denied", "resource busy", "unable to unlink"
 
 # Agent sessions can write .git/ and the user's git config. Nothing they plant may run inside the orchestrator's own
 # git calls: hooks and fsmonitor are switched off per call, filters are removed after each session (guard_config).
+GIT_TIMEOUT = 300
 SAFE = ["-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false"]
 FILTER_RX = r"^filter\..+\.(clean|smudge|process)$"
 
@@ -42,8 +43,13 @@ class Git:
         return p.stdout.strip()
 
     def _git(self, args):
-        return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", env={**os.environ, **identity_env()})
+        # a credential prompt must fail, not hang; a stuck git is cut off after GIT_TIMEOUT seconds
+        env = {**os.environ, **identity_env(), "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+        try:
+            return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", env=env, timeout=GIT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise GitError(f"git {' '.join(args)} timed out after {GIT_TIMEOUT} s") from None
 
     def _clear_stale_lock(self, stderr: str, min_age: float = 60) -> bool:
         """`index.lock': File exists` from a git process that died (crash, reboot): remove the lock once it is older
@@ -57,7 +63,7 @@ class Git:
 
     def ok(self, *args: str) -> bool:
         return subprocess.run(["git", *SAFE, *args], cwd=self.root, capture_output=True,
-                              encoding="utf-8", errors="replace").returncode == 0
+                              encoding="utf-8", errors="replace", timeout=GIT_TIMEOUT).returncode == 0
 
     # ---------- config guard (around agent sessions) ----------
     def config_text(self) -> str:

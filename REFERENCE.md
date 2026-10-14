@@ -123,7 +123,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `REPORT.md` | The live status. A `Not verified` line counts the tasks with gate warnings and the features with no check | No |
 | `run.json` | The journal of the active run. At the end it has `word`, the outcome word. `pid` is the process of the run; `beat_at` is written every 30 seconds while the run lives, also during a long session. `status: running` with a `pid` that is gone shows as `DEAD since HH:MM` (time of `beat_at`, else `updated_at`) in `ap status`, `ap watch`, the end screen and the status page; the next command is `ap start`. A run.json without `pid` still shows ON. `heartbeat_at` is the time of the last runner event, written at most every 10 seconds. `current_at` is the time when the gate line or the start-check line was written. `version` is the Autopilot version of the run | No |
 | `state.db` | The progress, the sessions, and the cost | No |
-| `logs/` | The log, the session logs, and the crash reports | No |
+| `logs/` | The log, the session logs, and the crash reports. The log rotates at 10 MB and Autopilot keeps three old copies | No |
 | `STOP` | The stop flag from `autopilot stop`; the first line `now` means `ap stop --now` | No |
 | `inbox.jsonl` | Every line that you type to `ap` and its reply, append-only: `{t, id, text, kind}` for a typed line, `{t, id, reply, partial}` for a reply. The last reply line of an id has `partial: false` | No |
 | `helper.lock` | Allows one helper model call at a time | No |

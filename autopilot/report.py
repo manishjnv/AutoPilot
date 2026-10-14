@@ -591,7 +591,7 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
     """Read-only HTTP server: GET / rebuilds the report from plan.yaml + state.db on every request.
     A non-loopback bind needs a token (?token=...). Raises ValueError when that is missing."""
     import hmac
-    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from pathlib import Path
     from urllib.parse import parse_qs, urlsplit
 
@@ -604,6 +604,27 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
         raise ValueError(f"refusing to serve on {host} without AUTOPILOT_STATUS_TOKEN (the report shows errors "
                          "and decisions); bind to 127.0.0.1 and use an SSH tunnel, or set a token")
     root = Path(root)
+    cache: dict = {}  # {"key": mtimes of the inputs, "body": page}; a GET between changes returns the same bytes
+    inputs = [root / AGENT_DIR / n for n in ("state.db", "state.db-wal", "run.json", "plan.yaml", "logs/autopilot.log")]
+
+    def stamp():
+        out = []
+        for f in inputs:
+            try:
+                out.append(f.stat().st_mtime_ns)
+            except OSError:
+                out.append(None)
+        return tuple(out)
+
+    def page(cfg, plan, state):
+        from .dash_web import render
+        from .dashboard import dashboard_data, spinner
+        # J9: the dashboard; the full report is below it, closed until the reader opens it
+        run = run_journal(root)
+        data = dashboard_data(cfg, plan, state, run)
+        data["spin"] = spinner(data, data["asof"]["mtime"], time.time())  # J13/18: the page keeps no frame
+        data["line"] = status_line(cfg, plan, state, run, 0)  # G8: the short line is the tab's title
+        return render(data, refresh, report_md=build_report(cfg, plan, state))
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
@@ -617,19 +638,17 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
             elif not is_loopback(urlsplit("//" + self.headers.get("Host", "")).hostname or ""):
                 return self._send(403, "forbidden", "text/plain")  # DNS rebinding: a web page posing as localhost
             try:
+                key = stamp()
+                if cache.get("key") == key:
+                    return self._send(200, cache["body"], "text/html")
                 cfg, plan = Config.load(root), Plan.load(root / AGENT_DIR / "plan.yaml")
                 state = State(root / AGENT_DIR / "state.db")
                 try:
-                    from .dash_web import render
-                    from .dashboard import dashboard_data, spinner
-                    # J9: the dashboard; the full report is below it, closed until the reader opens it
-                    run = run_journal(root)
-                    data = dashboard_data(cfg, plan, state, run)
-                    data["spin"] = spinner(data, data["asof"]["mtime"], time.time())  # J13/18: the page keeps no frame
-                    data["line"] = status_line(cfg, plan, state, run, 0)  # G8: the short line is the tab's title
-                    body = render(data, refresh, report_md=build_report(cfg, plan, state))
+                    body = page(cfg, plan, state)
                 finally:
                     state.db.close()
+                cache.update(key=stamp(), body=body)  # after the render: opening state.db touches its files
+                # ponytail: a write during the render itself is shown on the next change, not at once
             except Exception as exc:  # noqa: BLE001  a half-written plan mid-replan must not kill the server
                 return self._send(500, f"report unavailable: {type(exc).__name__}", "text/plain")
             self._send(200, body, "text/html")
@@ -650,4 +669,4 @@ def status_server(root, host: str = "127.0.0.1", port: int = 8765, token: str = 
         def log_message(self, *a):  # quiet: the URL holds the token
             pass
 
-    return HTTPServer((host, port), Handler)
+    return ThreadingHTTPServer((host, port), Handler)

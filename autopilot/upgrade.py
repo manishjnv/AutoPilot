@@ -53,9 +53,15 @@ def detect_install(file=None, which=shutil.which, run=run_proc) -> str:
     return "pip"
 
 
-def _get(url, urlopen) -> bytes:
+MAX_DOWNLOAD = 200 * 1024 * 1024
+
+
+def _get(url, urlopen, cap: int = MAX_DOWNLOAD) -> bytes:
     with urlopen(url) as r:
-        return r.read()
+        data = r.read(cap + 1)
+    if len(data) > cap:
+        raise ValueError(f"the download is larger than {cap // 1024 // 1024} MB; stopped")
+    return data
 
 
 def latest_release(ref=None, run=run_proc, urlopen=_open, which=shutil.which) -> dict:
@@ -86,8 +92,13 @@ def fetch_wheel(rel: dict, urlopen=_open) -> Path | None:
     if got != rel["sha256"]:
         print(f"refused: the wheel hash {got[:12]} is not the SHA256SUMS hash {rel['sha256'][:12]}")
         return None
-    path = Path(tempfile.mkdtemp(prefix="autopilot-")) / rel["wheel_url"].rsplit("/", 1)[-1]
-    path.write_bytes(blob)
+    folder = Path(tempfile.mkdtemp(prefix="autopilot-"))
+    path = folder / rel["wheel_url"].rsplit("/", 1)[-1]
+    try:
+        path.write_bytes(blob)
+    except OSError:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
     return path
 
 
@@ -144,7 +155,10 @@ def cmd_upgrade(args, run=run_proc, urlopen=_open, detect=detect_install, root=N
         return 1
     cmd = (["uv", "tool", "install", "--reinstall", str(wheel)] if kind == "uv"
            else [sys.executable, "-m", "pip", "install", "--upgrade", str(wheel)])
-    p = run(cmd, timeout=600)
+    try:
+        p = run(cmd, timeout=600)
+    finally:
+        shutil.rmtree(wheel.parent, ignore_errors=True)
     if p.rc != 0:
         print(f"install failed: {(p.stderr or p.stdout).strip()[:200]}")
         return 1
@@ -178,7 +192,11 @@ def cmd_install(args, run=run_proc, urlopen=_open, which=shutil.which, setup=_se
     wheel = fetch_wheel(rel, urlopen)
     if wheel is None:
         return 1
-    if run(["uv", "tool", "install", "--reinstall", str(wheel)], timeout=600).rc != 0:
+    try:
+        rc = run(["uv", "tool", "install", "--reinstall", str(wheel)], timeout=600).rc
+    finally:
+        shutil.rmtree(wheel.parent, ignore_errors=True)
+    if rc != 0:
         print("uv tool install failed")
         return 1
     print(f"installed {rel['tag']}. Open a project folder and type ap")

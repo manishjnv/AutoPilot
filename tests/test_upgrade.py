@@ -4,6 +4,8 @@ import json
 from argparse import Namespace
 from pathlib import Path
 
+import pytest
+
 from autopilot.proc import Proc
 from autopilot.upgrade import (cmd_install, cmd_upgrade, check_once_per_day, detect_install, fetch_wheel,
                                latest_release)
@@ -33,8 +35,8 @@ class Resp:
     def __exit__(self, *a):
         return False
 
-    def read(self):
-        return self.data
+    def read(self, n=-1):
+        return self.data if n < 0 else self.data[:n]
 
 
 def fake_open(api=API_JSON, wheel=WHEEL, checksums=None):
@@ -107,12 +109,18 @@ def test_a_current_checkout_says_latest(capsys, tmp_path):
 
 def test_uv_install_passes_the_checked_local_wheel(capsys, monkeypatch):
     monkeypatch.setattr("autopilot.upgrade.__version__", "0.3.0")  # the fake release is v0.4.0, whatever the package says
-    run = FakeRun({"gh release view": GH_JSON})
-    rc = cmd_upgrade(Namespace(check=False, ref=None), run=run, urlopen=fake_open(), detect=lambda: "uv")
+    run, seen = FakeRun({"gh release view": GH_JSON}), []
+
+    def spy(cmd, **kw):
+        if cmd[0] == "uv":
+            seen.append(Path(cmd[4]).read_bytes())  # the file exists while the install runs
+        return run(cmd, **kw)
+    rc = cmd_upgrade(Namespace(check=False, ref=None), run=spy, urlopen=fake_open(), detect=lambda: "uv")
     install = run.calls[-1]
     assert rc == 0 and install[:4] == ["uv", "tool", "install", "--reinstall"]
     path = Path(install[4])
-    assert path.read_bytes() == WHEEL and path.name.endswith(".whl")  # the local, hash-checked file, not the URL
+    assert seen == [WHEEL] and path.name.endswith(".whl")  # the local, hash-checked file, not the URL
+    assert not path.parent.exists()  # and the temp folder is gone afterwards
     assert "v0.4.0" in capsys.readouterr().out
 
 
@@ -273,3 +281,15 @@ def test_update_before_run_never_raises(tmp_path, monkeypatch):
         raise RuntimeError("no network")
     assert upgrade.update_before_run("run", tmp_path, ["run"], env={}, run=boom, urlopen=boom, stamp=tmp_path / "s") == ""
 
+
+
+def test_a_download_over_the_cap_stops_with_one_line():
+    from autopilot.upgrade import _get
+    with pytest.raises(ValueError, match="larger than"):
+        _get("u", lambda url: Resp(b"x" * 11), cap=10)
+
+
+def test_the_temp_folder_is_removed_after_the_install():
+    run = FakeRun({"gh release view": GH_JSON})
+    cmd_install(Namespace(rights=False), run=run, urlopen=fake_open(), which=lambda n: "/bin/" + n, setup=lambda a: 0)
+    assert not Path(run.calls[-1][-1]).parent.exists()

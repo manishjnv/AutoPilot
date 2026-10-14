@@ -36,7 +36,7 @@ from .growth import consolidate
 from .handoff import MIN_WAIT, account_of, entry_folder, fallback_backend, write_handoff
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
-from .proc import exclusive_lock, run_proc, stop_when
+from .proc import exclusive_lock, run_proc, stop_when, tail_lines
 from .report import digest, open_window, token_footer, window_line
 from .schemas import REPORTS
 from .state import State, now
@@ -101,7 +101,7 @@ def _crash_report(root: Path, exc: BaseException, task: str) -> tuple[str, str]:
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{dt.datetime.now():%Y%m%d-%H%M%S}.md"
     log_file = root / AGENT_DIR / "logs" / "autopilot.log"
-    tail = log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-40:] if log_file.exists() else []
+    tail = tail_lines(log_file, 40)
     path.write_text(
         f"# Autopilot crash {dt.datetime.now():%Y-%m-%d %H:%M:%S}\n\n- Signature: `{sig}`\n- Task in flight: "
         f"{task or '(none)'}\n- Autopilot {__version__}, Python {platform.python_version()}, {platform.platform()}\n\n"

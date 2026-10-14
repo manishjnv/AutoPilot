@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import json
 import logging
+import logging.handlers
 import os
 import shutil
 import sys
@@ -29,7 +30,8 @@ AGENT_FILES = ["project.yaml", "plan.yaml", "BRAIN.md", "DECISIONS.md", "HANDOFF
 def setup_logging(root: Path, verbose: bool):
     logdir = root / AGENT_DIR / "logs"
     logdir.mkdir(parents=True, exist_ok=True)
-    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(logdir / "autopilot.log", encoding="utf-8")]
+    handlers = [logging.StreamHandler(sys.stdout), logging.handlers.RotatingFileHandler(
+        logdir / "autopilot.log", maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8")]
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, handlers=handlers,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
@@ -991,14 +993,17 @@ def watch_dashboard(root: Path, color, hold: bool, tick: float = 1.0, size_fn=No
         return None
     from .watch_input import Input, open_keys
     inp = Input(root, open_keys())  # W48a: the input row; no tty, no row
-    out, done, ended, typed = sys.stdout, 0, False, False
+    out, done, ended, typed, last_d = sys.stdout, 0, False, False, None
     out.write("\x1b[?1049h\x1b[?25l\x1b[?7l")  # the second screen, no cursor, no line wrap
     try:
         while True:
             size = size_fn()
             try:
-                d = data()
-                spin = d["spin"] = spinner(d, d["asof"]["mtime"], time.time(), spin, utf)
+                if typed and last_d:  # a key redraws the input row on the last picture; data() stays on the tick
+                    d = last_d
+                else:
+                    d = last_d = data()
+                    spin = d["spin"] = spinner(d, d["asof"]["mtime"], time.time(), spin, utf)
                 d["input"] = inp.row
                 rows = frame(d, size.columns, size.lines, color)
                 end = d['project'].get('end_title') or ''  # W18b: the outcome word is the title at the end, green/yellow/red
