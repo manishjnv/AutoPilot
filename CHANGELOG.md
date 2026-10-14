@@ -15,10 +15,13 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - The watch screen tells you what the run waits for, and its clock ticks every second.
 - A run whose process is gone shows DEAD, not ON.
 - The task time counts only the time the task really worked.
+- A card at the top shows the task in work: its steps, an end-time range and what changed so far.
+- At the end, the screen names the outcome and lists what is still open, with the command to run.
 - A run that you stop by hand ends with the word STOPPED.
 
 **Stop and steer**
 - `ap stop --now` ends the current session within 30 seconds and keeps its work.
+- You can type into a running build: a command runs at once, and a question gets a short answer.
 - A command such as `ap start` never builds another folder's project without asking you first.
 - The cost is forecast early, and on a subscription the run asks you before it stops at the cost limit.
 - A second Claude login can take over when the first one reaches its usage limit.

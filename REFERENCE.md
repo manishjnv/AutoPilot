@@ -124,6 +124,8 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | `state.db` | The progress, the sessions, and the cost | No |
 | `logs/` | The log, the session logs, and the crash reports | No |
 | `STOP` | The stop flag from `autopilot stop`; the first line `now` means `ap stop --now` | No |
+| `inbox.jsonl` | Every line that you type to `ap` and its reply, append-only: `{t, id, text, kind}` for a typed line, `{t, id, reply, partial}` for a reply. The last reply line of an id has `partial: false` | No |
+| `helper.lock` | Allows one helper model call at a time | No |
 
 **Task key `status` in `plan.yaml`:** `status: done` says the work exists already (in the code or the git log). When the task is new, or still pending, Autopilot records it as done with the note `done before Autopilot`. It never changes a task that is running, blocked, skipped or done. If you remove the key later, the task stays done. `status: dropped` says the item left the plan document; Autopilot skips the task and keeps it in the file. Any other value is an error that names the task.
 
@@ -154,7 +156,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env` (variables for the session, for example `CLAUDE_CONFIG_DIR`), `fallback` (default empty; see below), `user_config` (false) |
 | `onboard` | The discovery pack of the `onboard` session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
 | `sandbox` | Where the agent runs: `mode` `off`, `allowlist` (Claude Code's own sandbox with the network allowlist) or `docker` (each session in `docker run --rm` with only the worktree at `/work`, its git folders (the shared one read-only) and a temp login folder mounted; never the home folder; secret variables pass by name only). A missing `mode` follows `enabled` | `mode`, `enabled` (false), `allowed_domains`, `image` (needed for `docker`; the image must have `claude` on PATH), `network` (`bridge`) |
-| `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `replanner` (sonnet; opus when a pending task's `files_in_scope` matches `escalate.load_bearing`), `unstick` (sonnet), `review` (opus) |
+| `models` | The model for each role | `ladder`, `fixer`, `auditor` (opus), `replanner` (sonnet; opus when a pending task's `files_in_scope` matches `escalate.load_bearing`), `unstick` (sonnet), `review` (opus), `helper` (haiku: the short answer to a typed question, at most 20 calls for each run) |
 | `usage` | The 5-hour window | `billing` (subscription), `reserve_pct` (15), `opus_by_pct` (0) |
 | `budget_usd` | Cost limits | `per_session` (8), `per_task` (20), `per_phase` (150), `daily` (200), `total` (5000) |
 | `profile` | How much checking each task gets | `lean` (new projects) or `full` (a missing key) |
@@ -521,15 +523,15 @@ that day's line. A known wording writes nothing. The file stays on your computer
 
 | Colour | Meaning | Where it appears |
 |---|---|---|
-| Green | Done or OK | Login `Pro` or `Max`, Status `Complete`, progress bar fill, Files added, lines added, Git and Checks `OK`, Size `This run (N tasks)` +N lines, Phase ✓, Live `The task is complete` |
-| Cyan | Running now | Status `In progress`, Phase ▶, Live test run, the state word in the title and the bar, the spinner while it turns |
-| Yellow | Warning | Login `not checked`, Time over 2x the median task time, Risk `high`, Tries 2 or more, Try on the last try, Questions, Warnings, Retries, Last commit age over 10 minutes with a running task, usage bar over 75 percent, `stale`, `⏸ no change 45s`, Live note, Live wait over 60 s (dim) |
-| Red | Blocked or failed | Login check failed, Status `Blocked`, Risk `crit`, Error text, Blocked count, Files deleted, lines deleted, Git and Checks failure text, usage bar over 90 percent, Phase ✗, Live error line, `✗ stopped 12:50` |
+| Green | Done or OK | Login `Pro` or `Max`, Status `Complete`, progress bar fill, Files added, lines added, Git and Checks `OK`, Size `This run (N tasks)` +N lines, Phase ✓, Live `The task is complete`, `✓ VERIFIED` at the end |
+| Cyan | Running now | Status `In progress`, Phase ▶, Live test run, the state word in the title and the bar, the spinner while it turns, the running task row (cyan fill, bold) while the run is live |
+| Yellow | Warning | Login `not checked`, Time over 2x the median task time, Risk `high`, Tries 2 or more, Try on the last try, Questions, Warnings, Retries, Last commit age over 10 minutes with a running task, usage bar over 75 percent, `stale`, `⏸ no change 45s`, Live note, Live wait over 60 s (dim), `⏸ BLOCKED`, `⏸ STOPPED` and `⏸ BUDGET_STOP` at the end |
+| Red | Blocked or failed | Login check failed, Status `Blocked`, Risk `crit`, Error text, Blocked count, Files deleted, lines deleted, Git and Checks failure text, usage bar over 90 percent, Phase ✗, Live error line, `✗ FAILED` and `✗ DEAD` at the end |
 | Magenta | Cost and usage | `Resets`, usage bars, Cost |
 | Blue | Model name | Now model, Detail model, usage model names |
 | Grey (dim) | Label, border, pending or zero | Labels, borders, Status `Pending`, Phase ○, Risk `low`, `waiting`, empty Error, zero counts, Live step verbs |
-| Bright white | A value the eye lands on | The running task row, key counts, the next step |
-| Bold | The one headline | The Now headline |
+| Bright white | A value the eye lands on | Key counts, the next step |
+| Bold | The one headline | The Now card title |
 
 The running indicator sits before the state word in the title, in the bottom bar and in the Now panel title. It turns
 only while the data file changes. After 30 s with no change it stops and shows `⏸ no change 45s` in yellow. When the

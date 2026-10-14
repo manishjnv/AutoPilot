@@ -77,6 +77,22 @@ maximum of 2000 characters each. A hint does not change the rules or the checks.
    The watch shows a `Waiting for:` line with the last tool, or the gate and its time. The spinner pauses after 30
    seconds with no heartbeat.
 
+## Ask a running build
+
+Type a line to `ap` while a build runs. You get a reply in about one second.
+
+1. In `ap watch`, type in the bottom row. Press Enter to send, or Esc to clear.
+2. In a shell, type the line after `ap`, for example `ap why is it slow`.
+
+A line that starts with `stop`, `hint`, `skip`, `answer`, `budget`, `change` or `status` runs that command. The reply
+says where it went and about when it takes effect. Any other line is a question. Common questions get an answer from
+the run files, with the source named. Other questions get a short answer from a small model, at most 20 for each run.
+The reply shows on the top line of the watch window and on the status page for 60 seconds.
+
+The Now card at the top of the watch window shows the task in work. `about 55%` is the weighted share of its five
+steps. At the end, the card names the outcome and lists what is still open. The window stays open until you press
+Enter.
+
 > [!NOTE]
 > A plain `ap run` stops again at once while the stop flag exists. Use `ap start` or `ap run --clear-stop`, or
 > run `ap resume` first.
