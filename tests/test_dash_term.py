@@ -418,7 +418,7 @@ def rich(**over):
     d = data(asof={"age": 3, "stopped": "", "live": True, "mtime": 1000.0}, **over)
     d["phases"] = PHASES + [{"id": "P09", "title": "d", "total": 2, "done": 0, "status": "blocked"}]
     d["project"].update(login="Max", resets="14:30", last_error="the checks fail", commit_stalled=True, state="Code")
-    d["project"]["now"].update(attempt=3, since=500)
+    d["project"]["now"].update(attempt=3, since=500, work=500, work_at=1000.0)
     t = d["tasks"]
     t[0].update(risk="critical", tries=1, slow=True, detail="Haiku · 2 tries")
     t[1].update(risk="high", tries=2)
@@ -437,7 +437,7 @@ def rich(**over):
 # (the text that follows the colour code, the colour)
 EXPECT = [("Max", "green"), ("14:30", "magenta"), ("the checks fail", "red"), ("+246 lines", "green"), ("7m ago", "yellow"),
           ("crit ", "red"), ("high ", "yellow"), ("low  ", "dim"), ("    2", "yellow"), ("Haiku", "blue"),
-          ("✓", "green"), ("▶", "cyan"), ("○", "dim"), ("✗", "red"), ("✓ Complete", "green"), ("▶ In progress", "cyan"),
+          ("✓", "green"), ("▶", "cyan"), ("○", "dim"), ("✗", "red"), ("✓ Complete", "green"),
           ("Changes ", "dim"), ("Runs the tests.", "cyan"), ("Task 3 is complete.", "green"), ("The checks failed.", "red"),
           ("Try 3 of 3", "yellow"), ("OK", "green"), ("FAIL", "red"), ("FIX001-T06", "red"), ("Code", "cyan")]
 
@@ -515,7 +515,7 @@ def test_spinner_turns_only_while_the_file_changes(tmp_path):
     assert "\x1b[36m⠙\x1b[0m \x1b[36mCode" in frame(d, 190, 60, True)[-1]  # before the state word in the bar
     assert "── \x1b[0m\x1b[36m⠙\x1b[0m Now" in "".join(frame(d, 190, 60, True))  # and in the Now title
     plain = "\n".join(strip(frame(d, 190, 60)))
-    assert "Task time: 8m31s data 1s old" in plain  # ticks from the local clock (1011 - 500), data age beside it
+    assert "Task time: 8m31s" in plain and "data 1s old" not in plain  # W18b: the work time ticks (500 s at 1000, now 1011)
     assert all(len(x) == 190 for x in strip(frame(d, 190, 60)))
 
 
@@ -529,7 +529,7 @@ def test_spinner_stale_after_30_s_is_yellow_and_frozen(tmp_path):
     out = "".join(frame(d, 190, 60, True))
     assert "\x1b[33m⏸ no change 45s" in frame(d, 190, 60, True)[-1]
     assert "── \x1b[0m\x1b[33m⏸ no change 45s\x1b[0m Now" in out
-    assert "data 45s old" in "\n".join(strip(frame(d, 190, 60)))
+    assert "data 45s old" not in "\n".join(strip(frame(d, 190, 60)))  # W18b: the Task time line has no data age
     assert all(len(x) == 100 for x in strip(frame(d, 100, 24, True)))
     assert spinner(d, 1000.0, 1100)["text"] == "⏸ no change 1m"
 

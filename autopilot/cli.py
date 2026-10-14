@@ -995,7 +995,8 @@ def watch_dashboard(root: Path, color, hold: bool, tick: float = 1.0, size_fn=No
                 d = data()
                 spin = d["spin"] = spinner(d, d["asof"]["mtime"], time.time(), spin, utf)
                 rows = frame(d, size.columns, size.lines, color)
-                title = "".join(c for c in f"{spin['text']} {d.get('line', '')}".strip() if c.isprintable())
+                end = d['project'].get('end_title') or ''  # W18b: the outcome word is the title at the end, green/yellow/red
+                title = "".join(c for c in (end or f"{spin['text']} {d.get('line', '')}".strip()) if c.isprintable())
                 out.write("\x1b[H" + "\n".join(rows) + f"\x1b]0;{title}\x07")
             except ValueError:  # the window is too small now
                 out.write("\x1b[2J\x1b[HThe window is too small for the dashboard. Make it larger, or run: ap watch --scroll")
@@ -1007,6 +1008,14 @@ def watch_dashboard(root: Path, color, hold: bool, tick: float = 1.0, size_fn=No
                 done = 0
             if done >= 3:
                 ended = True
+                if sys.stdin and sys.stdin.isatty():  # W18b: the end screen stays until Enter (the --hold behaviour)
+                    out.write(f"\x1b[{size.lines};1H\x1b[2K Press Enter to close this window.")
+                    out.flush()
+                    try:
+                        input()
+                    except (EOFError, KeyboardInterrupt):
+                        pass
+                    hold = False
                 break
             time.sleep(tick)
     except KeyboardInterrupt:

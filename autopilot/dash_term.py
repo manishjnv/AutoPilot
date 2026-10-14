@@ -7,7 +7,7 @@ from __future__ import annotations
 import textwrap
 import unicodedata
 
-from . import dash_live
+from . import dash_card, dash_live
 from .plain import paint
 
 MIN_COLS, MIN_ROWS = 100, 24
@@ -18,7 +18,8 @@ KIND = {"heading": "value", "goal": "dim", "good": "green", "bad": "red", "note"
 # J13/9: one colour, one meaning, on every screen. "bold" is only the Now headline; "value" is bright white, not bold.
 COLOUR_MEANING = {"green": "done or ok", "cyan": "running now", "yellow": "warning", "red": "blocked or failed",
                   "magenta": "cost and usage", "blue": "model name", "dim": "label, border, pending or zero",
-                  "value": "a value the eye lands on", "bold": "the one headline"}
+                  "value": "a value the eye lands on", "bold": "the one headline",
+                  "active": "the task in work: filled background, bold"}
 # J13/17: every (colour, use) pair of the screen. A colour has one meaning; a plain fact stays white (no colour).
 _USES = {
     "green": ["Login Pro/Max", "Status Complete", "Progress bar fill", "Files Added", "Lines +", "Git and Checks OK",
@@ -33,8 +34,9 @@ _USES = {
     "blue": ["Model", "Detail model", "Usage model names"],
     "dim": ["Labels and borders", "Status Pending", "Phase ○", "Risk low", "Waiting", "Error empty", "Zero counts",
             "Live: step verbs"],
-    "value": ["Running task row", "Counts the eye lands on", "Next step"],
+    "value": ["Counts the eye lands on", "Next step"],
     "bold": ["Now headline"],
+    "active": ["Running task row", "Now card label"],
 }
 COLOUR_USES = [(c, COLOUR_MEANING[c], u) for c, uses in _USES.items() for u in uses]
 RISK = {"critical": ("crit", "red"), "high": ("high", "yellow"), "medium": ("med", None), "low": ("low", "dim")}
@@ -75,7 +77,7 @@ def fit_segs(line, w: int) -> list:
     return parts + [(" " * (w - sum(len(t) for t, _ in parts)), None)]
 
 
-MONO = {"dim": "dim", "bold": "bold", "value": "bold"}  # W18a: NO_COLOR draws with bold and dim only
+MONO = {"dim": "dim", "bold": "bold", "value": "bold", "active": "bold"}  # W18a: NO_COLOR draws with bold and dim only
 
 
 def render(parts, color) -> str:
@@ -175,7 +177,7 @@ def ticking(sec) -> str:
     return f"{sec // 3600}h{sec % 3600 // 60:02d}m" if sec >= 3600 else f"{sec // 60}m{sec % 60:02d}s"
 
 
-def asof_note(d: dict, first: bool):
+def asof_note(d: dict, first: bool, own: bool = False):
     """J13/11: the note in a panel title. A stopped run shows 'stopped 12:50' on every panel; a live run shows the age
     of the data in the first panel only, yellow with 'stale' over 30 s; no source shows a dash. No key: no note."""
     a = d["asof"]
@@ -183,7 +185,7 @@ def asof_note(d: dict, first: bool):
         return None
     if a["stopped"]:
         return (f"stopped {a['stopped']}", "dim")
-    if not first:
+    if not first or d.get("card") and not own:  # W18b: with a card the data age lives at the right end of its border
         return None
     if a["age"] is None:
         return ("data —", "dim")
@@ -191,7 +193,7 @@ def asof_note(d: dict, first: bool):
     return (f"data {age} old stale", "yellow") if a["age"] > 30 else (f"data {age} old", "dim")
 
 
-def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
+def left_panel(d: dict, w: int, h: int, color: bool, narrow: bool = False) -> list[str]:
     p, pr, ny, now, size = d["project"], d["progress"], d["needs_you"], d["now"], d["size"]
 
     def row(label, value, style=None):
@@ -215,7 +217,10 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
         groups.append([rule("! Questions for you", "yellow"),
                        f"{n} questions wait for you." if n > 1 else "1 question waits for you.",
                        *text(ny[0]["title"]), [("Run: ", None), ("ap answer", "value")]])
-    if now and (now["title"] or now["model"] or count(now["n"])):
+    if d.get("card"):  # W18b: the Now card is at the top of the window; under 120 columns it is a group of this column
+        if narrow:
+            groups.append(dash_card.group(d, w))
+    elif now and (now["title"] or now["model"] or count(now["n"])):
         n, total, tries = count(now["n"]), count(pr.get("total")), count(now["attempt"])
         g = [rule("Now", spin=spin_cell(d))]
         # J13/10: the one bold headline of the screen: 'Task 7 of 17: title'
@@ -227,12 +232,10 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
                        try_style(tries, count(now["max_attempts"])))])
         tt = []
         if n:  # J13/18: the task time ticks from the local clock; 'data Ns old' is the truth check
-            sp, since = d.get("spin"), now.get("since")
-            t = ticking(sp["clock"] - float(since)) if sp and since else now["time"]
-            da = (sp["age"] if sp.get("data_age") is None else sp["data_age"]) if sp else None
+            sp = d.get("spin")  # W18b: the work time like the Tasks table (W42), never the wall clock since the first start
+            t = ticking(now["work"] + (sp["clock"] - now["work_at"] if sp and sp["clock"] else 0))                 if now.get("work") is not None and now.get("work_at") else now["time"]
             if t:
-                tt = [[f"{'Task time':<9}: ", t, *([(f" data {da}s old", "yellow" if da > 30 else "dim")]
-                                                  if sp and da is not None and sp["kind"] != "stopped" else [])]]
+                tt = [[f"{'Task time':<9}: ", t]]
         wt = dash_live.tick(p["wait"], sp0["clock"] if sp0 else None)  # W18a: what the run waits for, ticking
         groups.append(g + tt + row("Model", now["model"], "blue") + (text(wt) if wt else []))
     if p["next"]:
@@ -261,15 +264,15 @@ def left_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     g = [rule("Agent")] + row("Runner", p["runner"] or "—") + row("Login", *login)
     groups.append(g + row("Resets", resets, "magenta" if resets != "—" else "dim")
                   + row("Error", err, "dim" if err == "—" or p["error_old"] else "red"))
-    ver = [x for x in (p["version"], p["run_line"]) if x]  # W18a: the version and the run number
-    if ver:
-        groups.append([rule("Build")] + [line for x in ver for line in text(x, "dim")])
     rows = []
     for g in groups:
         if rows and len(rows) + len(g) > h - 2:
             continue  # a group that does not fit does not stop the smaller groups after it
         rows += g
     ph = d["phases"]
+    build = [rule("Build")] + ([[(cut(p["version"], w - 4), "dim")]] if p["version"] else []) +         [line for x in [p["run_line"]] if x for line in text(x, "dim")]  # W18a: the version (one line) and the run number
+    if len(build) > 1 and h - 2 - len(rows) - len(build) - 1 >= len(ph):  # W18b: Phases first
+        rows += build
     room = h - 2 - len(rows) - 1  # the last group takes the rows that are left, after its rule line
     if ph and room >= min(len(ph), 2):  # all phases when they fit, else a last row '… N more'
         k = len(ph) if room >= len(ph) else room - 1
@@ -293,7 +296,9 @@ def cnt(n: int, style=None):
 
 def right_column(d: dict, w: int, h: int, color: bool) -> list[str]:
     pr, u, f, why = d["progress"], d["usage"], d["files"], d["blocked_why"]
-    prog = [bar_segs(d["share"]),
+    word = pr.get("word") or ""
+    prog = [bar_segs(d["share"]), *([[(word, "dim")]] if word else []),
+            *([[(f"audit added {count(pr['audit_added'])} tasks", "yellow")]] if count(pr.get("audit_added")) else []),
             [cnt(count(pr.get("done")), "value"), " done · ", cnt(count(pr.get("working")), "value"), " working"],
             [alert(count(pr.get("blocked")), "red"), " blocked · ", cnt(count(pr.get("waiting")), "dim"), " waiting"],
             [(f"{count(pr.get('phases_done'))} of {count(pr.get('phases_total'))}", "value"), " phases"]]
@@ -366,14 +371,23 @@ def tasks_panel(d: dict, w: int, h: int, color: bool) -> list[str]:
     focus = next((i for i, t in enumerate(tasks) if t["status"] == "running"),
                  next((i for i, t in enumerate(tasks) if t["status"] != "done"), len(tasks) - 1))
     start = min(max(focus - room // 2, 0), max(len(tasks) - room, 0))
+    spin = spin_cell(d)
     for t in tasks[start:start + room]:
         sym, word, st = STATUS.get(t["status"], ("○", t["status"] or "Pending", "dim"))
         risk, rstyle = RISK.get(t["risk"], (t["risk"][:4] or "—", None))
-        rows.append(line(t["n"], t["title"], f"{sym} {word}", t["time"], t["detail"],
-                         "value" if t["status"] == "running" else None, st, risk, t["tries"] or "—",
-                         "yellow" if t["slow"] else None, rstyle, "yellow" if count(t["tries"]) >= 2 else None,
-                         0 if t["detail"].endswith(" tries") and " · " not in t["detail"]
-                         else len(t["detail"].partition(" · ")[0])))
+        on = t["status"] == "running"  # W18b: the task in work has a filled background and bold text, one accent
+        n = t["n"]
+        if on and spin and len(n) <= 2:  # and the spinner turns at the start of its row
+            n = spin[0].split(" ")[0] + n.rjust(2)
+        row = line(n, t["title"], f"{sym} {word}", t["time"], t["detail"],
+                   "active" if on else None, "active" if on else st, risk, t["tries"] or "—",
+                   "active" if on else "yellow" if t["slow"] else None, "active" if on else rstyle,
+                   "active" if on else "yellow" if count(t["tries"]) >= 2 else None,
+                   0 if t["detail"].endswith(" tries") and " · " not in t["detail"]
+                   else len(t["detail"].partition(" · ")[0]))
+        if on:
+            row = [(x, "active" if st_ in (None, "blue") else st_) for x, st_ in row]
+        rows.append(row)
     if other:
         rows.append(line("", "Other: decide, research, docs, audit, waits", "", other, "", "dim", "dim"))
     return box("Tasks", rows, w, h, color, asof_note(d, False))
@@ -463,24 +477,29 @@ def normalize(data) -> dict:
     def one(x, keys):
         return {k: clean(x.get(k)) for k in keys} if isinstance(x, dict) else None
     now = one(sub("project").get("now"), ("n", "title", "attempt", "max_attempts", "time", "model", "since"))
+    if now:  # W18b: the work time and when it was read
+        now.update({k: float(sub("project")["now"][k]) if isinstance(sub("project")["now"].get(k), (int, float)) else None
+                    for k in ("work", "work_at")})
     sp = sub("spin")
     spin = ({"kind": clean(sp.get("kind")), "text": clean(sp.get("text")), "age": count(sp["age"]) if isinstance(
         sp.get("age"), (int, float)) else None,
-        "data_age": count(sp["data_age"]) if isinstance(sp.get("data_age"), (int, float)) else None, "clock": float(sp["clock"]) if isinstance(sp.get("clock"), (int, float))
+        "data_age": count(sp["data_age"]) if isinstance(sp.get("data_age"), (int, float)) else None,
+        "utf": sp.get("utf", True) is not False, "clock": float(sp["clock"]) if isinstance(sp.get("clock"), (int, float))
         else 0.0} if sp else None)
     size = data.get("size") if isinstance(data.get("size"), dict) else None
     return {
         "project": {**{k: clean(p.get(k)) for k in ("name", "branch", "model", "started", "status", "tone", "stale",
                                                     "state_words", "state", "elapsed", "eta", "next", "last_commit",
                                                     "last_commit_age", "other", "runner", "login", "resets",
-                                                    "last_error", "word", "error_age", "version", "run_line")},
+                                                    "last_error", "word", "error_age", "version", "run_line",
+                                                    "end_title")},
                     "stale_min": count(p.get("stale_min")), "commit_stalled": bool(p.get("commit_stalled")),
                     "error_old": bool(p.get("error_old")),
                     "since_ts": float(p["since_ts"]) if isinstance(p.get("since_ts"), (int, float)) else None,
                     "wait": ({"text": clean(w.get("text")), "since": float(w.get("since") or 0),
                               "secs": count(w.get("secs"))} if isinstance(w := p.get("wait"), dict) else None)},
-        "spin": spin,
-        "progress": {**pr, "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6],
+        "spin": spin, "card": dash_card.norm(data.get("card"), clean),
+        "progress": {**pr, "word": clean(pr.get("word")), "warned": [clean(x) for x in (pr.get("warned") if isinstance(pr.get("warned"), list) else [])][:6],
                      "warned_why": [x for x in (one(r, ("id", "why")) for r in pr.get("warned_why") or []) if x]},
         "share": num(share) or 0.0, "now": now, "size": size,
         "phases": [{"id": clean(r.get("id")), "status": clean(r.get("status")), "done": count(r.get("done")),
@@ -509,8 +528,9 @@ def frame(data: dict, cols: int, rows: int, color: bool = False) -> list[str]:
     if cols < MIN_COLS or rows < MIN_ROWS:
         raise ValueError(f"the window must be at least {MIN_COLS}x{MIN_ROWS}")
     d = normalize(data)
-    body = rows - 1
+    cardh = dash_card.height(d, cols)  # W18b: the Now card is the first block under the title bar
+    body = rows - 1 - cardh
     top = max(8, round(body * 0.45))
     mid = tasks_panel(d, cols - LEFT_W - RIGHT_W, top, color) + live_panel(d, cols - LEFT_W - RIGHT_W, body - top, color)
-    return [a + b + c for a, b, c in zip(left_panel(d, LEFT_W, body, color), mid,
-                                         right_column(d, RIGHT_W, body, color))] + [status_bar(d, cols, color)]
+    return (dash_card.box(d, cols, color) if cardh else []) +         [a + b + c for a, b, c in zip(left_panel(d, LEFT_W, body, color, cols < dash_card.MID), mid,
+                                      right_column(d, RIGHT_W, body, color))] + [status_bar(d, cols, color)]

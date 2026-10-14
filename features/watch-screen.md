@@ -12,9 +12,25 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
 - Panels: the left panel (Project, Branch, Started, Elapsed; `! Questions for you`; Now; Next; Size; Last commit;
   Agent; Phases), the middle column (the tasks panel on top, about 45 percent of the height, the live output below),
   the right column (Progress, Usage, Files, Issues) and one status bar on the last line.
-- The Now card: its title line carries the running indicator; the one bold headline of the screen is
-  `Task N of TOTAL: title`; then `Try N of M` (yellow from try 2, and on the last try), `Task time` ticking from the
-  local clock with `data Ns old` behind it, and the model in blue.
+- The Now card (W18b, `dash_card.py`; data from `dash_live.task_card`, `end_card`, `ended_card`): full width at the top
+  under the title bar from 120 columns (160 and wider: two inner lines, title in the border; 120 to 159: four lines,
+  title on the first line); under 120 it is a group of the left column (a rule line, then six lines). The border row
+  holds `Now`, the stable facts centred (`Task N of TOTAL`, title cut with `...`, `model · try N/M`) and at the right
+  end `data Ns` plus the spinner; it never wraps into the first inner row. Lines: time (the work time like the Tasks
+  table, ticking on the window clock, `(first start HH:MM)` when the wall clock is over 2x the work), the ETA range
+  (middle half of past tasks with the same model and risk, basis named), `why:` on a retry; the segmented bar
+  `read · write · tests · gate · merge` (end phase: `read · tests · report`), widths from median step times else equal,
+  the running segment fills by its time against its ETA and never completes (the percent stops at 99, the last cell stays
+  empty), one brighter cell slides across the fill each second (ASCII `[==>  ]`); `So far:` the open diff, tokens, cost;
+  the last tool or the gate with its running time. The `data Ns old` text lives only at the card's right end. The old
+  Now group stays only for data that has no card.
+- The end: the card shows `Run ended ── WORD` with the counts and what is still pending, each with its command or
+  person (owner tasks, blocked tasks, questions, an audit with no report, Not proven items, deploy, merge-back, push,
+  release). The window title is `✓ VERIFIED hh:mm`, `⏸ BLOCKED`, `✗ FAILED` (STOPPED and BUDGET_STOP are `⏸`) and the
+  window stays until Enter. The progress total counts the end steps (audit, functional check, docs): 100 only when the
+  run ended; `audit added N tasks` shows when the audit adds tasks.
+- The running task row has a filled background and bold text (`active`, the one accent); the spinner starts that row.
+  `Build` (version) drops before `Phases` in a short panel; the version is one line cut with `...`.
 - One colour, one meaning (`COLOUR_MEANING`): green done or ok, cyan running now, yellow warning, red blocked or failed,
   magenta cost and usage, blue model name, dim label, border, pending or zero, bright white a value the eye lands on,
   bold the one headline. A plain fact stays white. Every (colour, use) pair is listed in `_USES`; REFERENCE.md
@@ -44,6 +60,7 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
 - `autopilot/dash_web.py`
 - `autopilot/dashboard.py`
 - `autopilot/dash_live.py`
+- `autopilot/dash_card.py`
 
 ## Tests that guard it
 
@@ -69,9 +86,18 @@ dict as one self-contained HTML page (the status page). Ctrl+C stops the watch, 
 - `tests/test_watch_liveness.py::test_a_heartbeat_40_s_old_shows_the_pause_and_a_fresh_one_keeps_it_turning`
 - `tests/test_watch_liveness.py::test_watch_with_no_color_draws_the_panels_in_bold_and_dim_only`
 - `tests/test_watch_liveness.py::test_a_small_window_that_grows_gets_the_panels_on_the_next_tick`
+- `tests/test_now_card.py::test_the_card_has_one_line_count_per_width_step`
+- `tests/test_now_card.py::test_the_bar_never_reaches_100_before_the_merge`
+- `tests/test_now_card.py::test_all_tasks_done_is_not_100_percent_while_the_audit_runs`
+- `tests/test_now_card.py::test_the_end_screen_names_the_outcome_and_lists_what_is_pending`
+- `tests/test_now_card.py::test_the_card_work_time_is_the_table_time_and_names_the_first_start`
+- `tests/test_now_card.py::test_the_build_group_drops_before_the_phases`
 
 ## Changes
 
+- 2026-10-14: W18b: the Now card, the progress total with end steps, the end screen, the active row. Replaced the rule
+  "Now card: Task time with `data Ns old`" (the time is now the work time, the age is at the card's right end) and the
+  `COLOUR_MEANING` map gained `active`. New files `autopilot/dash_card.py`, `tests/test_now_card.py`.
 - 2026-10-14: W18a: liveness (gate journal lines, runner heartbeat, ticking clock, `Waiting for:`, error age,
   version, run number, size read on every tick, NO_COLOR panels). Kept every rule above; the Task time `data Ns old`
   now counts from the data file, not from the heartbeat. New tests: `tests/test_watch_liveness.py`.

@@ -2642,6 +2642,8 @@ class Orchestrator:
         report = dict(res.report)
         gaps = [g for g in (report.get("gaps") or []) if isinstance(g, dict) and g.get("title")][:max_new]
         new_phase = self.add_corrective_phase(gaps, f"{kind} audit") if gaps else None
+        if new_phase:  # W18b: the watch screen says `audit added N tasks`
+            self.state.event("audit", f"{kind} audit added {len(gaps)} tasks")
         report["_new_phase"] = new_phase
         self.docs.audit(kind, report, phase_id, new_phase)
         self.docs.consume_followups()
