@@ -221,9 +221,10 @@ def _usage_w59(cfg, state, run: dict, live: bool) -> dict:
             note = (f" (entered {v['entered']}" + (f", expires {v['expires']}" if v["expires"] else "") + ")") if v["entered"] else ""
             credits[k] = f"${v['usd']:g}" + note
         return {"week_models": week_models, "source": figs.get("source") or "", "check": bool(figs.get("check")),
-                "now": usage_now(cfg, state, run, live), "credits": credits}
+                "now": usage_now(cfg, state, run, live), "credits": credits,
+                "suggest": str(state.get_meta("source_suggest") or "") if live else ""}
     except Exception:  # noqa: BLE001
-        return {"week_models": [], "source": "", "check": False, "now": "", "credits": {}}
+        return {"week_models": [], "source": "", "check": False, "now": "", "credits": {}, "suggest": ""}
 
 
 def dashboard_data(cfg, plan, state, run: dict) -> dict:

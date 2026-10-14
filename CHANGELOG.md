@@ -16,6 +16,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - Every push checks the documents for long sentences, long table cells and page length, and the two big pages start with a finder table.
 - Each release now carries a signed proof of where it was built, and the updater refuses a download that fails that proof.
 - The watch screen and the status page show every usage bar of your login, and a full model bar gives way to the next model.
+- Autopilot suggests which login or credit to spend next, switches on its own when you allow it, and warns three days before a credit expires.
 - The security and how-to documents now explain the admin right that lets a build install system tools without a password.
 - The plugin stop check no longer runs commands in folders that Autopilot did not set up on this computer.
 - A task or phase name with unsafe characters is now refused, so it cannot delete a folder outside the build area.

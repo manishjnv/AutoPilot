@@ -1,6 +1,7 @@
 """W59 core: the OAuth usage endpoint is parsed into plain bars, read at most once a minute per login, behind a kill
 switch, and the token never leaves the request."""
 import json
+import time
 
 from autopilot import usage
 
@@ -238,3 +239,106 @@ def test_the_ladder_moves_down_when_the_model_is_out_and_the_log_says_why(tmp_pa
     assert orch.model_for("low", 0) == "sonnet"
     assert orch.state.get_meta("usage_why").startswith("opus is out until")
     assert orch.usage_line("sonnet").startswith("now: sonnet (login default) · 5h 20% · week 30% · subscription · resets ")
+
+
+# ---------- W60: the source planner ----------
+def figs_for(default_week, two_week, now, reset_in=86400):
+    """A fake `usage.figures` keyed by login folder: the default login and `/logins/two`."""
+    def figures(state, cfg=None, acct="default", **kw):
+        week = default_week if acct in ("", "default") else two_week
+        return {"five_hour": {"pct": 0.1, "reset": now + 3600}, "seven_day": {"pct": week, "reset": now + reset_in},
+                "models": {}, "surfaces": {}, "source": "live", "check": False}
+    return figures
+
+
+FALLBACK = [{"claude_cli": {"CLAUDE_CONFIG_DIR": "/logins/two"}}]
+
+
+def test_sources_table_lists_logins_api_and_cloud_with_room_and_notes(monkeypatch):
+    now = 1_800_000_000.0
+    monkeypatch.setattr(usage, "figures", figs_for(1.0, 0.12, now))
+    cfg = Cfg({"agent.fallback": FALLBACK, "usage.api_credit": {"usd": 109, "entered": "2026-10-14", "expires": "2026-12-01"},
+               "usage.cloud_credit": {"usd": 149, "entered": "2026-10-14", "expires": "2026-11-05"}, "usage.sources_off": ["cloud"]})
+    rows = {r["name"]: r for r in usage.sources(cfg, FakeState(), now=lambda: now)}
+    assert rows["login:default"]["room"] == 0.0 and rows["login:two"]["room"] == 0.88 and rows["login:two"]["folder"] == "/logins/two"
+    assert rows["api"]["note"] == "needs backend" and rows["api"]["can_run"] is False and rows["api"]["usd"] == 109
+    assert rows["cloud"]["off"] is True and rows["cloud"]["expires"] == usage._day("2026-11-05")
+
+
+def test_plan_source_prefers_an_idle_window_then_the_most_room_and_names_the_limit(monkeypatch):
+    now = 1_800_000_000.0
+    monkeypatch.setattr(usage, "figures", figs_for(1.0, 0.12, now))
+    cfg = Cfg({"agent.fallback": FALLBACK})
+    rows = usage.sources(cfg, FakeState(), now=lambda: now)
+    pick = usage.plan_source(rows, "login:default", 50, now=lambda: now)
+    assert pick["source"] == "login:two" and pick["reason"] == "window idle" and "week 12% used" in pick["text"]
+    assert usage.suggest_line(pick).startswith("suggest: switch to login:two (window idle: login two week 12% used, resets ")
+    assert usage.suggest_line(pick).endswith("; say ap source two")
+    # the window of login two is not in its last two days: the default login is out, so the reason is the limit
+    monkeypatch.setattr(usage, "figures", figs_for(1.0, 0.12, now, reset_in=5 * 86400))
+    rows = usage.sources(cfg, FakeState(), now=lambda: now)
+    pick = usage.plan_source(rows, "login:default", 50, now=lambda: now)
+    assert pick["reason"] == "limit" and pick["source"] == "login:two"
+    # the current login has room and nothing is idle: stay
+    monkeypatch.setattr(usage, "figures", figs_for(0.3, 0.6, now, reset_in=5 * 86400))
+    rows = usage.sources(cfg, FakeState(), now=lambda: now)
+    assert usage.plan_source(rows, "login:default", 50, now=lambda: now) == {}
+    # a source marked off is never picked, and cloud is never a target
+    monkeypatch.setattr(usage, "figures", figs_for(1.0, 0.12, now))
+    rows = usage.sources(Cfg({"agent.fallback": FALLBACK, "usage.sources_off": ["login:two"],
+                             "usage.cloud_credit": {"usd": 149, "entered": "2026-10-14", "expires": "2026-11-05"}}), FakeState(), now=lambda: now)
+    assert usage.plan_source(rows, "login:default", 50, now=lambda: now) == {}
+
+
+def test_expiring_credits_give_the_two_alert_texts():
+    now = usage._day("2026-11-03")
+    cfg = Cfg({"usage.cloud_credit": {"usd": 149, "entered": "2026-10-14", "expires": "2026-11-05"},
+               "usage.api_credit": {"usd": 109, "entered": "2026-10-14", "expires": "2026-12-01"}})
+    assert usage.expiring(cfg, now=lambda: now) == [("cloud", 149.0, "2026-11-05")]
+    assert usage.expiry_text("cloud", 149, "2026-11-05") == "cloud credit $149 expires 2026-11-05: schedule a Routine run"
+    assert usage.expiry_text("api", 109, "2026-12-01").startswith("api credit $109 expires 2026-12-01: set usage.switch auto")
+
+
+def test_auto_mode_switches_to_the_idle_login_between_tasks_and_logs_the_reason(tmp_path, monkeypatch):
+    from autopilot import handoff
+    from autopilot.orchestrator import Orchestrator
+    from test_autopilot import FakeBackend, make_project
+    from test_handoff import PHASES
+    folder = str(tmp_path / "claude-2")
+    now = time.time()
+    monkeypatch.setattr(usage, "figures", figs_for(1.0, 0.12, now))  # default week 100%, login 2 at 12%, resets in a day
+    root = make_project(tmp_path, PHASES, {"agent": {"fallback": [{"claude_cli": {"CLAUDE_CONFIG_DIR": folder}}]},
+                                           "usage": {"switch": "auto"}})
+    second, envs = FakeBackend(), []
+
+    def factory(cfg):
+        envs.append(cfg.get("agent.env"))
+        return second
+    monkeypatch.setattr(handoff, "get_backend", factory)
+    orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
+    assert orch.run() == "app complete"
+    assert envs and envs[0] == {"CLAUDE_CONFIG_DIR": folder}  # the first task already ran on login 2
+    msgs = [e["message"] for e in orch.state.events(200) if e["kind"] == "source"]
+    assert msgs and msgs[0].startswith("default -> claude-2 (window idle: login claude-2 week 12% used")
+    assert orch.state.get_meta("active_account") == folder
+
+
+def test_ap_source_lists_and_picks_a_login(tmp_path, monkeypatch, capsys):
+    from argparse import Namespace
+
+    from autopilot.cli import cmd_source
+    from test_autopilot import make_project
+    from test_handoff import PHASES
+    folder = str(tmp_path / "claude-2")
+    now = time.time()
+    monkeypatch.setattr(usage, "figures", figs_for(0.4, 0.12, now))
+    root = make_project(tmp_path, PHASES, {"agent": {"fallback": [{"claude_cli": {"CLAUDE_CONFIG_DIR": folder}}]}})
+    assert cmd_source(Namespace(path=str(root), name=None)) == 0
+    out = capsys.readouterr().out
+    assert "login:default" in out and "login:claude-2" in out and "60% room" in out and "needs backend" in out
+    assert cmd_source(Namespace(path=str(root), name="claude-2")) == 0
+    assert "source: login:claude-2 (owner:" in capsys.readouterr().out
+    from autopilot.cli import _open_state
+    _, _, state = _open_state(root)
+    assert state.get_meta("active_account") == folder and state.get_meta("handoff_runner") == {"claude_cli": {"CLAUDE_CONFIG_DIR": folder}}
+    assert cmd_source(Namespace(path=str(root), name="nobody")) == 1

@@ -282,3 +282,121 @@ def write_balance(path, name: str, usd: float, expires: str = "", entered: str =
     except (OSError, yaml.YAMLError):
         return False
     return True
+
+
+# ---------- W60: the source planner (spend every credit before it expires, switch sources on purpose) ----------
+REASONS = ("expires soon", "window idle", "cheapest", "limit", "owner")  # the five fixed reason words (greppable)
+IDLE_DAYS = 2 * 86400  # a weekly window counts as idle only in its last two days
+EXPIRY_DAYS = 3 * 86400  # one alert this long before a credit with room expires
+
+
+def _login_name(folder: str) -> str:
+    return "default" if folder in ("", "default") else folder.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+
+
+def sources(cfg, state, *, now=time.time) -> list:
+    """The SOURCES table: one row per login (`login:default`, `login:<name>` for each `agent.fallback` entry with a
+    CLAUDE_CONFIG_DIR), `api` (the entered API credit; `needs backend` until an api backend exists) and `cloud` (the
+    entered cloud credit; Routine runs only, the planner suggests and never starts one). Each row: {name, kind, folder,
+    room (0..1, None = unknown), week (0..1), resets, expires, usd, can_run, off, note}."""
+    off = set(str(x) for x in (cfg.get("usage.sources_off") or []))
+    rows = []
+    folders = [""] + [f for f in (_entry_folder(e) for e in (cfg.get("agent.fallback") or [])) if f]
+    for folder in folders:
+        name = _login_name(folder)
+        figs = figures(state, cfg, folder or "default", now=now)
+        five, week = figs.get("five_hour") or {}, figs.get("seven_day") or {}
+        room = None
+        if five or week:
+            room = 1 - max(float(five.get("pct") or 0), float(week.get("pct") or 0))
+        rows.append({"name": f"login:{name}", "kind": "login", "folder": folder, "room": room,
+                     "week": float(week["pct"]) if week else None,
+                     "resets": min(x for x in (float(five.get("reset") or 0), float(week.get("reset") or 0)) if x) if (five or week) else 0.0,
+                     "week_resets": float(week.get("reset") or 0) if week else 0.0,
+                     "expires": 0.0, "usd": 0.0, "can_run": True, "off": f"login:{name}" in off, "note": ""})
+    for kind in ("api", "cloud"):
+        credit = balances(cfg).get(kind)
+        usd = float(credit["usd"]) if credit else 0.0
+        rows.append({"name": kind, "kind": kind, "folder": "", "room": 1.0 if usd > 0 else 0.0, "week": None, "resets": 0.0,
+                     "week_resets": 0.0,
+                     "expires": _day(credit["expires"]) if credit and credit["expires"] else 0.0, "usd": usd,
+                     "can_run": False, "off": kind in off,
+                     "note": "needs backend" if kind == "api" else "Routine runs only: the planner suggests and counts"})
+    return rows
+
+
+def _entry_folder(entry) -> str:
+    if not isinstance(entry, dict):
+        return ""
+    env = next(iter(entry.values()), None)
+    return str(env.get("CLAUDE_CONFIG_DIR") or "") if isinstance(env, dict) else ""
+
+
+def _day(s) -> float:
+    try:
+        return datetime.fromisoformat(str(s)).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def reason_text(reason: str, row: dict) -> str:
+    """One of the five fixed sentences for the log and the screen."""
+    name = row["name"].split(":", 1)[-1]
+    if reason == "expires soon":
+        return f"{row['kind']} credit ${row['usd']:g} expires {datetime.fromtimestamp(row['expires']):%b %d}"
+    if reason == "window idle":
+        return f"login {name} week {round(100 * (row['week'] or 0))}% used, resets {_hm(row['week_resets'])}"
+    if reason == "cheapest":
+        return f"login {name} has the most room"
+    if reason == "limit":
+        return f"login {name} is at its limit until {_hm(row['resets'])}"
+    return f"login {name} chosen by the owner"
+
+
+def plan_source(rows: list, current: str = "login:default", idle_pct: float = 50, *, now=time.time) -> dict:
+    """The planner: {source, reason, text} for the next task, or {} to stay. Order: a runnable credit that expires
+    soonest with room; a login whose weekly window would reset unused (week under `idle_pct` in its last two days);
+    else the current login when it has room (nothing to say); else the login with the most room (`cheapest`), or
+    `limit` when the current one is out. Never a source marked off, never `cloud` (Routine runs only)."""
+    on = [r for r in rows if not r["off"]]
+    cur = next((r for r in on if r["name"] == current), None)
+    credits = sorted((r for r in on if r["kind"] in ("api", "cloud") and r["expires"] and r["usd"] > 0 and r["can_run"]),
+                     key=lambda r: r["expires"])
+    if credits and credits[0]["name"] != current:
+        return {"source": credits[0]["name"], "reason": "expires soon", "text": reason_text("expires soon", credits[0])}
+    idle = [r for r in on if r["kind"] == "login" and r["name"] != current and r["week"] is not None and r["week_resets"]
+            and r["week"] < idle_pct / 100 and 0 < r["week_resets"] - now() <= IDLE_DAYS and (r["room"] or 0) > 0]
+    if idle:
+        best = min(idle, key=lambda r: r["week"])
+        return {"source": best["name"], "reason": "window idle", "text": reason_text("window idle", best)}
+    if cur is not None and (cur["room"] is None or cur["room"] > 0):
+        return {}
+    logins = [r for r in on if r["kind"] == "login" and r["name"] != current and (r["room"] or 0) > 0]
+    if logins:
+        best = max(logins, key=lambda r: r["room"] or 0)
+        reason = "limit" if cur is not None and cur["room"] == 0 else "cheapest"
+        return {"source": best["name"], "reason": reason, "text": reason_text(reason, best)}
+    return {}
+
+
+def suggest_line(pick: dict) -> str:
+    """The one suggestion line: `suggest: switch to login claude-2 (window idle: ...); say ap source claude-2`."""
+    if not pick:
+        return ""
+    name = pick["source"].split(":", 1)[-1]
+    return f"suggest: switch to {pick['source']} ({pick['reason']}: {pick['text']}); say ap source {name}"
+
+
+def expiring(cfg, *, now=time.time) -> list:
+    """The credits with room that expire within EXPIRY_DAYS: [(kind, usd, expires)], for the 3-day alert."""
+    out = []
+    for kind, credit in balances(cfg).items():
+        exp = _day(credit["expires"]) if credit["expires"] else 0.0
+        if credit["usd"] > 0 and exp and 0 < exp - now() <= EXPIRY_DAYS:
+            out.append((kind, credit["usd"], credit["expires"]))
+    return out
+
+
+def expiry_text(kind: str, usd: float, expires: str) -> str:
+    return (f"cloud credit ${usd:g} expires {expires}: schedule a Routine run" if kind == "cloud"
+            else f"api credit ${usd:g} expires {expires}: set usage.switch auto to use it for low-risk tasks")

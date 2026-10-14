@@ -427,6 +427,7 @@ def _this_run(cfg, plan, state) -> list[str]:
             f"- Outcome: {run.get('outcome') or 'still running'}", f"- Tasks done this run: {len(done)}",
             f"- Sessions this run: {sessions}", f"- Open decisions: {len(open_d)}", f"- Next action: {action}",
             f"- {token_footer(state, first)}"] + [f"- {w}" for w in (window_line(state), usage_now(cfg, state, run),
+                                                                     str(state.get_meta("source_suggest") or ""),
                                                                      config_line(state.get_meta("config_load"))) if w]
 
 

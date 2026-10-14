@@ -194,6 +194,8 @@ usage:                    # the subscription's 5-hour window (claude -p draws fr
                           # is spent, else wait for a fresh window (0 = off; waiting costs wall-clock time)
   live: true              # W59: read the usage bars of the login from the Claude usage endpoint (one call a minute)
   model_reserve_pct: 95   # a model whose weekly bar is at or over this gives way to the next model down the ladder
+  switch: suggest         # W60: suggest (one line, you apply it with `ap source`) | auto (switch logins between tasks)
+  idle_pct: 50            # a second login whose weekly bar is under this in its last two days counts as idle
 
 budget_usd:
   per_session: 8

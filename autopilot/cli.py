@@ -10,6 +10,7 @@ import os
 import shutil
 import sys
 import threading
+import time
 from pathlib import Path
 
 import yaml
@@ -1520,6 +1521,41 @@ def cmd_hint(args):
     return 0 if ok else 1
 
 
+def cmd_source(args):
+    """W60: `ap source` lists the sources with their room; `ap source <name>` puts the run on that login between
+    tasks (`default` = the main login). Never the api or cloud source: the first needs a backend, the second a Routine."""
+    from . import usage
+    from .handoff import entry_folder
+    cfg, _, state = _open_state(Path(args.path).resolve())
+    rows = usage.sources(cfg, state)
+    name = getattr(args, "name", None)
+    if not name:
+        for r in rows:
+            room = "?" if r["room"] is None else f"{round(100 * r['room'])}% room"
+            tail = f" (${r['usd']:g})" if r["usd"] else ""
+            print(f"{r['name']:<18} {room:<10} {'off' if r['off'] else 'on':<4} {r['note']}{tail}")
+        line = state.get_meta("source_suggest") or ""
+        if line:
+            print(line)
+        return 0
+    want = f"login:{name}" if not name.startswith("login:") else name
+    row = next((r for r in rows if r["name"] == want), None)
+    if row is None or row["kind"] != "login":
+        print(f"FAIL  no login named {name}; the logins are: " + ", ".join(r["name"].split(":", 1)[-1] for r in rows if r["kind"] == "login"))
+        return 1
+    folder = row["folder"]
+    if folder:
+        entry = next((e for e in (cfg.get("agent.fallback") or []) if entry_folder(e) == folder), None)
+        state.set_meta("handoff_runner", entry)
+        state.set_meta("handoff_until", row["resets"] or time.time() + 7 * 86400)
+    else:
+        state.set_meta("handoff_until", 0)
+    state.set_meta("active_account", folder or "default")
+    state.set_meta("source_suggest", "")
+    print(f"source: {want} (owner: login {name} chosen by the owner); the next task starts on it")
+    return 0
+
+
 def cmd_skip(args):
     _, _, state = _open_state(Path(args.path).resolve())
     for tid in args.task_ids:
@@ -1912,6 +1948,8 @@ def main(argv=None):
     p = add("hint", cmd_hint, "give a task advice for its next session (works while a run is active)")
     p.add_argument("task_id"); p.add_argument("text")
     p = add("skip", cmd_skip, "skip task(s)"); p.add_argument("task_ids", nargs="+")
+    p = add("source", cmd_source, "W60: list the usage sources, or put the run on a login between tasks")
+    p.add_argument("name", nargs="?", help="a login name (default, or the folder name of a second login)")
     p = add("approve", cmd_approve, "deploy an approved phase to prod"); p.add_argument("phase")
     add("mcp", cmd_mcp, "MCP server on stdin/stdout for IDE chats: ap_status, ap_next, ap_start, ap_stop, ap_answer")
     p = add("uninstall", cmd_uninstall, "--rights: remove the rights the installer took; --all: remove Autopilot from this PC")

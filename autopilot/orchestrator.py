@@ -477,6 +477,52 @@ class Orchestrator:
         return "\n".join(x for x in (token_footer(self.state, self.first_session), window_line(self.state),
                                      self.usage_line()) if x)
 
+    def plan_source(self, task=None) -> str:
+        """W60: before a task starts, pick the source. `usage.switch: suggest` (default) keeps the suggestion line in
+        state meta `source_suggest` for the views and the digest; `auto` switches between logins with no question
+        through the W28 handoff keys (`handoff_runner`, `handoff_until`) and logs `source: a -> b (reason)`. Never a
+        running, critical or load-bearing task onto a non-login source, never a source marked off, never a Routine.
+        Also the 3-day expiry alert, once a day per credit. Returns the suggestion line ('' = stay). Never raises."""
+        try:
+            now = time.time()
+            for kind, usd, expires in usage_mod.expiring(self.cfg, now=lambda: now):
+                day = dt.date.today().isoformat()
+                if self.state.get_meta(f"expiry_warned:{kind}") != day:
+                    self.state.set_meta(f"expiry_warned:{kind}", day)
+                    self.notify.send("source", usage_mod.expiry_text(kind, usd, expires))
+            if self.cfg.get("usage.billing", "subscription") != "subscription":
+                return ""
+            rows = usage_mod.sources(self.cfg, self.state, now=lambda: now)
+            current = f"login:{usage_mod._login_name(self._account())}"
+            pick = usage_mod.plan_source(rows, current, float(self.cfg.get("usage.idle_pct", 50) or 50), now=lambda: now)
+            line = usage_mod.suggest_line(pick)
+            self.state.set_meta("source_suggest", line)
+            if not pick or str(self.cfg.get("usage.switch", "suggest")) != "auto":
+                return line
+            row = next(r for r in rows if r["name"] == pick["source"])
+            if row["kind"] != "login":  # the api backend is not built; cloud is Routine only
+                return line
+            self.switch_login(row["folder"], f"{pick['reason']}: {pick['text']}", row["resets"] or now + 7 * 86400)
+            return line
+        except Exception:  # noqa: BLE001  the planner never stops a build
+            return ""
+
+    def switch_login(self, folder: str, why: str, until: float) -> None:
+        """W60 (subsumes W28): put the run on login `folder` ('' = the default login) until `until`, through the one
+        handoff path; the log line `source: <from> -> <to> (<why>)` names the reason."""
+        src = usage_mod._login_name(self._account())
+        if folder:
+            entry = next((e for e in (self.cfg.get("agent.fallback") or []) if usage_mod._entry_folder(e) == folder), None)
+            if entry is None:
+                return
+            self.state.set_meta("handoff_runner", entry)
+            self.state.set_meta("handoff_until", float(until))
+        else:
+            self.state.set_meta("handoff_until", 0)
+        self.state.set_meta("active_account", folder or "default")
+        log.info("source: %s -> %s (%s)", src, usage_mod._login_name(folder), why)
+        self.notify.send("source", f"{src} -> {usage_mod._login_name(folder)} ({why})")
+
     def usage_line(self, model: str = "") -> str:
         """W59: the one usage line (`now: <model> (login <name>) · 5h N% · week N% · <balance> · resets <t>`)."""
         try:
@@ -1281,6 +1327,8 @@ class Orchestrator:
                 self.state.set_task(task.id, status="pending")
                 raise Stop(f"phase {phase.id} budget ${per_phase} reached")
 
+            if attempts == 0 and not kept:
+                self.plan_source(task)  # W60: a source switch happens only between tasks, never inside one
             model = own_model or self.model_for(risk, attempts, floor)
             own_model, self.last_gate = "", last_error or ""  # N11: the last gate output goes into a handoff
             effort = self.cfg.get(f"models.effort.{risk}", "")

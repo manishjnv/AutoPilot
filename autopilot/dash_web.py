@@ -364,6 +364,8 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
         bars += f'<div class="row"><span>{e(k.capitalize())} credit</span><span class="mg">{e(str(v))}</span></div>'
     if u.get("now"):
         bars += f'<div class="z">{e(str(u["now"]))}</div>'
+    if u.get("suggest"):  # W60: the planner's suggestion
+        bars += f'<div class="w">{e(str(u["suggest"]))}</div>'
     models = "".join(f'<div class="row"><span class="bl">{e(str(m.get("name", "")))}</span>'
                      f'<span>{e(str(m.get("tokens_text", "")))} {round(_v(m.get("share")) * 100)}%</span></div>'
                      f'{_bar(m.get("share"), str(m.get("name", "")))}' for m in u.get("models") or [])

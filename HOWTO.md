@@ -431,8 +431,9 @@ the run waits for the earlier reset.
 3. To start the Opus sessions only early in a window, set `usage.opus_by_pct`, for example `50`.
 4. Set the cost limits in `budget_usd`: `per_session`, `per_task`, `per_phase`, `daily` and `total`.
 5. Keep `agent.user_config: false`. Your own plugins, hooks and MCP servers add cost and context to each session.
-6. A model with a full weekly bar gives way to the next one (`usage.model_reserve_pct`, default 95). `usage.live: false` stops the live reads.
+6. A model with a full weekly bar gives way to the next one (`usage.model_reserve_pct`, 95). `usage.live: false` stops the live reads.
 7. Enter your credits once: `ap budget --cloud-credit 149 --api-credit 109 --expires 2026-11-05`.
+8. Apply the suggestion on the status page with `ap source <name>`, or set `usage.switch: auto` to switch logins between tasks.
 
 When the run reaches the reserve, it pauses until the window resets. When it reaches the `daily` limit, it sleeps
 until the next day. When it reaches the `total` limit, it stops on `usage.billing: api`; on a subscription it asks
@@ -468,7 +469,7 @@ Use a model on your own computer (Ollama or LM Studio) for low-risk tasks. Nothi
 
 > [!NOTE]
 > The local model cannot run tools or tests. It writes files and a report only. The gate runs the tests and the checks
-> after each task, so a weak model fails the gate instead of passing it. Keep it on small tasks.
+> after each task, so a weak model fails the gate instead of passing it.
 
 ## Use an API key instead of a subscription
 
@@ -491,8 +492,7 @@ Open a project folder and type `ap`. The result depends on the folder:
 
 ## Limits and supported agent CLIs
 
-Autopilot starts a CLI agent for each session. It does not drive a chat panel in an IDE, so you watch the build in
-your IDE or terminal.
+Autopilot starts a CLI agent for each session, not a chat panel in an IDE.
 
 - **Supported CLI runners:** Claude Code, the Copilot CLI (`copilot`), `codex`, Cursor (`agent`) and `kiro-cli`. Autopilot
   uses the one that is installed and logged in. To choose one, run `ap setup`, or set `agent.backend` in `.agent/project.yaml`.
