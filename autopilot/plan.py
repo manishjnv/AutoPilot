@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 from .config import RISKS, load_yaml
+
+
+ID_RX = re.compile(r"[A-Za-z0-9_-]{1,40}")  # phase and task ids: they become folder and branch names
 
 
 class PlanError(Exception):
@@ -129,10 +133,14 @@ class Plan:
         order = 0
         for pi, p in enumerate(data.get("phases") or []):
             pid = str(p.get("id") or f"P{pi + 1:02d}")
+            if not ID_RX.fullmatch(pid):
+                errors.append(f"bad phase id {pid!r}: use letters, digits, _ and -, at most 40 characters")
             deps = _as_list(p["depends_on"]) if "depends_on" in p else ([prev_id] if prev_id else [])
             tasks = []
             for ti, t in enumerate(p.get("tasks") or []):
                 tid = str(t.get("id") or f"{pid}-T{ti + 1:02d}")
+                if not ID_RX.fullmatch(tid):
+                    errors.append(f"bad task id {tid!r}: use letters, digits, _ and -, at most 40 characters")
                 if tid in seen_tasks:
                     errors.append(f"duplicate task id {tid}")
                 seen_tasks.add(tid)

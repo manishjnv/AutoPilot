@@ -1732,7 +1732,7 @@ class Orchestrator:
                     self._worktree_setup(path, "main-probe")
                     red = self._red_test(path)
                 finally:
-                    self.git.drop_worktree(path, branch)
+                    self.git.drop_worktree(path, branch, inside=self._worktree_root())
         except GitError as exc:
             log.warning("could not test main at %s: %s", sha, exc)
             self.main_due = True  # unknown is not green: test it again at the next loop
@@ -1944,7 +1944,7 @@ class Orchestrator:
                     merged += 1
                     log.info("parallel: merge %d, %s merged", merged, t.id)
             finally:
-                self.git.drop_worktree(path, branch)
+                self.git.drop_worktree(path, branch, inside=self._worktree_root())
         # O8: each merge was gated on top of main already; one full check at the end takes any red task off main
         if merged > 1 and not self._revert_red_batch() and not self.ensure_main_green():
             self.start_main_red()
@@ -1987,7 +1987,7 @@ class Orchestrator:
             self.git.run("merge", "-q", "--ff-only", tmp)
             sha = self.git.head()
         finally:
-            self.git.drop_worktree(tpath, tmp)
+            self.git.drop_worktree(tpath, tmp, inside=self._worktree_root())
         self.landed.append((task, before))
         self.state.set_task(task.id, status="done", commit_sha=sha, last_error=None, finished_at=now())
         self.tracker.task_ok()  # Q22.4: a merged task ends any run of the same error

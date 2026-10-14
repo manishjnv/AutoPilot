@@ -197,7 +197,15 @@ class Git:
         self.drop_worktree(path, branch)
         self.run("worktree", "add", "-q", "-B", branch, str(path), base)
 
-    def drop_worktree(self, path, branch: str):
+    def drop_worktree(self, path, branch: str, inside=None):
+        """X2: remove one task worktree. `inside` is the worktree parent folder; a path outside it is refused."""
+        p = Path(path).resolve()
+        if ".." in Path(path).parts or p == self.root.resolve() or p in self.root.resolve().parents:
+            log.error("refusing to remove %s: not a worktree folder", path)
+            return
+        if inside is not None and Path(inside).resolve() not in p.parents:
+            log.error("refusing to remove %s: outside %s", path, inside)
+            return
         self.run("worktree", "remove", "--force", str(path), check=False)
         shutil.rmtree(path, ignore_errors=True)
         self.run("worktree", "prune", check=False)

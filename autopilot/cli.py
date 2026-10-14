@@ -1512,6 +1512,10 @@ def cmd_skip(args):
 def cmd_approve(args):
     import logging as _l
     from .orchestrator import Orchestrator
+    from .plan import ID_RX
+    if not ID_RX.fullmatch(args.phase):
+        print(f"bad phase id {args.phase!r}: use letters, digits, _ and -, at most 40 characters")
+        return 2
     root = Path(args.path).resolve()
     setup_logging(root, False)
     orch = Orchestrator(root)

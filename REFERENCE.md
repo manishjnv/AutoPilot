@@ -109,7 +109,7 @@ Your deploy commands get `AUTOPILOT_REF`, `AUTOPILOT_PHASE` and `AUTOPILOT_ENV`.
 | File | Content | In git |
 |---|---|---|
 | `project.yaml` | All settings | Yes |
-| `plan.yaml` | The phases and the tasks | Yes |
+| `plan.yaml` | The phases and the tasks. Ids use letters, digits, `_` and `-`, at most 40 characters | Yes |
 | `BRAIN.md` | The architecture and the rules. Each session reads it | Yes |
 | `DECISIONS.md` | The log of decisions | Yes |
 | `HANDOFF.md` | What the last session did, and what is next | Yes |
