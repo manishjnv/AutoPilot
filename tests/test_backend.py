@@ -167,3 +167,15 @@ def test_limit_text_inside_prose_is_not_a_limit():
     assert detect_limit("I stopped because the user may have hit your session limit · resets 3pm")[0] is False
     assert detect_limit("Retrying failed: API Error: 529 overloaded_error")[0] is False
     assert detect_limit("done\nYou've hit your session limit · resets 3pm")[0] is True
+
+
+def test_claude_help_still_lists_bare_as_opt_in():  # I3: fail on the day `--bare` becomes the default for -p
+    import shutil
+    import subprocess
+    exe = shutil.which("claude")
+    if not exe:
+        pytest.skip("claude is not installed here")
+    out = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=60).stdout
+    assert "--bare" in out, "claude --help no longer lists --bare: it may be the default now (ROADMAP I3)"
+    print_line = next((ln for ln in out.splitlines() if "-p, --print" in ln), "")
+    assert "bare" not in print_line.lower(), "the -p help text now mentions bare: check ROADMAP I3"
