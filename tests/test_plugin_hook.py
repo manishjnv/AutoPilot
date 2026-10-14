@@ -27,8 +27,12 @@ def repo(tmp_path, test_cmd="python -c pass", tests_text="def test_a():\n    ass
     return r
 
 
-def seal(tmp_path, r, session="s1"):
-    env = {**os.environ, "TMP": str(tmp_path), "TEMP": str(tmp_path), "TMPDIR": str(tmp_path)}
+def seal(tmp_path, r, session="s1", register=True):
+    home = tmp_path / "aphome"
+    home.mkdir(exist_ok=True)
+    if register:
+        (home / "projects.txt").write_text(str(Path(r).resolve()) + "\n")
+    env = {**os.environ, "AUTOPILOT_HOME": str(home), "TMP": str(tmp_path), "TEMP": str(tmp_path), "TMPDIR": str(tmp_path)}
     p = subprocess.run([sys.executable, str(SEAL)], input=json.dumps({"session_id": session, "cwd": str(r)}),
                        capture_output=True, text=True, env=env)
     assert p.returncode == 0
@@ -106,3 +110,29 @@ def test_reference_routine_links_howto_and_prompt():
     sec = (ROOT / "REFERENCE.md").read_text(encoding="utf-8").split("### Routine", 1)[1].split("## VS Code extension", 1)[0]
     assert "examples/routine/prompt.md" in sec and "HOWTO.md#run-with-the-laptop-off-claude-code-routines" in sec
     assert "max_sessions_per_run: 3" in sec and "not run live yet" in sec
+
+
+MARK = 'python -c "open(\'marker\', \'w\').write(\'x\')"'
+
+
+def test_unlisted_project_runs_nothing(tmp_path):
+    r = repo(tmp_path, MARK)
+    assert seal(tmp_path, r, register=False) == ""
+    assert not (r / "marker").exists()
+
+
+def test_listed_project_runs_command(tmp_path):
+    r = repo(tmp_path, MARK)
+    seal(tmp_path, r)
+    assert (r / "marker").exists()
+
+
+def test_init_registers_once(tmp_path, monkeypatch):
+    import argparse
+    from autopilot import cli
+    monkeypatch.setenv("AUTOPILOT_HOME", str(tmp_path / "h"))
+    r = tmp_path / "p"
+    r.mkdir()
+    for _ in range(2):
+        cli.cmd_init(argparse.Namespace(path=str(r), stack=None, name=None, force=False, quiet=True))
+    assert (tmp_path / "h" / "projects.txt").read_text().splitlines() == [str(r.resolve())]

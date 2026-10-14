@@ -607,6 +607,7 @@ The Claude Code plugin adds a Stop hook. Claude cannot say "done" while the test
 - If the tests fail, the hook blocks the stop and gives Claude a plain reason.
 - If a test file has fewer lines than at HEAD, the hook blocks the stop too.
 - On a clean repository the hook prints nothing and exits 0.
+- The hook runs only in projects that `ap init`, `ap quickstart` or a run registered on this computer.
 - One session gets at most five blocks. The sixth stop goes through.
 
 Install the plugin from `.claude-plugin/marketplace.json`. The hook is `plugin/hooks/hooks.json`; the script is

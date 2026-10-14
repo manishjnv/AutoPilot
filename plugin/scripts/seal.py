@@ -1,6 +1,7 @@
 """W5: Stop hook. Refuses "done" while the project tests fail or a test file lost lines. Stdlib only."""
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -41,7 +42,7 @@ def test_command(root):
 
 
 def git(root, *args):
-    r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=TIMEOUT)
     return r.stdout if r.returncode == 0 else None
 
 
@@ -73,12 +74,23 @@ def reason(root, cmd):
     return f"The test file {f} has fewer lines than at HEAD. Restore the removed tests." if f else ""
 
 
+def listed(root):
+    """X1: only projects that Autopilot set up on this computer (`projects.txt`) may run a command."""
+    f = Path(os.environ.get("AUTOPILOT_HOME") or Path.home() / ".autopilot") / "projects.txt"
+    try:
+        return str(root.resolve()) in f.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read() or "{}")
     except ValueError:
         return 0
     root = Path(data.get("cwd") or ".")
+    if not listed(root):
+        return 0
     cmd = test_command(root)
     if not cmd and not (root / ".git").exists():
         return 0

@@ -467,7 +467,7 @@ has a test script). It also checks each test file against HEAD: a test file with
 failure prints `{"decision": "block", ...}` and Claude keeps working. The test command has a 300 s limit. The hook
 has a 330 s timeout in `hooks.json`, so the script's own timeout message prints first. The hook blocks at most 5 times
 in one session. The count is kept in `autopilot-seal-<session>.count` in the temp folder. Turn the hook off with
-`/plugin disable autopilot`. Autopilot's own sessions never load the plugin, so the hook never runs inside a build.
+`/plugin disable autopilot`. The hook runs only in projects that `ap init`, `ap quickstart` or a run registered on this computer. Autopilot's own sessions never load the plugin, so the hook never runs inside a build.
 See [HOWTO](HOWTO.md#stop-hook-in-the-plugin).
 
 ### Routine

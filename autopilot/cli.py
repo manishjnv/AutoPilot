@@ -48,6 +48,7 @@ def cmd_init(args):
     root = Path(args.path).resolve()
     ad = root / AGENT_DIR
     ad.mkdir(parents=True, exist_ok=True)
+    register_project(root)
     stack = args.stack or detect_stack(root)
     for name in AGENT_FILES:
         dst = ad / name
@@ -138,6 +139,7 @@ def cmd_onboard(args):
     from .context import discovery_pack, render
 
     root = Path(args.path).resolve()
+    register_project(root)
     if not (root / AGENT_DIR / "project.yaml").exists():
         cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False, quiet=True))
     setup_logging(root, False)  # the session's live activity lines
@@ -211,6 +213,7 @@ def cmd_quickstart(args):
     """M5: init → environment fixes → (claude CLI check) → onboard → doctor → optionally run, in one command."""
     from .state import now
     root = Path(args.path).resolve()
+    register_project(root)
     if not (root / AGENT_DIR / "project.yaml").exists():
         cmd_init(argparse.Namespace(path=str(root), stack=None, name=None, force=False, quiet=True))
     if not preflight(Config.load(root)):  # don't start onboarding on a CLI that can't run a session
@@ -1694,6 +1697,18 @@ def recent_projects() -> list[Path]:
     return [Path(r) for r in rows if r and (Path(r) / AGENT_DIR / "project.yaml").exists()]
 
 
+def register_project(root: Path):
+    """X1: list this project in `<AUTOPILOT_HOME or ~/.autopilot>/projects.txt`; the plugin Stop hook runs only there."""
+    f = Path(os.environ.get("AUTOPILOT_HOME") or Path.home() / ".autopilot") / "projects.txt"
+    try:
+        rows = f.read_text(encoding="utf-8").splitlines() if f.exists() else []
+        if str(root.resolve()) not in rows:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("\n".join(rows + [str(root.resolve())]) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def remember(root: Path):
     """J2: note this project as the last one used, so `ap status` works from any folder."""
     if not (root / AGENT_DIR / "project.yaml").exists():
@@ -1924,6 +1939,8 @@ def main(argv=None):
             return 1
         args.path = found
     remember(Path(args.path).resolve())
+    if args.cmd in ("run", "start") and (Path(args.path) / AGENT_DIR / "project.yaml").exists():
+        register_project(Path(args.path))
     if args.cmd == "audit" and args.ladder:  # W23: read-only, this project's state.db
         from .commands.audit import cmd_ladder
         return cmd_ladder(args)
