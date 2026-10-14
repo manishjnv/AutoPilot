@@ -1,114 +1,115 @@
-"""Wave 4: token ledger, token footer, claude_cli usage parsing."""
-import re
-import sqlite3
+"""W59 core: the OAuth usage endpoint is parsed into plain bars, read at most once a minute per login, behind a kill
+switch, and the token never leaves the request."""
+import json
 
-from autopilot.orchestrator import Orchestrator
-from autopilot.report import build_report, token_footer
-from autopilot.state import State
-from test_autopilot import FakeBackend, make_project, phases_basic
-from test_backend import run_stub
+from autopilot import usage
 
-NO_AUDIT = {"audit": {"completion_audit": False}}
-NO_DECIDE = {"decide": {"enabled": False}}  # these tests pin exact session totals
-
-
-def u(i, o, r=0, w=0, cost=0.0):
-    return {"input": i, "output": o, "cache_read": r, "cache_write": w, "cost": cost}
-
-
-class UsageBackend(FakeBackend):
-    """FakeBackend that reports tokens: sonnet for tasks, opus for audits and repairs."""
-
-    def run(self, req):
-        res = super().run(req)
-        if self.calls[-1][0] in ("audit", "fixer", "unstick"):
-            res.usage = {"claude-opus": u(100, 20000, cost=0.5)}
-        else:
-            res.usage = {"claude-sonnet": u(1000, 500, cost=0.25)}
-        res.num_turns, res.duration_ms = 3, 1500
-        return res
+RESET_5H = "2026-10-14T20:20:00.355441+00:00"
+RESET_7D = "2026-10-19T00:00:00.355461+00:00"
+BODY = {  # the live shape of 2026-10-14, numbers changed
+    "five_hour": {"utilization": 54.0, "resets_at": RESET_5H},
+    "seven_day": {"utilization": 42.0, "resets_at": RESET_7D},
+    "seven_day_opus": None,
+    "limits": [
+        {"kind": "session", "group": "session", "percent": 54, "severity": "normal", "scope": None, "is_active": True,
+         "resets_at": RESET_5H},
+        {"kind": "weekly_all", "group": "weekly", "percent": 42, "severity": "normal", "scope": None,
+         "is_active": False, "resets_at": RESET_7D},
+        {"kind": "weekly_scoped", "group": "weekly", "percent": 22, "severity": "normal",
+         "scope": {"model": {"id": None, "display_name": "Fable"}, "surface": None}, "is_active": False,
+         "resets_at": RESET_7D},
+    ],
+    "seven_day_breakdown": {"as_of": RESET_5H, "rows": [{"key": "claude_code", "display_name": "Claude Code", "percent": 100},
+                                                        {"key": "chat", "display_name": "Chats", "percent": 0}]},
+}
 
 
-def test_cli_parses_model_usage_for_two_models(tmp_path, monkeypatch):
-    mu = {"claude-sonnet-x": {"inputTokens": 10, "outputTokens": 20, "cacheReadInputTokens": 30,
-                              "cacheCreationInputTokens": 40, "costUSD": 0.5},
-          "claude-haiku-x": {"inputTokens": 1, "outputTokens": 2, "costUSD": 0.01}}
-    res = run_stub(tmp_path, monkeypatch, f"print(json.dumps({{'result': 'ok', 'modelUsage': {mu!r}, "
-                                          "'num_turns': 4, 'duration_ms': 900, 'total_cost_usd': 0.51}))\n")
-    assert res.ok and res.num_turns == 4 and res.duration_ms == 900
-    assert res.usage["claude-sonnet-x"] == u(10, 20, 30, 40, 0.5)
-    assert res.usage["claude-haiku-x"] == u(1, 2, 0, 0, 0.01)
+def test_parse_gives_the_three_bars_and_the_surfaces():
+    bars = usage.parse(BODY)
+    assert bars["five_hour"]["pct"] == 0.54 and bars["seven_day"]["pct"] == 0.42
+    assert bars["five_hour"]["reset"] == usage._when(RESET_5H) > 1.7e9
+    assert bars["models"] == {"fable": {"pct": 0.22, "reset": usage._when(RESET_7D)}}
+    assert bars["surfaces"] == {"claude_code": 1.0, "chat": 0.0}
 
 
-def test_cli_falls_back_to_plain_usage_and_never_raises(tmp_path, monkeypatch):
-    res = run_stub(tmp_path, monkeypatch,
-                   "print(json.dumps({'result': 'ok', 'total_cost_usd': 0.2, 'usage': {'input_tokens': 5, "
-                   "'output_tokens': 6, 'cache_read_input_tokens': 7, 'cache_creation_input_tokens': 8}}))\n")
-    assert res.usage == {"sonnet": u(5, 6, 7, 8, 0.2)}
-    odd = run_stub(tmp_path, monkeypatch, "print(json.dumps({'result': 'ok', 'modelUsage': {'m': 'junk'}, "
-                                          "'usage': 'x', 'num_turns': 'many'}))\n")
-    assert odd.ok and odd.usage == {} and odd.num_turns == 0
+def test_odd_values_and_unknown_shapes_are_dropped_not_trusted():
+    body = json.loads(json.dumps(BODY))
+    body["limits"][0]["percent"] = "54"  # a string
+    body["limits"][1]["resets_at"] = "soon"  # not a time
+    body["limits"][2]["percent"] = 140  # over the scale
+    body["five_hour"]["utilization"] = float("nan")
+    bars = usage.parse(body)
+    assert "five_hour" not in bars and bars["models"] == {}
+    assert bars["seven_day"]["pct"] == 0.42  # the flat object filled the gap left by the odd limits row
+    assert usage.parse(None) == {"models": {}, "surfaces": {}} and usage.parse({"limits": "x"})["models"] == {}
 
 
-def test_old_database_without_new_columns_still_opens(tmp_path):
-    db = tmp_path / "state.db"
-    con = sqlite3.connect(db)
-    con.execute("CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, task_id TEXT, phase TEXT, "
-                "attempt INTEGER, model TEXT, started_at TEXT, ended_at TEXT, cost REAL DEFAULT 0, ok INTEGER, "
-                "claude_session_id TEXT, summary TEXT, error TEXT, log_path TEXT)")
-    con.execute("INSERT INTO sessions(kind, model, started_at) VALUES('task', 'sonnet', '2026-01-01T00:00:00')")
-    con.commit()
-    con.close()
-    st = State(db)
-    sid = st.start_session("task", "T1", "P1", 1, "sonnet")
-    st.end_session(sid, cost=1.0, ok=True, usage={"m": u(1, 2, 3, 4, 1.0)}, num_turns=2, duration_ms=5)
-    assert st.token_totals("model") == [("m", {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4,
-                                               "total": 10, "cost": 1.0})]
-    assert st.session_count() == 2
-    State(db).close()  # reopening an already migrated database is fine
+class Resp:
+    def __init__(self, body):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self, n=-1):
+        return json.dumps(self.body).encode()
 
 
-def test_token_totals_by_model_kind_after_a_fake_run(tmp_path):
-    root = make_project(tmp_path, phases_basic(), NO_DECIDE)
-    orch = Orchestrator(root, backend=UsageBackend(), sleep=lambda s: None)
-    assert orch.run() == "app complete"
-    models = orch.state.token_totals("model")
-    assert [m for m, _ in models] == ["claude-opus", "claude-sonnet"]  # biggest first
-    assert dict(models)["claude-sonnet"]["total"] == 3 * 1500 and dict(models)["claude-opus"]["total"] == 20100
-    kinds = dict(orch.state.token_totals("kind"))
-    assert kinds["task"]["total"] == 4500 and kinds["audit"]["total"] == 20100
-    assert dict(orch.state.token_totals("task"))["P01-T01"]["total"] == 1500
-    assert sum(v["total"] for _, v in orch.state.token_totals("day")) == 24600
-    assert orch.state.token_totals("model", since_session=orch.state.next_session_id()) == []
-    assert orch.state.recent_sessions(1)[0]["num_turns"] == 3
+def login(tmp_path, token="tok-secret-123"):
+    (tmp_path / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": token}}), encoding="utf-8")
+    return str(tmp_path)
 
 
-def test_report_tokens_section_footer_and_verification_share(tmp_path):
-    root = make_project(tmp_path, phases_basic(), NO_DECIDE)
-    orch = Orchestrator(root, backend=UsageBackend(), sleep=lambda s: None)
-    orch.run()
-    report = (root / ".agent" / "REPORT.md").read_text(encoding="utf-8")
-    assert "## Tokens" in report and "| claude-opus |" in report and "| audit |" in report
-    assert "Verification share is above 20%: checks are using more than intended." in report
-    footer = token_footer(orch.state)
-    m = re.fullmatch(r"Tokens: [\d.]+k total — claude-opus \S+ (\d+)% · claude-sonnet \S+ (\d+)% · verification (\d+)%", footer)
-    assert m, footer
-    assert 98 <= int(m[1]) + int(m[2]) <= 102 and int(m[3]) == 82
-    assert build_report(orch.cfg, orch.plan, orch.state).count("## Tokens") == 1
+def test_fetch_sends_the_token_only_to_the_endpoint_and_caches_for_a_minute(tmp_path):
+    calls, clock = [], [1000.0]
+
+    def urlopen(url, headers):
+        calls.append((url, headers))
+        return Resp(BODY)
+    folder = login(tmp_path)
+    cache = {}
+    bars = usage.fetch(folder, urlopen=urlopen, now=lambda: clock[0], cache=cache)
+    assert bars["five_hour"]["pct"] == 0.54 and bars["at"] == 1000.0
+    assert calls[0][0] == usage.URL and calls[0][1]["Authorization"] == "Bearer tok-secret-123"
+    assert calls[0][1]["anthropic-beta"] == usage.BETA
+    assert "tok-secret-123" not in repr(bars)  # the token is not part of the result
+    clock[0] = 1030.0
+    assert usage.fetch(folder, urlopen=urlopen, now=lambda: clock[0], cache=cache) is bars and len(calls) == 1
+    clock[0] = 1061.0
+    usage.fetch(folder, urlopen=urlopen, now=lambda: clock[0], cache=cache)
+    assert len(calls) == 2
 
 
-def test_no_verification_warning_when_checks_are_cheap(tmp_path):
-    root = make_project(tmp_path, phases_basic(), NO_AUDIT)
-    orch = Orchestrator(root, backend=UsageBackend(), sleep=lambda s: None)
-    orch.run()
-    report = (root / ".agent" / "REPORT.md").read_text(encoding="utf-8")
-    assert "## Tokens" in report and "Verification share is above 20%" not in report
-    assert token_footer(orch.state).endswith("verification 0%")
+def test_kill_switch_no_token_and_a_failed_call_give_empty_without_a_raise(tmp_path):
+    calls = []
+
+    def boom(url, headers):
+        calls.append(url)
+        raise OSError("down")
+
+    class Cfg:
+        def get(self, key, default=None):
+            return False if key == "usage.live" else default
+    folder = login(tmp_path)
+    assert usage.fetch(folder, cfg=Cfg(), urlopen=boom, cache={}) == {} and calls == []  # the kill switch
+    assert usage.fetch(str(tmp_path / "nowhere"), urlopen=boom, cache={}) == {} and calls == []  # no login here
+    cache = {}
+    assert usage.fetch(folder, urlopen=boom, now=lambda: 5.0, cache=cache) == {} and len(calls) == 1
+    assert usage.fetch(folder, urlopen=boom, now=lambda: 20.0, cache=cache) == {} and len(calls) == 1  # failures are cached too
+
+    def odd(url, headers):
+        return Resp({"limits": [], "hello": 1})
+    assert usage.fetch(folder, urlopen=odd, cache={}) == {}  # an unknown shape: the CLI figures stay the source
 
 
-def test_run_done_notification_carries_the_footer(tmp_path):
-    root = make_project(tmp_path, phases_basic(), NO_AUDIT)
-    orch = Orchestrator(root, backend=UsageBackend(), sleep=lambda s: None)
-    orch.run()
-    done = [e["message"] for e in orch.state.events(50) if e["kind"] == "run_done"]
-    assert done and "Tokens: " in done[0] and "claude-sonnet" in done[0]
+def test_read_token_and_config_dir(tmp_path, monkeypatch):
+    assert usage.read_token(login(tmp_path, "abc")) == "abc"
+    assert usage.read_token(str(tmp_path / "missing")) == ""
+    (tmp_path / ".credentials.json").write_text("{not json", encoding="utf-8")
+    assert usage.read_token(str(tmp_path)) == ""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "env"))
+    assert usage.config_dir("") == tmp_path / "env" and usage.config_dir("default") == tmp_path / "env"
+    assert usage.config_dir(str(tmp_path / "two")) == tmp_path / "two"
