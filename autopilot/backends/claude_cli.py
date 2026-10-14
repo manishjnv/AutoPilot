@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from ..config import allowlist_on, sandbox_mode
-from ..proc import agent_env, stream_proc
+from ..proc import OWNER_STOP, agent_env, stream_proc
 from . import SessionRequest, SessionResult, detect_infra, detect_limit, docker_box, parse_report, since
 
 progress = logging.getLogger("autopilot")
@@ -133,6 +133,19 @@ def result_event(raw: str) -> dict:
         return data if isinstance(data, dict) else {}
     except ValueError:
         return {}
+
+
+def is_result_line(line: str) -> bool:
+    """W46: this stream line is the final `result` event."""
+    return '"result"' in line and _line_type(line) == "result"
+
+
+def _line_type(line: str) -> str:
+    try:
+        ev = json.loads(line)
+    except ValueError:
+        return ""
+    return str(ev.get("type")) if isinstance(ev, dict) else ""
 
 
 def window_info(raw: str) -> dict:
@@ -268,6 +281,8 @@ class ClaudeCLIBackend:
                "--permission-mode", c.get("agent.permission_mode", "bypassPermissions")]
         if req.resume:
             cmd += ["--resume", req.resume]
+        if req.on_text:  # W48b: text deltas as they arrive
+            cmd += ["--include-partial-messages"]
         if req.mcp_config:  # only these servers, not the project's own .mcp.json
             cmd += ["--mcp-config", req.mcp_config, "--strict-mcp-config"]
         elif req.no_tools or allowlist_on(c):  # no MCP servers at all (they'd run outside the sandbox)
@@ -326,12 +341,15 @@ class ClaudeCLIBackend:
             log = open(req.log_path, "w", encoding="utf-8")  # noqa: SIM115
             log.write(f"$ {' '.join(cmd[:10])} ...\n\nSTDOUT:\n")
 
-        meter, told = usage_meter(), [float("-inf")]
+        meter, told, beat = usage_meter(), [float("-inf")], [float("-inf")]
 
         def on_line(line: str) -> str:
             if log:
                 log.write(line)
                 log.flush()
+            if req.on_event and time.monotonic() - beat[0] >= 10:  # W18a: the runner heartbeat, at most every 10 s
+                beat[0] = time.monotonic()
+                req.on_event()
             if req.on_tokens:  # G8: the status line counts this session's tokens while it runs (every 5 s at most)
                 tokens = meter(line)
                 if tokens and time.monotonic() - told[0] >= 5:
@@ -339,6 +357,11 @@ class ClaudeCLIBackend:
                     if req.on_context:
                         req.on_context(meter.context)
                     req.on_tokens(tokens)
+            if req.on_text and '"text_delta"' in line:
+                ev = next(_events(line), {})
+                d = (ev.get("event") or {}).get("delta") or {}
+                if ev.get("type") == "stream_event" and d.get("type") == "text_delta":
+                    req.on_text(str(d.get("text") or ""))
             act = activity(line)
             if act:
                 secs = int(time.monotonic() - started)
@@ -347,13 +370,16 @@ class ClaudeCLIBackend:
 
         p = None
         try:
-            p = stream_proc(cmd, input=prompt, cwd=req.cwd, env=self.env(), timeout=req.timeout_sec, on_line=on_line)
+            p = stream_proc(cmd, input=prompt, cwd=req.cwd, env=self.env(), timeout=req.timeout_sec, on_line=on_line,
+                            done=is_result_line)
         except OSError as exc:
             return SessionResult(ok=False, error=f"cannot start claude ({cmd[0]}): {exc}", infra="cli")
         finally:
             if log:
                 log.write(f"\n\nSTDERR:\n{p.stderr if p else ''}")
                 log.close()
+        if p.ended:
+            progress.info("session ended at its final answer; its child processes were stopped")
         if p.timed_out or p.stopped:  # killed: no result event, so tokens come from the messages seen so far
             usage = partial_usage(p.stdout, req.model)
             killed = dict(ok=False, session_id=first_session_id(p.stdout), usage=usage,
@@ -362,6 +388,8 @@ class ClaudeCLIBackend:
             if p.timed_out:
                 return SessionResult(error=f"session timed out after {req.timeout_sec}s", timed_out=True,
                                      text=partial_text(p.stdout), **killed)
+            if p.stopped == OWNER_STOP:  # W39: not a loop, so never a stuck or escalation signal
+                return SessionResult(error=p.stopped, text=partial_text(p.stdout), **killed)
             return SessionResult(error=p.stopped, stuck=True, **killed)
 
         raw = p.stdout.strip()

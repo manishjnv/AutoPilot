@@ -102,7 +102,7 @@ def node_project(tmp_path, monkeypatch, setup=None):
     from autopilot.config import Config
     assert cli_main(["init", "-C", str(tmp_path), "--stack", "generic"]) == 0
     p = tmp_path / ".agent" / "project.yaml"
-    text = p.read_text(encoding="utf-8") + "\nagent:\n  backend: command\n"
+    text = p.read_text(encoding="utf-8").replace("\nagent:\n", "\nagent:\n  backend: command\n", 1)  # W38: one agent block
     if setup:
         text = text.replace("  setup: []", f"  setup: [\"{setup}\"]", 1)
     p.write_text(text, encoding="utf-8")

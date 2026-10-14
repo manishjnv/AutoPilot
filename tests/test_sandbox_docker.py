@@ -73,9 +73,9 @@ def test_docker_needs_the_claude_cli_backend(tmp_path):
     assert "agent.backend: claude_cli" in sandbox_errs(c)[0]
 
 
-def test_docker_refused_on_native_windows(tmp_path, monkeypatch):
+def test_allowlist_refused_on_native_windows(tmp_path, monkeypatch):  # W32: docker is allowed there now
     monkeypatch.setattr("autopilot.config.NATIVE_WINDOWS", True)
-    c = cfg_with(tmp_path, {"agent": {"backend": "claude_cli"}, "sandbox": {"mode": "docker", "image": "i"}})
+    c = cfg_with(tmp_path, {"agent": {"backend": "claude_cli"}, "sandbox": {"mode": "allowlist"}})
     assert "WSL2" in sandbox_errs(c)[0]
 
 
@@ -230,7 +230,7 @@ def fake_docker(tmp_path, monkeypatch, text="Docker version 27.1.1, build abc"):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     if os.name == "nt":  # Windows runs only .exe files through Popen, and a copied python.exe cannot load its DLLs
-        monkeypatch.setattr("autopilot.doctor._run", lambda cmd, **k: (0, text) if cmd[:1] == ["docker"] else (0, ""))
+        monkeypatch.setattr("autopilot.doctor._run", lambda cmd, **k: (0, text) if cmd[:2] == ["docker", "--version"] else (1, "") if cmd[:1] == ["docker"] else (0, ""))
     else:
         script = bindir / "docker"
         script.write_text("#!/bin/sh\necho " + repr(text) + "\n", encoding="utf-8")

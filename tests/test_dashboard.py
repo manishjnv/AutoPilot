@@ -19,13 +19,13 @@ def test_data_is_plain_and_has_every_part(tmp_path):
     data = dashboard_data(orch.cfg, orch.plan, orch.state, {})
     json.dumps(data)  # only plain types: a view never needs the plan or the state
     assert set(data) == {"project", "progress", "tasks", "live", "usage", "files", "health", "next", "line",
-                         "needs_you", "blocked_why", "size", "phases", "recent", "asof"}
+                         "needs_you", "blocked_why", "size", "phases", "recent", "asof", "card", "you"}
     assert data["phases"][0] == {"id": "P01", "title": data["phases"][0]["title"], "total": 2, "done": 2, "status": "done"}
     assert len(data["recent"]) == 3 and {"n", "title", "time"} == set(data["recent"][0])
     assert data["project"]["status"] == "idle" and data["project"]["state_words"] == "No build is active."
     assert data["progress"] == {"done": 3, "total": 3, "pct": 100, "phases_done": 2, "phases_total": 2,
                                 "blocked": 0, "questions": 0, "warnings": 0, "warned": [], "warned_why": [], "retries": 0,
-                                "working": 0, "waiting": 0,
+                                "working": 0, "waiting": 0, "end_steps": 0, "audit_added": 0, "word": "",
                                 "active": 0}
     assert data["project"]["now"] is None and data["project"]["tone"] == "" and data["needs_you"] == []
     assert [t["status"] for t in data["tasks"]] == ["done"] * 3 and data["tasks"][0]["n"] == 1
@@ -88,7 +88,7 @@ def test_an_open_question_and_a_blocked_task_are_named(tmp_path):
     orch.state.add_decision(kind="blocked", task_id="P02-T01", title="P02-T01 the tests fail", question="What now?",
                             status="OPEN")
     data = dashboard_data(orch.cfg, orch.plan, orch.state, {})
-    assert data["blocked_why"] == {"id": "P02-T01", "why": "the tests fail on Windows. More text."}
+    assert {k: data["blocked_why"][k] for k in ("id", "why")} == {"id": "P02-T01", "why": "the tests fail on Windows. More text."}  # W18a adds age, old
     assert data["needs_you"] == [{"id": data["needs_you"][0]["id"], "title": "P02-T01 the tests fail"}]
     assert data["progress"]["blocked"] == 1 and data["progress"]["questions"] == 1
 

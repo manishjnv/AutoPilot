@@ -10,7 +10,11 @@ from pathlib import Path
 import yaml
 
 from . import proc
-from .gate import verify_commands
+from .config import scope_always
+from .scope_files import scoped_files_block
+from .contracts import contracts_block
+from .gate import CODE_EXT, TEST_GLOBS, _count_lines, _match, growth_limit, verify_commands
+from .plan_find import candidates_block
 from .repomap import helper_index
 
 PROMPTS = Path(__file__).parent / "prompts"
@@ -53,6 +57,16 @@ def read_capped(path: Path, max_chars: int, tail: bool = False, default: str = "
     if len(text) <= max_chars:
         return text
     return ("…(truncated)…\n" + text[-max_chars:]) if tail else (text[:max_chars] + "\n…(truncated)…")
+
+
+def numbered(items) -> str:
+    return "\n".join(f"{n}. {i}" for n, i in enumerate([str(i) for i in (items or []) if str(i).strip()], 1))
+
+
+REVIEW_LIST = ("## Findings of the last review (check these first)\n{list}\n\n"
+               "For each number report `{{\"n\": 1, \"status\": \"fixed | open\"}}` in `listed`. A NEW defect goes in `findings` "
+               "(it fails the task) only when it breaks an acceptance criterion: name the criterion. Any other new defect goes in "
+               "`followups` and does not fail the task. The task merges when every listed number is fixed and `findings` is empty.\n")
 
 
 def bullets(items, empty: str = "(none)") -> str:
@@ -129,14 +143,15 @@ class ContextBuilder:
                       acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
                       decisions=self.decisions(), error=(error or "(none)")[-6000:])
 
-    def review_prompt(self, task, diff: str) -> str:
+    def review_prompt(self, task, diff: str, listed: list[str] | None = None) -> str:
         phase = self.plan.phase_of(task)
         if len(diff) > 30000:
             diff = diff[:30000] + "\n... (diff cut; read the rest with `git show HEAD`)"
         fence = "`" * max(5, 1 + max((len(m) for m in re.findall(r"`+", diff)), default=0))  # the diff cannot close it
         return render("review.md", task_id=task.id, task_title=task.title, description=task.description or task.title,
                       acceptance=bullets(task.acceptance_criteria), phase_goal=phase.goal or phase.title,
-                      decisions=self.decisions(), fence=fence, diff=diff or "(empty)")
+                      decisions=self.decisions(), fence=fence, diff=diff or "(empty)",
+                      review_list=REVIEW_LIST.format(list=numbered(listed)) if listed else "")
 
     def decide_prompt(self, task) -> str:
         phase = self.plan.phase_of(task)
@@ -218,12 +233,15 @@ class ContextBuilder:
             "task.md", task_id=task.id, task_title=task.title, phase_id=phase.id, phase_title=phase.title,
             phase_goal=phase.goal, risk=task.risk,
             description=task.description or task.title, acceptance=bullets(task.acceptance_criteria),
-            scope=bullets(task.files_in_scope, "(not restricted)"), docs=bullets(task.docs, "(whatever this change affects)"),
+            scope=bullets(task.files_in_scope, "(not restricted)") + line_budget(self.cfg, task.files_in_scope), docs=bullets(task.docs, "(whatever this change affects)"),
             decisions=self.decisions(), handoff=self.handoff(),
             progress=progress_line(self.plan, self.state.status_map()), retry_block=retry,
             verify_cmds=self.verify_cmds(task.verify), owner_answers=self.owner_answers(task.id),
             git_log=git_log.strip() or "(none)", fix_rules=FIX_RULES if phase.priority else "",
-            adr_block=self.adr_block(task), research_block=self.research_block(task),
+            adr_block="\n\n".join(b for b in (self.adr_block(task), contracts_block(self.cfg.root, task.files_in_scope),
+                                              scoped_files_block(
+                self.cfg.root, task.files_in_scope, int(self.cfg.get("context.scope_chars", 60000)), scope_always(self.cfg))) if b),
+            research_block=self.research_block(task),
             helper_index=helper_index(self.cfg.root) or "(none)", test_rule=TEST_RULE[self.cfg.lean],
         )
 
@@ -378,6 +396,25 @@ def _commit_time(root: Path, rel: Path) -> int:
         return 0
 
 
+NEAR_BUDGET = 40  # W41: list a scoped file this close to its growth limit
+
+
+def line_budget(cfg, scope) -> str:
+    """W41: the lines left for each literal in-scope code file within NEAR_BUDGET of gate.growth_limit ('' = none or off)."""
+    if not cfg.get("gate.file_growth"):
+        return ""
+    tests, rows = cfg.get("gate.test_globs") or TEST_GLOBS, []
+    for path in scope or []:
+        f = cfg.root / path
+        if not path.endswith(CODE_EXT) or _match(path, tests) or not f.is_file():
+            continue
+        n = _count_lines(f)
+        limit = growth_limit(cfg, path, n)
+        if limit - n <= NEAR_BUDGET:
+            rows.append(f"- {path}: {limit - n} lines left of {limit}")
+    return "\n\nLines left before the growth budget (split, do not grow past it):\n" + "\n".join(rows) if rows else ""
+
+
 def document_conflicts(root, git: str) -> list[str]:
     """N1 conflicts: one line per task two plan documents disagree on; the git log wins, then the newer file."""
     root, docs = Path(root), {}
@@ -419,6 +456,7 @@ def discovery_pack(root, cfg) -> str:
                 tree.append("  ```\n" + "\n".join("  " + x for x in h.splitlines()) + "\n  ```")
     secs = [("Git log (last 200 commits)", git or "(no git history)", 8000),
             ("Documents", "\n".join(tree) or "(no documents found)", 24000),
+            ("Plan candidates (W35: scored by content)", candidates_block(root) or "(none)", 4000),
             ("Stack files", _stack_section(root), 12000),
             ("Test command result", _test_section(root, cfg), 8000)]
     if conflicts := document_conflicts(root, git):  # N1 conflicts

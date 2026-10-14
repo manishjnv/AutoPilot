@@ -80,6 +80,7 @@ def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, caps
     import threading
     import time
 
+    import autopilot.orchestrator  # noqa: F401  the watch loads it lazily (about 2 s on WSL): load it before the clock
     from autopilot.cli import main as cli_main
     root = make_project(tmp_path, phases_basic())
     log = root / ".agent" / "logs" / "autopilot.log"
@@ -88,7 +89,7 @@ def test_watch_shows_progress_then_follows_until_the_run_finishes(tmp_path, caps
     (root / ".agent" / "run.json").write_text(json.dumps({"status": "running", "current": "task P01-T01"}))
 
     def finish():
-        time.sleep(1.5)
+        time.sleep(3)
         with open(log, "a", encoding="utf-8") as fh:
             fh.write("2026-10-02 09:01:00 INFO   ▸ P01-T01 · Write src/x.py · 0m30s\n")
         (root / ".agent" / "run.json").write_text(json.dumps({"status": "finished", "outcome": "plan complete"}))
@@ -108,7 +109,7 @@ def test_page_title_and_first_line_are_the_status_line(serve, tmp_path):
     (agent / "run.json").write_text(json.dumps({"status": "running", "state": "Code", "task": "P01-T01",
                                                 "attempt": 1, "max_attempts": 3, "git": "OK", "build": "OK"}))
     body = get(serve())[1]
-    assert "<title>ON │ Code │ Task 0/3 0% │ Ph 0/2 │ Blk 0 · Autopilot builds your software project while you are away</title>" in body  # the tab shows it even in the background
+    assert "<title>ON │ Code │ Task 0/3 0% │ Ph 0/2 │ Blk 0 · Autopilot builds your software project while you are away · Autopilot " in body  # W18a: the version ends the title  # the tab shows it even in the background
     assert 'aria-current="true"' in body and "<span>Task 1/3</span>" in body  # J9 (J13 row 14: the state word lives in the title)
 
 

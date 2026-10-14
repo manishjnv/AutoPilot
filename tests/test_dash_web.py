@@ -139,7 +139,7 @@ def test_spinner_element_and_paused_class():
     assert 'class="spin stopped paused"' in stopped and "✗ stopped 12:50" in stopped
     assert 'class="spin' not in render(d)  # no spin key: no element
     assert "animation-play-state:paused" in render(d) and "classList.add('paused')" in render(d)
-    assert render(d).count("@keyframes") == 1  # J13/18: the ring is the only animation
+    assert render(d).count("@keyframes") == 2  # J13/18 + W18b: the ring and the one shimmer cell of the Now card
 
 
 def test_colour_map_classes():

@@ -55,7 +55,36 @@ def ci_state(sha) -> str:
     return "pending" if r["status"] != "completed" else ("success" if r["conclusion"] == "success" else "failure")
 
 
+LEAD = "**In plain words:**"
+MAX_WORDS = 25  # same limit as .vale/styles/Autopilot/SentenceLength.yml
+
+
+def unreleased(text):
+    m = re.search(r"^## \[Unreleased\]\n(.*?)(?=^## \[|\Z)", text, flags=re.M | re.S)
+    return m.group(1) if m else ""
+
+
+def long_sentences(block):
+    """Sentences over MAX_WORDS words in the bullet lines of a changelog block."""
+    out = []
+    for line in block.splitlines():
+        if line.lstrip().startswith(("- ", "* ")):
+            out += [s for s in re.split(r"(?<=[.!?])\s+", line.lstrip()[2:]) if len(s.split()) > MAX_WORDS]
+    return out
+
+
+def check_notes(text):
+    """Release-notes rule (W49): the Unreleased block opens with the plain-words lead; every sentence is short."""
+    block = unreleased(text)
+    if not block.strip().startswith(LEAD):
+        sys.exit(f"release notes rule: the [Unreleased] block of CHANGELOG.md must start with a line that begins {LEAD}")
+    bad = long_sentences(block)
+    if bad:
+        sys.exit(f"release notes rule: a CHANGELOG sentence is over {MAX_WORDS} words: {bad[0][:80]}... ({len(bad)} found)")
+
+
 def bump(ver):
+    check_notes(Path("CHANGELOG.md").read_text(encoding="utf-8"))
     sub("pyproject.toml", r'^version = ".*"', f'version = "{ver}"')
     sub("plugin/.claude-plugin/plugin.json", r'"version": ".*?"', f'"version": "{ver}"')
     sub("autopilot/__init__.py", r'^__version__ = ".*"', f'__version__ = "{ver}"')

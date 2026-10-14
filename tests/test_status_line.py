@@ -227,4 +227,6 @@ def test_status_command_starts_with_the_line(tmp_path, capsys):
     root = make_project(tmp_path, phases_basic(), BASE)
     capsys.readouterr()  # drop what `init` printed
     assert cli_main(["status", "-C", str(root)]) in (0, None)
-    assert capsys.readouterr().out.splitlines()[0].startswith("Idle │ Task 0/3 0% │ Ph 0/2 │ Blk 0")
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("Autopilot ")  # W18a: the version is the first line
+    assert lines[1].startswith("Idle │ Task 0/3 0% │ Ph 0/2 │ Blk 0")

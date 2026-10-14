@@ -289,7 +289,7 @@ def test_replan_cannot_remove_done_tasks(tmp_path):
 
 
 def test_budget_stop(tmp_path):
-    root = make_project(tmp_path, phases_basic(), {"budget_usd": {"total": 0.3}})
+    root = make_project(tmp_path, phases_basic(), {"budget_usd": {"total": 0.3}, "usage": {"billing": "api"}})
     orch = Orchestrator(root, backend=FakeBackend(), sleep=lambda s: None)
     assert "total budget" in orch.run()
 

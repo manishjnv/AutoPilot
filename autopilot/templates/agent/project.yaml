@@ -18,6 +18,9 @@ commands:
   smoke: []               # after each deploy (can use $AUTOPILOT_ENV / $AUTOPILOT_URL)
 verify_timeout_sec: 1200
 
+context:
+  scope_chars: 60000   # W27: most characters of the scoped files' text in a task prompt (a larger file gives its first 80 lines and its def/class lines)
+
 gate:
   allow_no_checks: false  # true = allow a run with no build/lint/typecheck/test command (not recommended)
   scope_always: ["REFERENCE.md", "CHANGELOG.md", "HOWTO.md", "README.md"]  # docs a task may always change (outside its files_in_scope)
@@ -62,6 +65,7 @@ agent:
   # command: "my-agent --model {model}"   # for backend=command; prompt arrives on stdin
   # preset: codex          # backend=command without a command: codex | copilot | gemini | opencode | kiro | cursor | aider (ready-made invocations)
   # fallback: [codex, copilot]   # N11: at a usage limit that resets in over 30 min, the task continues with the first runner here (own login)
+  # fallback: [{claude_cli: {CLAUDE_CONFIG_DIR: ~/.claude-2}}]   # W28: or the same runner on a second Claude login (own usage window)
   # model_map: {haiku: <small model>, sonnet: <main model>, opus: <largest model>}   # ladder names -> CLI models;
   #                         an unmapped haiku/sonnet/opus uses the CLI's default model
   permission_mode: bypassPermissions      # run Autopilot inside a VM/container when bypassing; or dontAsk + allowed_tools
@@ -103,9 +107,9 @@ sandbox:
 # Risk tier -> model ladder. Attempt N uses ladder[N] (last entry repeats).
 models:
   ladder:
-    low: [haiku, sonnet, opus]
+    low: [sonnet, sonnet, opus]  # W23: measured 2026-10-13: haiku 20-28 min, sonnet 5-7 min, same cost
     medium: [sonnet, sonnet, opus]
-    high: [opus, opus, opus]
+    high: [sonnet, opus, opus]   # W23: opus 25-47 min, 2 of 5 retried; the review guards every task
     critical: [opus, opus]
   fallback: ""            # passed as --fallback-model when set
   effort:                 # --effort per role (empty = agent.effort, then the CLI default); tasks use their risk tier

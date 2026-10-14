@@ -6,7 +6,7 @@ import os
 import re
 
 COLORS = {"red": "31", "green": "32", "yellow": "33", "cyan": "36", "bold": "1", "dim": "2", "count": "1;36",
-          "magenta": "35", "blue": "34", "value": "97"}
+          "magenta": "35", "blue": "34", "value": "97", "active": "1;30;46"}
 
 
 def colors_on(stream) -> bool:

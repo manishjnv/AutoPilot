@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -19,7 +20,7 @@ DESCRIPTION = ("Autopilot builds your software project while you are away. You w
                "and start it once. You get working software, tested, with a record of every step. "
                "`ap` is the short name of `autopilot`.")
 from .config import TEMPLATES, Config, load_yaml
-from .plan import Plan, PlanError
+from .plan import Plan, PlanError, independent_groups
 from .proc import exclusive_lock
 
 AGENT_FILES = ["project.yaml", "plan.yaml", "BRAIN.md", "DECISIONS.md", "HANDOFF.md"]
@@ -227,10 +228,13 @@ def _quickstart(args, root: Path):
         print(f"plan document not found: {args.plan_doc}")
         return 1
     if not args.plan_doc:  # no plan given: use the project's own, or have Claude write one from the owner's idea
-        found = next((root / p for p in ("PLAN.md", "docs/PLAN.md") if (root / p).is_file()), None)
-        if found:
+        from .plan_find import choose_plan  # W35: the plan is found by content; the named PLAN.md is the fallback
+        found = choose_plan(root)
+        named = next((root / p for p in ("PLAN.md", "docs/PLAN.md") if (root / p).is_file()), None)
+        if not found and named:
+            found = named
             print(f"using {found.relative_to(root)}")
-        else:
+        if not found:
             idea = getattr(args, "idea", None) or ask_idea()
             if idea and Path(idea).is_file():
                 idea = Path(idea).read_text(encoding="utf-8")
@@ -631,9 +635,16 @@ def adopt_start(root: Path) -> int:
 
 
 def cmd_validate(args):
+    from .session_env import session_lines
     root = Path(args.path).resolve()
-    cfg = Config.load(root)
+    try:
+        cfg = Config.load(root)
+    except yaml.YAMLError as e:  # W38: a duplicate key names itself and both lines
+        print(f"config  ERROR .agent/project.yaml: {e}")
+        return 1
     ok = True
+    for line in session_lines(cfg):
+        print(f"agent   INFO  {line}")
     blocking = cfg.blocking_errors()
     for e in blocking:
         ok = False
@@ -641,6 +652,11 @@ def cmd_validate(args):
     for e in cfg.validate():
         if e not in blocking:
             print(f"config  WARN  {e}")
+    fb = cfg.get("agent.fallback") or []
+    if fb:  # W28: the order in which a usage limit moves the work
+        from .handoff import entry_folder
+        print("runner  OK    fallback chain: " + " -> ".join(
+            f"claude_cli on {entry_folder(e)}" if isinstance(e, dict) else str(e) for e in (fb if isinstance(fb, list) else [fb])))
     try:
         plan = Plan.load(root / AGENT_DIR / "plan.yaml")
         tasks = plan.all_tasks()
@@ -653,6 +669,10 @@ def cmd_validate(args):
         if wide:  # O1: an empty scope means the whole repo, so the task runs alone and nothing is gated
             print(f"plan    WARN  {len(wide)} tasks without files_in_scope (whole repo, run alone): "
                   f"{', '.join(wide[:10])}{' …' if len(wide) > 10 else ''}")
+        groups, shared = independent_groups(plan)
+        print(f"plan    OK    {max((len(g) for g in groups), default=0)} phases can run side by side")
+        for x, y, files in shared:
+            print(f"plan    INFO  {x} and {y} share {', '.join(files[:5])}")
     except PlanError as e:
         ok = False
         for err in e.errors:
@@ -860,6 +880,8 @@ def cmd_status(args):
     from .report import build_report, run_journal, status_line
     cfg, plan, state = _open_state(Path(args.path).resolve())
     from .plain import colors_on
+    from .dash_live import version_text
+    print(version_text())  # W18a: the first line says which Autopilot answers
     print(dead_red(status_line(cfg, plan, state, run_journal(cfg.root),
                                shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None),
                    colors_on(sys.stdout)) + "\n")
@@ -916,6 +938,7 @@ def watch_end(root: Path, run: dict, color: bool, hold: bool):
 def restarting(root: Path, wait: float = 90, sleep=None, clock=None) -> bool:
     """J14.9: a run that ended `interrupted` may be restarting itself after a crash. True when run.json turns
     `running` again within `wait` seconds."""
+    import datetime as dt
     import time
 
     from .report import run_journal
@@ -930,10 +953,11 @@ def restarting(root: Path, wait: float = 90, sleep=None, clock=None) -> bool:
     return False
 
 
-def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
+def watch_dashboard(root: Path, color, hold: bool, tick: float = 1.0, size_fn=None):
     """J9: the full-window dashboard (dash_term.frame) on the terminal's second screen, drawn again each second.
     Returns None when this terminal cannot show it (too small, no plan yet): the caller uses the scrolling view.
-    A window made too small later shows one line that says so. Ctrl+C and the end of the build give the first
+    The window size is read on every tick (W18a); a window made too small later shows one line that says so.
+    color: True, False (no styles) or 'mono' (NO_COLOR: bold and dim only). Ctrl+C and the end of the build give the first
     screen back, with the end message on it."""
     import time
 
@@ -943,7 +967,8 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
     from .state import State
     utf = is_utf(sys.stdout)  # J13/18: ASCII spinner on other consoles
     spin = None
-    size = shutil.get_terminal_size()
+    size_fn = size_fn or shutil.get_terminal_size
+    size = size_fn()
     if size.columns < MIN_COLS or size.lines < MIN_ROWS:
         return None
     box: dict = {}
@@ -961,39 +986,64 @@ def watch_dashboard(root: Path, color: bool, hold: bool, tick: float = 1.0):
         data()
     except Exception:  # noqa: BLE001 — no plan yet
         return None
-    out, done, ended = sys.stdout, 0, False
+    from .watch_input import Input, open_keys
+    inp = Input(root, open_keys())  # W48a: the input row; no tty, no row
+    out, done, ended, typed = sys.stdout, 0, False, False
     out.write("\x1b[?1049h\x1b[?25l\x1b[?7l")  # the second screen, no cursor, no line wrap
     try:
         while True:
-            size = shutil.get_terminal_size()
+            size = size_fn()
             try:
                 d = data()
                 spin = d["spin"] = spinner(d, d["asof"]["mtime"], time.time(), spin, utf)
+                d["input"] = inp.row
                 rows = frame(d, size.columns, size.lines, color)
-                title = "".join(c for c in f"{spin['text']} {d.get('line', '')}".strip() if c.isprintable())
+                end = d['project'].get('end_title') or ''  # W18b: the outcome word is the title at the end, green/yellow/red
+                title = "".join(c for c in (end or f"{spin['text']} {d.get('line', '')}".strip()) if c.isprintable())
                 out.write("\x1b[H" + "\n".join(rows) + f"\x1b]0;{title}\x07")
             except ValueError:  # the window is too small now
                 out.write("\x1b[2J\x1b[HThe window is too small for the dashboard. Make it larger, or run: ap watch --scroll")
             except Exception:  # noqa: BLE001 — e.g. the plan is being rewritten right now: keep the last picture
                 pass
             out.flush()
-            done = done + 1 if run_over(run_journal(root)) else 0
+            if not typed:  # a redraw after a key is not a tick
+                done = done + 1 if run_over(run_journal(root)) else 0
             if done >= 3 and restarting(root):
                 done = 0
             if done >= 3:
                 ended = True
+                inp.close()
+                if sys.stdin and sys.stdin.isatty():  # W18b: the end screen stays until Enter (the --hold behaviour)
+                    out.write(f"\x1b[{size.lines};1H\x1b[2K Press Enter to close this window.")
+                    out.flush()
+                    try:
+                        input()
+                    except (EOFError, KeyboardInterrupt):
+                        pass
+                    hold = False
                 break
-            time.sleep(tick)
+            end_at, typed = time.time() + tick, False
+            while time.time() < end_at and not typed:  # keys redraw at once; no key waits for the tick
+                typed = inp.poll()
+                if not typed:
+                    time.sleep(0.05 if inp.keys else max(end_at - time.time(), 0))
     except KeyboardInterrupt:
         pass
     finally:
+        inp.close()
         out.write("\x1b[?7h\x1b[?25h\x1b[?1049l")
         out.flush()
         if "state" in box:
             box["state"].db.close()
     if ended:
-        watch_end(root, run_journal(root), color, hold)
+        watch_end(root, run_journal(root), color is True, hold)
     return 0
+
+
+def panels_ok(args, simple: bool) -> bool:
+    """W18a: the panel screen needs a terminal that takes escape codes, nothing else: NO_COLOR only drops the colours."""
+    return bool(simple and sys.stdout.isatty() and not os.environ.get("AUTOPILOT_PLAIN") and enable_vt()
+                and not getattr(args, "scroll", False) and not getattr(args, "simple", False))
 
 
 def cmd_tour(args):
@@ -1008,15 +1058,17 @@ def cmd_watch(args):
     from .plain import SimpleView, colors_on, paint
     from .report import next_steps_text, run_alive, run_journal
     root = Path(args.path).resolve()
+    size_fn = getattr(args, "size_fn", None) or shutil.get_terminal_size  # W18a: a test gives its own
     log =root / AGENT_DIR / "logs" / "autopilot.log"
     # J1: plain words on a terminal; the technical lines with --detail, and when the output is not a terminal
     simple = bool(getattr(args, "simple", False)) or (sys.stdout.isatty() and not getattr(args, "detail", False))
     color = colors_on(sys.stdout)
-    if (simple and color and sys.stdout.isatty() and not getattr(args, "scroll", False)
-            and not getattr(args, "simple", False)):  # J9: the dashboard, when the window is large enough
-        rc = watch_dashboard(root, color, bool(getattr(args, "hold", False)))
+    panels = panels_ok(args, simple)
+    if panels:  # J9: the dashboard, when the window is large enough
+        rc = watch_dashboard(root, color or "mono", bool(getattr(args, "hold", False)), size_fn=size_fn)
         if rc is not None:
             return rc
+        print(paint("Widen the window for the panels.", "dim", color))  # W18a: the scroll view says only this
     names = {}
     try:
         cfg, plan, state = _open_state(root)
@@ -1090,6 +1142,15 @@ def cmd_watch(args):
     try:
         while True:
             time.sleep(1)
+            if panels:  # W18a: the size is read on every tick; the panels start as soon as the window fits
+                from .dash_term import MIN_COLS, MIN_ROWS
+                size = size_fn()
+                if size.columns >= MIN_COLS and size.lines >= MIN_ROWS:
+                    bar.stop()
+                    rc = watch_dashboard(root, color or "mono", bool(getattr(args, "hold", False)), size_fn=size_fn)
+                    if rc is not None:
+                        return rc
+                    panels = False
             moved()
             if log.exists() and log.stat().st_size > pos:
                 with open(log, encoding="utf-8", errors="replace") as fh:
@@ -1530,10 +1591,45 @@ def cmd_mcp(args):
     serve(Path(args.path).resolve())
 
 
+NOW_WINDOW = 60  # W39: a second `ap stop` within this many seconds of the first counts as `--now`
+
+
 def cmd_stop(args):
-    p = Path(args.path).resolve() / AGENT_DIR / "STOP"
-    p.write_text("stop requested\n")
+    """W39: `ap stop` stops before the next session; `--now` (or a second stop within NOW_WINDOW s) ends it at once."""
+    import datetime as dt
+    import time
+
+    from .report import run_journal
+    root = Path(args.path).resolve()
+    p = root / AGENT_DIR / "STOP"
+    try:
+        now_mode = bool(getattr(args, "now", False)) or time.time() - p.stat().st_mtime < NOW_WINDOW
+    except OSError:
+        now_mode = bool(getattr(args, "now", False))
+    p.write_text("now\n" if now_mode else "stop requested\n")
+    if now_mode:
+        print("the session in flight ends now; its files stay on the task branch and `ap start` continues from them")
+        return
     print("the run will stop before its next session (remove with `autopilot resume`)")
+    since = str(run_journal(root).get("session_at") or "")
+    with contextlib.suppress(ValueError):
+        if since:
+            mins = int((dt.datetime.now() - dt.datetime.fromisoformat(since)).total_seconds() // 60)
+            print(f"the current session has run {mins} min")
+    print("`ap stop --now` ends the session at once and keeps its files.")
+
+
+def cmd_budget(args):
+    """W43: set budget_usd.total in .agent/project.yaml (comments stay); a live run reads it before its next task."""
+    from .forecast import write_total
+    if args.usd <= 0:
+        print("FAIL  the cost cap must be more than 0")
+        return 1
+    if not write_total(Path(args.path).resolve() / AGENT_DIR / "project.yaml", args.usd):
+        print("FAIL  could not set budget_usd.total in .agent/project.yaml (see REFERENCE.md)")
+        return 1
+    print(f"cost cap budget_usd.total = ${args.usd:g}; a running run uses it before its next task")
+    return 0
 
 
 def cmd_resume(args):
@@ -1610,9 +1706,17 @@ def remember(root: Path):
         pass
 
 
-def pick_project() -> str | None:
+SPENDING = ("start", "run", "answer", "change", "stop", "skip", "approve", "budget")  # W33: never a silent fallback
+
+
+class NeedsFolder(Exception):
+    """A spending command found no project in this folder and nobody to confirm the fallback."""
+
+
+def pick_project(kind: str = "read", yes: bool = False) -> str | None:
     """J2: no -C and this folder is not a project. One active build: that one. Several: ask (or list them when
-    there is no terminal; never guess). None active: the last project used. Says which project it took."""
+    there is no terminal; never guess). None active: the last project used. Says which project it took.
+    W33: a spending command (kind="spend") asks `Build <folder>? [y/N]`; with no terminal it raises NeedsFolder."""
     known = recent_projects()
     active = [p for p in known if run_active(p)]
     if len(active) > 1:
@@ -1629,7 +1733,15 @@ def pick_project() -> str | None:
         print("This folder is no Autopilot project, and no other project is known on this PC.\n"
               "Go to the project folder, or name it with -C <folder>. To start a new one: autopilot quickstart")
         return None
+    print(f"project: {chosen} ({'active' if chosen in active else 'last used'})")
     print(f"this folder is no project, using the last one used: {chosen}")  # Q10: say why, not only which
+    if kind == "spend" and not yes:
+        if not _tty():
+            print("name the project with -C <folder>")
+            raise NeedsFolder
+        if (_ask(f"Build {chosen}? [y/N] ") or "").lower() not in ("y", "yes"):
+            print("Nothing started. Name the project with -C <folder>.")
+            return None
     return str(chosen)
 
 
@@ -1670,6 +1782,8 @@ def main(argv=None):
         p.add_argument("-C", "--path", default=None,
                        help="project folder (default: this folder, or else the active or last project)")
         p.set_defaults(fn=fn)
+        if name in SPENDING and name != "change":  # `change` has its own --yes, which also skips this question
+            p.add_argument("--yes", action="store_true", help="no question when the folder is not named with -C")
         return p
 
     p = add("init", cmd_init, "create .agent/ contract (auto-detects stack)")
@@ -1745,8 +1859,11 @@ def main(argv=None):
     p.add_argument("--skip-login", action="store_true", help="do not check or start a login")
     p.add_argument("--skip-probe", action="store_true", help="do not send the one test prompt (CI)")
     p.add_argument("--reset", action="store_true", help="forget the finished steps and start over")
-    add("stop", cmd_stop, "graceful stop before the next session")
+    p = add("stop", cmd_stop, "graceful stop before the next session; --now ends the session at once")
+    p.add_argument("--now", action="store_true", help="end the session in flight now and keep its files")
     add("resume", cmd_resume, "clear the stop flag")
+    p = add("budget", cmd_budget, "set the total cost cap budget_usd.total; a live run uses it before its next task")
+    p.add_argument("usd", type=float, help="the new cap in US dollars")
     p = add("report", cmd_report, "the run report; --tokens = tokens and cost per step type")
     p.add_argument("--tokens", action="store_true", help="tokens and cost per step: build, retry, review, verify, audit, ...")
     p = add("verify", cmd_verify, "check the signed receipt of each closed phase, offline")
@@ -1754,12 +1871,26 @@ def main(argv=None):
     p = add("audit", cmd_review, "run the completion audit now (the lean profile never runs it by itself)")
     p.set_defaults(kind="completion")
     p.add_argument("--history", action="store_true", help="W8: price repeated failing commands in the local Claude Code history (offline, no project)")
-    p.add_argument("--days", type=int, default=30, help="with --history: look back N days")
+    p.add_argument("--signals", action="store_true", help="W29b: unknown errors, parked reasons, gate failures and retries of every known project (offline)")
+    p.add_argument("--ladder", action="store_true", help="W23: minutes, attempts and cost per model and risk of this project, and the ladder change they support")
+    p.add_argument("--days", type=int, default=30, help="with --history or --signals: look back N days")
     p.add_argument("--home", default="~/.claude", help="with --history: the Claude Code folder")
     p = add("review", cmd_review, "run an audit / completion audit / replan now")
     p.add_argument("--kind", choices=["periodic", "completion", "replan"], default="periodic")
     p.add_argument("-v", "--verbose", action="store_true")
 
+    if argv and not argv[0].startswith("-") and argv[0] not in sub.choices:  # W48a: any other first word is a line to ap
+        if (Path.cwd() / AGENT_DIR / "project.yaml").exists():
+            found = "."
+        else:
+            try:
+                found = pick_project("read")
+            except NeedsFolder:
+                return 3
+        if found is None:
+            return 1
+        from .inbox import cmd_line
+        return cmd_line(Path(found).resolve(), " ".join(argv))
     args = ap.parse_args(argv)
     if args.cmd is None:  # plain `autopilot` in a project folder: follow its run when one is going
         if run_active(Path.cwd()):
@@ -1776,14 +1907,26 @@ def main(argv=None):
     if args.cmd == "audit" and args.history:  # W8: offline, reads the Claude Code folder only
         from .commands.audit import cmd_history
         return cmd_history(args)
+    if args.cmd == "audit" and args.signals:  # W29b: offline, reads unknown.jsonl and the known projects' state.db
+        from .commands.audit import cmd_signals
+        return cmd_signals(args)
     if args.cmd in ("upgrade", "install", "setup", "uninstall", "tour"):  # no project needed: nothing to find or remember
         return args.fn(args) or 0
     if args.path is None:  # J2: no -C
-        found = "." if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists() else pick_project()
+        if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists():
+            found = "."
+        else:
+            try:
+                found = pick_project("spend" if args.cmd in SPENDING else "read", getattr(args, "yes", False))
+            except NeedsFolder:
+                return 3
         if found is None:
             return 1
         args.path = found
     remember(Path(args.path).resolve())
+    if args.cmd == "audit" and args.ladder:  # W23: read-only, this project's state.db
+        from .commands.audit import cmd_ladder
+        return cmd_ladder(args)
     if getattr(args, "detach", False):
         return start_detached(Path(args.path).resolve(), [a for a in (argv or sys.argv[1:]) if a != "--detach"])
     rc = args.fn(args) or 0

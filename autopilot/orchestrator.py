@@ -13,30 +13,34 @@ import datetime as dt
 import fnmatch
 import json
 import logging
+import math
 import os
 import re
 import threading
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import NamedTuple
 
-from . import AGENT_DIR, decisions, outage
+from . import AGENT_DIR, decisions, forecast, outage, signals
 from .backends import SessionRequest, SessionResult, get_backend
-from .config import RISKS, Config, load_yaml
-from .context import ContextBuilder, progress_line
+from .config import RISKS, Config, load_yaml, scope_always
+from .context import ContextBuilder, numbered, progress_line
+from .contracts import added_duplicates
 from .deploy import deploy
 from .docs import Documenter, redact_secrets, research_path, task_not_proven
 from .gate import (TEST_GLOBS, CmdResult, GateResult, _match, main_gate, protected_files, run_commands, scan_secrets, task_gate,
                    test_tamper)
 from .gitops import Git, GitError
 from .growth import consolidate
-from .handoff import MIN_WAIT, fallback_backend, write_handoff
+from .handoff import MIN_WAIT, account_of, entry_folder, fallback_backend, write_handoff
 from .notify import Notifier
 from .plan import Plan, PlanError, append_phase, clear_reopen_flags
-from .proc import agent_env, exclusive_lock, run_proc
+from .proc import agent_env, exclusive_lock, run_proc, stop_when
 from .report import digest, open_window, token_footer, window_line
 from .schemas import REPORTS
 from .state import State, now
+from .dash_live import version_text
 
 log = logging.getLogger("autopilot")
 
@@ -137,6 +141,15 @@ def new_file_lines(report: dict) -> str:
     return "\n\n" + "\n".join(lines) if lines else ""
 
 
+SPLIT_FILES, SPLIT_LINES = 8, 250  # W40: a medium task over this is a split signal, not an escalation
+
+
+class Review(NamedTuple):
+    problem: str  # '' = merge
+    followups: list  # new defects that break no acceptance criterion
+    split: str  # W40: 'split signal: ...' or ''
+
+
 def review_tests(gate) -> str:
     """W4: the gate's command output for the review prompt. It comes from the gate, never from the build session."""
     text = "\n".join(f"$ {r.cmd}\n(exit {r.rc})\n{r.output[-1500:]}" for r in gate.results)[-4000:] or "(no commands ran)"
@@ -169,12 +182,29 @@ def fail_line(r) -> str:
     return pick[:200]
 
 
+OWNER_RESUME = "You were stopped by the owner; continue from the files on disk."
+
+
 class Stop(Exception):
     """Ends the run cleanly (budget, stop file, fatal condition)."""
 
     def __init__(self, reason: str, fatal: bool = False, word: str = ""):
         super().__init__(reason)
         self.reason, self.fatal, self.word = reason, fatal, word  # W3: word names the outcome when not the default
+
+
+MECHANICAL = ("file grew past the budget", "outside files_in_scope", "scope_additions")  # W41
+MECHANICAL_LEAD = "Mechanical gate failure (same model; the approach is fine). Fix exactly this and change nothing else:\n\n"
+
+
+def mechanical(cfg, gate: GateResult | None) -> bool:
+    """W41: the gate failed only on growth, scope or lint: no sign the work is too hard for the model."""
+    if gate is None or gate.ok:
+        return False
+    lint = cfg.commands("lint")
+    failed = [r for r in gate.results if r.rc != 0]
+    return (bool(gate.problems or failed) and all(p.startswith(MECHANICAL) for p in gate.problems)
+            and all(r.cmd in lint for r in failed))
 
 
 def outcome_word(outcome: str, parked: bool, stop: Stop | None = None) -> str:
@@ -206,10 +236,12 @@ class Orchestrator:
         limit = max_sessions if max_sessions is not None else int(self.cfg.get("scheduling.max_sessions_per_run", 0))
         self.max_sessions = limit or None
         self.sessions_this_run = 0
+        self.owner_cut = False  # W39: `ap stop --now` ended the task session in flight
         self.rate_limit_streak = 0
         self.tracker = outage.Tracker()  # Q22: outage and repeated-error counters of this run (monotonic clock)
         self.outage_waits = 0  # Q22.1: 15-minute waits taken for a vendor outage in this run (outage.OUTAGE_WAITS at most)
         self.last_gate = ""  # N11
+        self._starting = False  # W18a: the start check on main is running; its journal line stays
         self.last_main_gate = None  # W30a: the last gate run on main; end-phase sessions read it instead of testing again
         self.last_log = ""  # W37: the log of the last session, read by the task gate
         self.push_failing = ""  # self-healing: why the last push failed ('' = pushes work)
@@ -225,6 +257,7 @@ class Orchestrator:
         self.main_red, self.main_checked, self.main_error = False, None, ""
         self.main_results: dict[str, CmdResult | None] = {}  # W21: main's sha -> first red test result (None = green)
         self.main_due = True  # W21: main has a commit nobody tested yet
+        self.forecast_sent = False  # W43: one budget_forecast event per run
 
     # ------------------------------------------------------------------ plan
     def reload_plan(self):
@@ -384,13 +417,20 @@ class Orchestrator:
                 self.run_info.update(kw, sessions=self.sessions_this_run,
                                      git="Off" if self.git_offline else "Push!" if self.push_failing else "OK",
                                      build="Red" if self.main_red else "OK")
-                if set(kw) - {"beat_at"}:
+                if set(kw) - {"beat_at", "heartbeat_at"}:
                     self.run_info["updated_at"] = now()
                 tmp = self.ad / "run.json.tmp"
                 tmp.write_text(json.dumps(self.run_info, indent=1), encoding="utf-8")
                 os.replace(tmp, self.ad / "run.json")
         except Exception as exc:  # noqa: BLE001
             log.warning("run journal failed: %s", exc)
+
+    def _wait_line(self, text: str):
+        """W18a: name what the run waits for (a gate command, the start check), so the window never shows a silent wait."""
+        self._journal(current=text, current_at=now())
+
+    def _test_cmd(self) -> str:
+        return ((self.cfg.commands("test") or self.cfg.commands("build", "lint", "typecheck") or ["checks"])[0])[:70]
 
     def heartbeat(self, stop: threading.Event | None = None, interval: float | None = None):
         """W37: write `beat_at` every `interval` seconds (HEARTBEAT) until `stop` is set, so a long session still beats."""
@@ -435,7 +475,9 @@ class Orchestrator:
 
     def _run(self) -> str:
         from .doctor import package_line
+        from .session_env import config_folder
         log.info(package_line())
+        log.info("config folder %s", config_folder(self.cfg))  # W38: the account the sessions run on
         self.heal_config()
         blocking = self.cfg.blocking_errors()
         if blocking:
@@ -448,7 +490,7 @@ class Orchestrator:
         self.first_session = self.state.next_session_id()
         self._journal(run_id=f"{dt.datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}", pid=os.getpid(), started_at=now(),
                       status="running", outcome="", word="", current="starting", first_session=self.first_session,
-                      beat_at=now())
+                      beat_at=now(), version=version_text())
         self._start_heartbeat()
         self._prepare_repo()
         try:
@@ -483,7 +525,18 @@ class Orchestrator:
                 log.warning("setup command failed (continuing): %s", why[:800])
                 if not greenfield and self.repair_env(why):
                     self.run_setup()
-            if not greenfield and not self.ensure_main_green():
+            if not greenfield:
+                line = f"start check: tests on main ({self._test_cmd()})"
+                log.info(line)
+                self._wait_line(line)
+                self._starting = True
+            try:
+                green = greenfield or self.ensure_main_green()
+            finally:
+                self._starting = False
+            if not greenfield:
+                log.info("start check: tests on main %s", "passed" if green else "failed")
+            if not green:
                 self.start_main_red()
             self.close_finished_phases()
             outcome = self.loop()
@@ -529,6 +582,7 @@ class Orchestrator:
     def loop(self) -> str:
         stall_replanned = False
         while True:
+            self.forecast_budget()
             self.check_stop()
             self.chat()
             self.process_approvals()
@@ -536,6 +590,11 @@ class Orchestrator:
             self.intake_answers()
             self.apply_answers()
             self.import_backlog()
+            held = self.budget_hold()
+            if held:
+                return held
+            if held == "":
+                continue
             self.recheck_main()
             self.guard_main()
             status = self.state.status_map()
@@ -686,13 +745,26 @@ class Orchestrator:
             f.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------ guards
+    def _owner_now(self) -> bool:
+        """W39: the STOP file says `now` (`ap stop --now`, or a second `ap stop` within 60 s)."""
+        try:
+            lines = (self.ad / "STOP").read_text(encoding="utf-8").splitlines()
+        except (OSError, ValueError):
+            return False
+        if lines and lines[0].strip().lower() == "now":
+            self.owner_cut = True
+        return self.owner_cut
+
     def check_stop(self):
         if (self.ad / "STOP").exists():
             raise Stop("stopped by .agent/STOP file", word="STOPPED")
         if self.max_sessions and self.sessions_this_run >= self.max_sessions:
             raise Stop(f"session limit reached ({self.max_sessions})")
+        live = forecast.read_total(self.ad / "project.yaml")  # W43: `ap budget` changes this one key during a run
+        if live is not None:
+            self.cfg.data.setdefault("budget_usd", {})["total"] = live
         total_cap = float(self.cfg.get("budget_usd.total", 0) or 0)
-        if total_cap and self.state.cost() >= total_cap:
+        if total_cap and self.hard_cap() and self.state.cost() >= total_cap:
             raise Stop(f"total budget ${total_cap} reached")
         daily_cap = float(self.cfg.get("budget_usd.daily", 0) or 0)
         if daily_cap and self.state.cost(today=True) >= daily_cap:
@@ -703,6 +775,50 @@ class Orchestrator:
             self.notify.send("budget", f"daily budget ${daily_cap} reached — sleeping {secs / 3600:.1f}h")
             self.sleep(secs)
 
+    def hard_cap(self) -> bool:
+        """W43: budget_usd.total ends the run on api billing; on a subscription it is a soft cap (budget_hold)."""
+        return self.cfg.get("usage.billing", "subscription") != "subscription"
+
+    def budget_spend(self) -> tuple[float, float, float | None]:
+        """W43: (cap, spent, projected end cost) from the finished tasks' costs and the pending tasks' risks."""
+        ids, status = self.plan.task_by_id, self.state.status_map()
+        done = [(ids[r["id"]].risk if r["id"] in ids else "medium", c) for r in self.state.tasks("done")
+                if (c := self.state.cost(task_id=r["id"])) > 0]
+        pending = [t.risk for t in self.plan.all_tasks()
+                   if status.get(t.id) not in ("done", "skipped", "blocked") and not t.owner_only]
+        spent = self.state.cost()
+        return float(self.cfg.get("budget_usd.total", 0) or 0), spent, forecast.project(spent, done, pending)
+
+    def forecast_budget(self):
+        """W43: one budget_forecast event per run when the projected end cost passes budget_usd.total."""
+        if self.forecast_sent or not self.cfg.get("budget_usd.total"):
+            return
+        cap, spent, end = self.budget_spend()
+        if end is not None and cap > 0 and end > cap:
+            self.forecast_sent = True
+            self.notify.send("budget_forecast", forecast.line(spent, end, cap))
+
+    def budget_hold(self) -> str | None:
+        """W43: on a subscription at the cap, ask the owner (raise or stop) between tasks. None = go on; '' = waited,
+        look again; a text = end the run (needs_you.wait is off)."""
+        cap, spent, end = self.budget_spend()
+        if not cap or spent < cap or self.hard_cap():
+            cur = self.state.open_decision(kind="budget")
+            if cur and cap and spent < cap:  # raised by `ap budget`: closed here, so apply_answers never reads it
+                self.state.set_decision(cur["id"], status="APPLIED", answer=f"cap raised to ${cap:g}")
+                self._write_needs_you()
+            return None
+        if "pending" not in self.state.status_map().values():
+            return None  # nothing left to pay for: the run ends as it would
+        x = max(math.ceil(end or spent), math.ceil(cap * 1.25))
+        self.needs_you("budget", f"Cost cap ${cap:g} reached", f"Raise the cost cap to ${x} (the forecast) or stop?",
+                       why=forecast.line(spent, end or spent, cap), suggestion=f"ap budget {x}")
+        if not self.cfg.get("needs_you.wait", True):
+            return f"stalled: cost cap ${cap:g} reached, waiting on the owner"
+        self._journal(current="waiting for the cost cap", state="Block", task="")
+        self._wait(float(self.cfg.get("needs_you.poll_minutes", 15)) * 60)
+        return ""
+
     def session_budget(self, task_id: str | None = None) -> float:
         b = self.cfg.get
         caps = [float(b("budget_usd.per_session", 8) or 8)]
@@ -710,7 +826,7 @@ class Orchestrator:
             caps.append(float(b("budget_usd.per_task")) - self.state.cost(task_id=task_id))
         if b("budget_usd.daily"):
             caps.append(float(b("budget_usd.daily")) - self.state.cost(today=True))
-        if b("budget_usd.total"):
+        if b("budget_usd.total") and self.hard_cap():
             caps.append(float(b("budget_usd.total")) - self.state.cost())
         left = min(caps)
         if left < 0.01:
@@ -719,6 +835,19 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ U4: the subscription's 5-hour window
     OPUS_HEAVY = ("decide", "audit", "replan", "onboard")
+
+    def _account(self) -> str:
+        """W28: the Claude config folder the next session runs on: the fallback account while a handoff window is
+        closed, else the one in `agent.env`, else `default`."""
+        run = self.state.get_meta("handoff_runner")
+        if isinstance(run, dict) and float(self.state.get_meta("handoff_until", 0) or 0) > time.time():
+            return entry_folder(run)
+        return account_of(self.cfg)
+
+    def _wk(self, name: str) -> str:
+        """W28: the meta key of window state `name` for the current account (`default` keeps the plain key)."""
+        acct = self._account()
+        return name if acct == "default" else f"{name}@{acct}"
 
     def _window_used(self, start: float) -> float:
         since = dt.datetime.fromtimestamp(start).isoformat(timespec="seconds")
@@ -737,18 +866,18 @@ class Orchestrator:
         opus_by = float(u("usage.opus_by_pct", 0) or 0) / 100
         heavy = opus_by and kind in self.OPUS_HEAVY and model_rank(model) == 2
         share = (1 - reserve) * (opus_by if heavy else 1)  # the part of the window this session may start in
-        five = open_window(self.state, float(u("usage.window_hours", 5) or 5))
+        five = open_window(self.state, float(u("usage.window_hours", 5) or 5), self._wk("window_seen"))
         if five:
             if not (reserve or opus_by) or five["pct"] < share:
                 return
             wake, used = five["reset"] + 120, f"{round(100 * five['pct'])}% of this usage window is used"
         else:
             span = float(u("usage.window_hours", 5) or 5) * 3600
-            start = float(self.state.get_meta("window_start", 0) or 0)
+            start = float(self.state.get_meta(self._wk("window_start"), 0) or 0)
             if time.time() >= start + span:  # no open window: this session opens one
-                self.state.set_meta("window_start", time.time())
+                self.state.set_meta(self._wk("window_start"), time.time())
                 return
-            cap = float(u("usage.window_usd", 0) or 0) or float(self.state.get_meta("window_capacity_usd", 0) or 0)
+            cap = float(u("usage.window_usd", 0) or 0) or float(self.state.get_meta(self._wk("window_capacity_usd"), 0) or 0)
             if not cap or not (reserve or opus_by):
                 return
             spent = self._window_used(start)
@@ -759,8 +888,8 @@ class Orchestrator:
         self.notify.send("window", f"{used}; {why}. Pausing until {dt.datetime.fromtimestamp(wake):%H:%M}.")
         self._journal(current="waiting for the usage window to reset")
         self.sleep(max(60.0, wake - time.time()))
-        self.state.set_meta("window_start", 0)
-        self.state.set_meta("window_seen", {})  # that figure belonged to the window that just ended
+        self.state.set_meta(self._wk("window_start"), 0)
+        self.state.set_meta(self._wk("window_seen"), {})  # that figure belonged to the window that just ended
 
     def note_window(self, res: SessionResult):
         """G1: keep the CLI's own usage figure for `window_gate`, and say once when the weekly limit is nearly used."""
@@ -768,7 +897,7 @@ class Orchestrator:
             self.state.set_meta("config_load", res.config)
         if not res.window:
             return
-        self.state.set_meta("window_seen", res.window)
+        self.state.set_meta(self._wk("window_seen"), res.window)
         week = res.window.get("seven_day") or {}
         day = int(week.get("reset", 0) // 86400)  # once per weekly window, even if its reset time drifts
         if week.get("pct", 0) >= 0.9 and self.state.get_meta("week_warned") != day:
@@ -782,10 +911,10 @@ class Orchestrator:
         if self.cfg.get("usage.billing", "subscription") != "subscription":
             return
         start = reset_at - float(self.cfg.get("usage.window_hours", 5) or 5) * 3600
-        self.state.set_meta("window_start", start)
+        self.state.set_meta(self._wk("window_start"), start)
         used = self._window_used(start)
-        if used > float(self.state.get_meta("window_capacity_usd", 0) or 0):
-            self.state.set_meta("window_capacity_usd", round(used, 2))
+        if used > float(self.state.get_meta(self._wk("window_capacity_usd"), 0) or 0):
+            self.state.set_meta(self._wk("window_capacity_usd"), round(used, 2))
             log.info("usage window size learned: about $%.2f", used)
 
     def backoff(self, res):
@@ -803,6 +932,8 @@ class Orchestrator:
         self.sleep(wait)
 
     def _main_gate(self, phase: bool = False):
+        if not self._starting:
+            self._wait_line(f"gate: tests ({self._test_cmd()})")
         self.last_main_gate = main_gate(self.cfg, phase=phase)
         return self.last_main_gate
 
@@ -829,7 +960,8 @@ class Orchestrator:
         self._journal(current=label or " ".join(
             x for x in (kind, task_id, f"attempt {attempt}" if kind == "task" else "") if x),
             state=STATE.get(kind, "Code"), task=task_id or "", attempt=attempt, model=model, live_tokens=0,
-            context_tokens=0, max_attempts=max(attempt, int(self.cfg.get("retries.max_attempts_per_task", 3))))
+            context_tokens=0, max_attempts=max(attempt, int(self.cfg.get("retries.max_attempts_per_task", 3))),
+            session_at=now())
         sid = self.state.start_session(kind, task_id, phase, attempt, model)
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
@@ -846,9 +978,15 @@ class Orchestrator:
                              web_only=web_only, mcp_config=mcp_config, no_tools=no_tools,
                              resume=resume.session_id if resume else "", resume_totals=resume.totals if resume else {},
                              on_context=lambda n: seen.__setitem__(0, n),
+                             on_event=lambda: self._journal(heartbeat_at=now()),
                              on_tokens=lambda n: self._journal(live_tokens=n, context_tokens=seen[0]))
         main_before, config_before = self.git.ref(self.main), self.git.config_text()
-        res = self._run_backend(req)
+        if kind == "task":  # W39: only a task session is cut at once; the gate and reviews run to their end
+            self.owner_cut = False
+            with stop_when(self._owner_now):
+                res = self._run_backend(req)
+        else:
+            res = self._run_backend(req)
         if kind == "task" and res.rate_limited:
             res = self._handoff(req, res, task_id) or res  # N11
         self._journal(live_tokens=0, context_tokens=0)  # from here its tokens are in the ledger
@@ -868,6 +1006,9 @@ class Orchestrator:
         self.note_window(res)
         if res.rate_limited and res.reset_at:
             self.learn_window(res.reset_at)
+            until = float(self.state.get_meta("handoff_until", 0) or 0)
+            if isinstance(self.state.get_meta("handoff_runner"), dict) and until > time.time():
+                res.reset_at = min(res.reset_at, until)  # W28: both logins limited: wait for the earlier reset
         if res.rate_limited:
             self.backoff(res)
         else:
@@ -890,7 +1031,10 @@ class Orchestrator:
         if (not names or not task or not res.reset_at or res.reset_at - time.time() <= MIN_WAIT
                 or self._runner() is not self.backend):
             return None
-        runner = str(names[0])
+        acct = self._account()  # W28: skip an entry that is the account this session just ran on
+        runner = next((n for n in names if not isinstance(n, dict) or entry_folder(n) != acct), None)
+        if runner is None:
+            return None
         try:
             backend = self._fallback_backend(runner)
             self.git.commit_all("wip: handoff at usage limit")
@@ -898,10 +1042,13 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001 — a failed handoff is just the old pause
             log.warning("handoff to %s failed: %s", runner, exc)
             return None
+        self.learn_window(res.reset_at)  # the first account's window, before the switch (keyed by its folder)
         self.state.set_meta("handoff_until", res.reset_at)
         self.state.set_meta("handoff_runner", runner)
-        self.notify.send("handoff", f"{task_id}: usage limit until {dt.datetime.fromtimestamp(res.reset_at):%H:%M}; "
-                                    f"the task continues with {runner}")
+        reset = f"{dt.datetime.fromtimestamp(res.reset_at):%H:%M}"
+        self.notify.send("handoff", f"{task_id}: usage limit on {acct} (resets {reset}): next session on "
+                                    f"{entry_folder(runner)}" if isinstance(runner, dict) else
+                         f"{task_id}: usage limit until {reset}; the task continues with {runner}")
         try:
             out = backend.run(replace(req, prompt=f"{text}\n\n---\n\n{req.prompt}", resume="", resume_totals={}))
         except Exception as exc:  # noqa: BLE001
@@ -1001,17 +1148,43 @@ class Orchestrator:
             return "high"
         return task.risk
 
-    def escalation(self, res: SessionResult) -> str:
-        """U6: why a failed attempt should move up the ladder now ('' = no signal). Reads the work before discard."""
+    def counted_change(self) -> tuple[list[str], int]:
+        """W41: (files, lines) of the staged work without test files and the gate.scope_always files."""
+        tests, always = self.cfg.get("gate.test_globs") or TEST_GLOBS, scope_always(self.cfg)
+        self.git.change_size()  # stages the work
+        files, lines = [], 0
+        for row in self.git.run("-c", "core.quotepath=false", "diff", "--cached", "--numstat", "--no-renames").splitlines():
+            added, deleted, path = (row.split("	") + ["", "", ""])[:3]
+            if not path or path.startswith(AGENT_DIR + "/") or _match(path, tests) or any(fnmatch.fnmatch(path, g) for g in always):
+                continue
+            files.append(path)
+            lines += int(added) + int(deleted) if added.isdigit() and deleted.isdigit() else 0
+        return files, lines
+
+    def split_signal(self, task) -> str:
+        """W40: a medium task whose counted change (W41 rule) passes SPLIT_FILES or SPLIT_LINES says so; it is not escalated."""
+        if self.effective_risk(task) != "medium":
+            return ""
+        files, lines = self.counted_change()
+        if len(files) <= SPLIT_FILES and lines <= SPLIT_LINES:
+            return ""
+        return (f"split signal: {len(files)} files, {lines} lines (over {SPLIT_FILES} files / {SPLIT_LINES} lines for a medium "
+                "task); the model is not escalated")
+
+    def escalation(self, res: SessionResult, gate: GateResult | None = None, split: bool = False) -> str:
+        """U6: why a failed attempt should move up the ladder now ('' = no signal). Reads the work before discard.
+        W41: a failure of only mechanical problems stays on the model; tests and scope_always files do not count as size."""
         e = self.cfg.get
         if e("escalate.on_timeout", True) and (res.timed_out or res.stuck):
             return "timed out" if res.timed_out else "stuck in a loop"
-        files, lines = self.git.change_size()
+        if split or mechanical(self.cfg, gate):
+            return ""
+        files, lines = self.counted_change()
         max_lines, max_files = int(e("escalate.max_diff_lines", 300) or 0), int(e("escalate.max_diff_files", 5) or 0)
         if (max_lines and lines > max_lines) or (max_files and len(files) > max_files):
             return f"large change ({len(files)} files, {lines} lines)"
         lb = e("escalate.load_bearing") or []
-        if lb and any(_match(f, lb) for f in files):
+        if lb and any(_match(f, lb) for f in self.git.staged_files()):
             return "touched a load-bearing path"
         return ""
 
@@ -1036,6 +1209,12 @@ class Orchestrator:
         own_model, own_used, fail_model, fail_why = "", "", "", ""  # J14.6 own fix; J14.8 facts of the last failure
         if floor >= 0 and self.state.get_meta(f"stepup:{task.id}", False):  # J14.5: the last attempt was cut or looped
             floor += 1
+        resume_line, cut_sha = "", self.state.get_meta(f"owner_cut:{task.id}")
+        if cut_sha is not None:  # W39: the owner stopped the last session; its files come back as a kept diff
+            self.state.set_meta(f"owner_cut:{task.id}", None)
+            resume_line = f"\n\n{OWNER_RESUME}\n"
+            if cut_sha:
+                kept, last_error = self._owner_resume(branch, cut_sha, last_error)
 
         while attempts < max_attempts:
             per_task = float(self.cfg.get("budget_usd.per_task", 0) or 0)
@@ -1055,13 +1234,17 @@ class Orchestrator:
             if chain and chain.session_id and model == chain_model:  # same model: continue that session, cache warm
                 res = self.session("task", self.ctx.resume_prompt(task, attempts + 1, last_error, kept), model,
                                    task_id=task.id, phase=phase.id, attempt=attempts + 1, resume=chain, effort=effort)
-                if not res.ok and not res.num_turns and not res.rate_limited:  # the old session is gone: start fresh
+                if (not res.ok and not res.num_turns and not res.rate_limited  # the old session is gone: start fresh
+                        and not self.owner_cut):  # an owner stop is not a lost session: its files are kept below
                     log.info("resume of %s failed (%s); starting fresh", chain.session_id, res.error[:200])
                     res = None
             if res is None:
                 prompt = self.ctx.task_prompt(task, attempts + 1, last_error, self.git.log_oneline(), kept)
-                res = self.session("task", prompt, model, task_id=task.id, phase=phase.id, attempt=attempts + 1,
-                                   effort=effort)
+                res = self.session("task", prompt + resume_line, model, task_id=task.id, phase=phase.id,
+                                   attempt=attempts + 1, effort=effort)
+            resume_line = ""  # the first session only
+            if self.owner_cut:
+                self._owner_cut(task, branch, base)
             if res.rate_limited:
                 self.git.discard()
                 kept = False
@@ -1069,7 +1252,7 @@ class Orchestrator:
             attempts += 1
             self.state.set_task(task.id, attempts=attempts, model=model)
             self.git.normalize_after_session(branch, base)
-            agent_blocked, keep, kept = False, False, False
+            agent_blocked, keep, kept, gate, split, rev_followups = False, False, False, None, "", []
             cut = bool((res.timed_out or res.stuck) and self.git.staged_files())  # J14.3: a cut session keeps its diff
             if cut:
                 log.info("task %s: session cut (%s); its diff is gated first", task.id, res.error[:120])
@@ -1087,11 +1270,14 @@ class Orchestrator:
                     self.state.set_task(task.id, status="pending", attempts=attempts - 1)
                     lines = outage.checklist(same, res.error)
                     raise Stop("\n".join(lines), fatal=True, word="STALLED")  # the run end sends the one fatal notification
+                signals.record_unknown(res.error, self.cfg.get("agent.preset") or self.cfg.get("agent.backend", "claude_cli"),
+                                       self.root.name, "parked" if attempts >= max_attempts else "retried")  # W29
             elif str(res.report.get("status", "done")).lower() == "blocked":
                 agent_blocked = True
                 last_error = f"agent reported blocked ({model}): {res.report.get('blocker') or res.report.get('summary')}"
             else:
                 self._journal(state="Test")
+                self._wait_line(f"gate: tests ({self._test_cmd()})")
                 wiped = False
                 gate = task_gate(self.cfg, self.git, task, report=res.report, attempt=attempts,
                                  log_path=self.last_log)
@@ -1119,7 +1305,8 @@ class Orchestrator:
                         self.state.set_task(task.id, status="pending", attempts=attempts - 1, last_error=None)
                         return False
                 if gate.ok and not problem:
-                    problem = self.review(task, phase, branch, base, gate)
+                    problem, rev_followups, split = self.review(task, phase, branch, base, gate)
+                    res.report["followups"] = list(res.report.get("followups") or []) + [f"review: {f}" for f in rev_followups]
                 if problem:
                     last_error = problem
                 elif gate.ok:
@@ -1132,7 +1319,7 @@ class Orchestrator:
                         self.git.discard()
                         self.git.checkout_main(self.main)
                 else:
-                    last_error = gate.report()
+                    last_error = (MECHANICAL_LEAD if mechanical(self.cfg, gate) else "") + gate.report()
                     keep = gate.keepable() and not cut and not wiped
                     if cut:  # the diff and the gate text become the retry input; nothing is thrown away
                         last_error = (f"session cut ({res.error[:200]}); its diff failed the gate:\n{gate.report()}\n\n"
@@ -1140,7 +1327,7 @@ class Orchestrator:
                                       f"{self.git.run('diff', '--cached', check=False)[:8000]}")
             log.info("task %s attempt %s failed: %s", task.id, attempts, (last_error or "")[:300])
             chain, chain_model = (res, model) if self.can_resume and not (res.timed_out or res.stuck) else (None, "")
-            why = self.escalation(res)
+            why = self.escalation(res, gate, bool(split))
             fail_model, fail_why = model, why
             floor = max(floor, model_rank(model) + (1 if why else 0))
             self.state.set_meta(f"stepup:{task.id}", bool(why))  # survives a restart; a plain test failure clears it
@@ -1231,14 +1418,16 @@ class Orchestrator:
         return bool(self.cfg.get("review.enabled", True)) and (
             risk == "critical" or (self.cfg.get("review.scope", "critical") == "all" and risk != "low"))
 
-    def review(self, task, phase, branch: str, base: str, gate) -> str:
+    def review(self, task, phase, branch: str, base: str, gate) -> Review:
         """W4 scope (review_due): one read-only Opus session reviews the gated diff before the merge. The prompt holds
         only the task spec, the diff and the gate output. A finding is a failed attempt (error text); a pass is "".
-        No verdict after one retry also fails the attempt, never a merge."""
-        if not self.review_due(task):
-            return ""
-        if not self.git.staged_files():  # the work is staged after the gate
-            return ""
+        No verdict after one retry also fails the attempt, never a merge.
+        W40: the findings of a failed review are kept (meta review_list:<id>); the next review checks them first and
+        fails only on a listed finding still open or a new defect that breaks a criterion; other new defects are followups."""
+        if not self.review_due(task) or not self.git.staged_files():  # the work is staged after the gate
+            return Review("", [], "")
+        key = f"review_list:{task.id}"
+        listed = [str(f) for f in (self.state.get_meta(key, []) or [])]
         # internal snapshot, removed below: no project hooks (a failing hook here would stop the whole run)
         self.git.run("commit", "-q", "--no-verify", "-m", f"[autopilot] review snapshot {task.id}")
         sha = self.git.head()
@@ -1246,7 +1435,7 @@ class Orchestrator:
         for _try in range(2):  # a missing verdict = one retry of the review session
             while True:
                 try:
-                    res = self.session("review", self.ctx.review_prompt(task, diff) + review_tests(gate), self.cfg.get("models.review", "opus"),
+                    res = self.session("review", self.ctx.review_prompt(task, diff, listed) + review_tests(gate), self.cfg.get("models.review", "opus"),
                                        task_id=task.id, phase=phase.id, read_only=True,
                                        effort=self.cfg.get("review.effort", "high"))
                 finally:  # read-only: drop what it touched (even its git moves), keep the work on the snapshot
@@ -1260,16 +1449,59 @@ class Orchestrator:
                 break
             log.warning("review session for %s gave no verdict: %s", task.id, (res.error or "")[:200])
         self.git.run("reset", "-q", "--soft", base)  # the work back as uncommitted staged changes
-        if verdict == "fail":
-            findings = [str(f) for f in (rep.get("findings") or []) if str(f).strip()]
-            return (f"REVIEW of the {task.risk} task found problems (fix them):\n"
-                    + ("\n".join(f"- {f}" for f in findings) or str(rep.get("summary") or "no details")))
-        if verdict != "pass":
+        if verdict not in ("pass", "fail"):
             self.state.event("review", f"{task.id}: no verdict after a retry, task failed")
-            return "REVIEW gave no verdict (no JSON report with a verdict) after a retry; the change is not merged."
-        return ""
+            return Review("REVIEW gave no verdict (no JSON report with a verdict) after a retry; the change is not merged.", [], "")
+        findings = [str(f) for f in (rep.get("findings") or []) if str(f).strip()]
+        followups = [str(f).strip() for f in (rep.get("followups") or []) if str(f).strip()]
+        if listed and "listed" in rep:  # a re-review: Python decides, the reviewer's verdict does not move the goal
+            status = {}
+            for row in rep.get("listed") or []:
+                if isinstance(row, dict) and isinstance(row.get("n"), int) and 1 <= row["n"] <= len(listed):
+                    status[row["n"]] = str(row.get("status", "")).lower()
+            still = [listed[n - 1] for n in range(1, len(listed) + 1) if status.get(n) != "fixed"]
+            fail = bool(still or findings)
+            findings = still + [f for f in findings if f not in still]
+        else:
+            fail = verdict == "fail"
+        if not fail:
+            self.state.set_meta(key, [])
+            return Review("", followups, "")
+        new_list = list(dict.fromkeys(findings))
+        self.state.set_meta(key, new_list)
+        split = self.split_signal(task)
+        if split:
+            self.state.event("review", f"{task.id}: {split}")
+        body = ("Fix exactly these review findings, nothing else:\n" + numbered(new_list)) if new_list \
+            else str(rep.get("summary") or "no details")
+        return Review(f"REVIEW of the {task.risk} task found problems (fix them):\n{body}" + (f"\n{split}" if split else ""),
+                      followups, split)
 
     GENERIC_QUESTION = "The agent could not complete this task. How must it continue?"
+
+    def _owner_cut(self, task, branch, base):
+        """W39: `ap stop --now` ended the task session. Its files are committed on the task branch (work in progress),
+        the sha is kept in meta `owner_cut:<id>`, the attempt is not counted and the run ends STOPPED."""
+        self.git.normalize_after_session(branch, base)
+        sha = ""
+        if self.git.staged_files():
+            self.git.run("commit", "-q", "--no-verify", "-m", f"[autopilot] {task.id}: cut by the owner (work in progress)")
+            sha = self.git.head()
+        self.git.checkout_main(self.main)  # the branch keeps the commit; a restart's _prepare_repo leaves it alone
+        self.state.set_meta(f"owner_cut:{task.id}", sha)
+        self.state.set_task(task.id, status="pending", note="cut by the owner, resume")
+        self.state.event("owner_cut", f"{task.id}: session stopped by the owner; files kept at {sha[:12] or '(none)'}")
+        raise Stop(f"{task.id}: session stopped by the owner", word="STOPPED")
+
+    def _owner_resume(self, branch, sha, last_error):
+        """W39: put the owner-cut commit back as uncommitted work on a fresh task branch. -> (kept, last_error)."""
+        self.git.start_branch(branch, self.main)
+        if self.git.ok("cherry-pick", "--no-commit", sha):
+            return True, last_error
+        self.git.run("cherry-pick", "--abort", check=False)  # main moved under it: the diff goes into the prompt
+        self.git.discard()
+        return False, ((last_error or "") + "\n\nYou were stopped by the owner; main has moved since. The files you "
+                       f"had written (redo them on the current code):\n{self.git.run('show', sha, check=False)[:8000]}")
 
     def _park(self, task, branch, attempts, error):
         self.git.discard()  # W25: a kept diff of the last attempt must not ride along to main
@@ -1433,6 +1665,7 @@ class Orchestrator:
                 self.state.answer_decision(did, text)
 
     def apply_answers(self):
+        stop = ""
         for d in reversed(self.state.decisions("ANSWERED")):
             self._record_decision(f"[{d['id']}] {' '.join((d['question'] or '').split())} → {d['answer']}")
             if d["kind"] == "task":
@@ -1447,9 +1680,18 @@ class Orchestrator:
                 self.main_checked = None
             elif d["kind"] == "ci" and d["phase_id"]:  # L6: the owner answered; corrective CI tasks may run again
                 self.state.set_meta(f"cifix_count:{d['phase_id']}", 0)
+            elif d["kind"] == "budget":  # W43: a number above the spend raises the cap; anything else ends the run
+                n = re.search(r"\d+(?:\.\d+)?", d["answer"] or "")
+                usd = float(n.group()) if n else 0.0
+                if usd > self.state.cost() and forecast.write_total(self.ad / "project.yaml", usd):
+                    self.cfg.data.setdefault("budget_usd", {})["total"] = usd
+                else:
+                    stop = f"total budget ${self.cfg.get('budget_usd.total')} reached; the owner chose to stop ({d['id']})"
             self.state.set_decision(d["id"], status="APPLIED")
             self._write_needs_you()
             self._commit_main(f"[autopilot] apply answer {d['id']}")
+        if stop:
+            raise Stop(stop, word="BUDGET_STOP")
 
     # ------------------------------------------------------------------ main branch red
     def start_main_red(self):
@@ -1551,6 +1793,7 @@ class Orchestrator:
         self.docs.status(self.plan, status)
         self.git.commit_all(f"[autopilot] {task.id}: {task.title}\n\n{summary}{new_file_lines(res.report)}\n\n"
                             f"model: {model}, attempt {attempt}")
+        self._wait_line("gate: merge")
         if self.cfg.get("git.mode", "direct") == "pr":
             sha = self._merge_pr(task, branch, phase, gate.warnings)
         else:
@@ -2187,11 +2430,18 @@ class Orchestrator:
                 text = p.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            if (clean := redact_secrets(text)) != text:
+            hits: list = []
+            if (clean := redact_secrets(text, hits)) != text:
                 p.write_text(clean, encoding="utf-8")
-                log.info("docs session for %s: a line in %s looked like a secret and was redacted", phase.id, f)
+                for n, name in hits:
+                    log.info("docs session for %s: %s:%d matched %s and was redacted", phase.id, f, n, name)
         files = self.git.staged_files()  # re-stage the redacted text
         bad += scan_secrets(self.git.staged_added_lines())
+        for f in (f for f in files if f.endswith(".md")):  # W36b: a second section on the same topic drops the result
+            p = self.root / f
+            after = p.read_text(encoding="utf-8", errors="replace") if p.is_file() else ""
+            head = self.git.run("cat-file", "blob", f"HEAD:{f}", check=False)
+            bad += [f"duplicate heading in {f}: {h}" for h in added_duplicates(head, after)]
         if not res.ok or bad:
             why = "; ".join(map(str, bad))[:300] or (res.error or "")[:300]
             log.warning("docs session for %s dropped: %s", phase.id, why)
@@ -2392,6 +2642,8 @@ class Orchestrator:
         report = dict(res.report)
         gaps = [g for g in (report.get("gaps") or []) if isinstance(g, dict) and g.get("title")][:max_new]
         new_phase = self.add_corrective_phase(gaps, f"{kind} audit") if gaps else None
+        if new_phase:  # W18b: the watch screen says `audit added N tasks`
+            self.state.event("audit", f"{kind} audit added {len(gaps)} tasks")
         report["_new_phase"] = new_phase
         self.docs.audit(kind, report, phase_id, new_phase)
         self.docs.consume_followups()

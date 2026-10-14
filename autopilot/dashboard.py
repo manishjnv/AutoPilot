@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 
+from . import dash_live, inbox
 from .decisions import problems
 from .plain import SimpleView, ending
 from .report import (MODEL_NAMES, STATE_WORDS, _n, _runtime, _shares, next_steps, open_window, run_alive,
@@ -189,14 +190,19 @@ def spinner(d: dict, mtime, now: float, prev: dict | None = None, utf: bool = Tr
     frozen, yellow), stopped (the run ended: red, with the end time), or '' (nothing to show)."""
     frames, pause, stop = SPIN[utf]
     a, prev = d.get("asof") or {}, prev or {}
+    seen = mtime
+    mtime = a["pulse"] if a.get("pulse") is not None else mtime  # W18a: the data or the runner heartbeat, the newest
     frame = int(prev.get("frame", 0)) + (1 if prev and mtime != prev.get("mtime") else 0)
     age = max(0, int(now - mtime)) if mtime is not None else a.get("age")
-    out = {"frame": frame, "mtime": mtime, "clock": now, "age": age}
+    out = {"frame": frame, "mtime": mtime, "clock": now, "age": age, "utf": utf,
+           "data_age": max(0, int(now - seen)) if seen is not None else age}
     if not a.get("live", True):
         stopped = a.get("stopped") or ""
         return {**out, "kind": "stopped" if stopped else "", "text": f"{stop} stopped {stopped}" if stopped else ""}
     if isinstance(age, (int, float)) and age > 30:
-        return {**out, "kind": "stale", "text": f"{pause} no change {age}s" if age < 60 else f"{pause} no change {age // 60}m"}
+        what = a.get("wait_text")  # W18a: a gate or the start check says what it waits for, not 'no change'
+        return {**out, "kind": "stale", "text": f"{pause} {what}" if what else
+                f"{pause} no change {age}s" if age < 60 else f"{pause} no change {age // 60}m"}
     return {**out, "kind": "run", "text": frames[frame % len(frames)]}
 
 
@@ -222,6 +228,21 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         except (TypeError, ValueError):
             return None
 
+    # W42: a task's time is the sum of its sessions (a running one counts to now), never the wall clock between them
+    work: dict = {}
+    for r in state.db.execute("SELECT task_id, started_at, ended_at FROM sessions WHERE kind IN ('task','review','unstick') "
+                              "AND task_id IS NOT NULL"):
+        work[r[0]] = work.get(r[0], 0.0) + (secs(r[1], r[2] or (now if rows.get(r[0]) and rows[r[0]]["status"] == "running" else None)) or 0.0)
+
+    def took(r, st, tries):  # (seconds, 'took 24m' [+ ' (3 tries, first 15:12)' when the wall span is over 2x the work])
+        w, a, b = work.get(r["id"]), *span(r)
+        if not w:
+            return None, ""
+        text, wall = f"took {_dur(w)}", secs(a, b if st == "done" else now)
+        if wall and wall > 2 * w and a:
+            text += f" ({tries} {'try' if tries == 1 else 'tries'}, first {str(a)[11:16]})"
+        return w, text
+
     def span(r):  # (start, end) of a task: first session to the merge, or to now while it works
         start = first.get(r["id"]) or r["started_at"]
         return (start, r["finished_at"] if r["status"] == "done" else now if r["status"] == "running" else None)
@@ -236,9 +257,11 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             tries, model = int(run.get("attempt") or 1), name(run.get("model"))
         else:
             model = name(r["model"]) if r else ""
+        w, note = took(r, st, tries) if r and st in ("done", "running") else (None, "")
         return {"n": i + 1, "id": t.id, "title": t.title, "phase": t.phase_id, "status": st,
-                "risk": t.risk, "tries": tries, "secs": (secs(a, b) or 0) if r and a and b else None,
-                "time": (_span(a, b) if st == "done" else _span(a, now) if st == "running" else "") if r else "",
+                "risk": t.risk, "tries": tries, "secs": w if w is not None else (secs(a, b) or 0) if r and a and b else None,
+                "time": _dur(w) if w else (_span(a, b) if st == "done" else _span(a, now) if st == "running" else "") if r else "",
+                "took": note,
                 "detail": " · ".join(x for x in (model, f"{tries} tries" if tries > 1 else "") if x)}
 
     table = [one(i, t) for i, t in enumerate(tasks)]
@@ -292,6 +315,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
         t = working[0]
         doing = {"n": t["n"], "title": t["title"], "attempt": int(run.get("attempt") or 1),
                  "max_attempts": int(run.get("max_attempts") or 0), "time": t["time"], "model": name(run.get("model")),
+                 "work": t["secs"] or 0.0, "work_at": time.time(),  # W18b: the work time, as the Tasks table counts it
                  "since": round(dt.datetime.fromisoformat(first.get(t["id"]) or rows[t["id"]]["started_at"]).timestamp())
                  if t["id"] in rows and (first.get(t["id"]) or rows[t["id"]]["started_at"]) else None}
     elif live and run.get("state") not in ("Wait", "Block"):
@@ -334,11 +358,38 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
     ended = sorted((r for r in rows.values() if r["status"] == "done" and r["finished_at"]),
                    key=lambda r: r["finished_at"], reverse=True)[:3]
     number = {t["id"]: t for t in table}
+    clock = time.time()
+    wait = dash_live.waiting(root, run, live, clock)
+    err_age, err_old = dash_live.error_age(state, broken, clock) if broken else ("", False)
+    why_age, why_old = dash_live.error_age(state, stuck, clock) if stuck else ("", False)
+    # W18b: the Now card (a task, an end-phase step, or the end of the run) and the total with the end steps
+    risk_of, card = {t.id: t.risk for t in tasks}, None
+    if doing and doing["n"] and working:
+        peers = [work[i] for i, r in rows.items() if r["status"] == "done" and work.get(i) and name(r["model"]) == doing["model"]
+                 and risk_of.get(i) == risk_of.get(working[0]["id"])]
+        card = dash_live.task_card(root, state, run, doing, working[0]["id"], risk_of.get(working[0]["id"], ""), peers,
+                                   work.get(working[0]["id"]), first.get(working[0]["id"]), clock, main, wait)
+    elif live and dash_live.end_kind(run):
+        card = dash_live.end_card(root, state, run, name(run.get("model")), clock, wait)
+    elif run.get("status") in ("finished", "running"):
+        card = dash_live.ended_card(cfg, plan, state, run, root, status, done, len(tasks),
+                                    _dur(time_secs["elapsed"]) if time_secs else "", live, dead_since)
+    n_end = dash_live.end_steps(cfg, plan) if live else 0
+    pct = 100 if not live and tasks and done == len(tasks) else 100 * done // (len(tasks) + n_end) if tasks else 0
+    added = next((int(m.group(1)) for r in state.db.execute(
+        "SELECT message FROM events WHERE kind='audit' AND ts >= ? ORDER BY id DESC", (str(run.get("started_at") or ""),))
+        if (m := re.search(r"added (\d+) tasks", r[0]))), 0)
+    kind = card["kind"] if card else ""
+    step_word = (("Done " if card["word"] == "VERIFIED" else "Ended ") + card["word"] if kind == "ended" else
+                 {"audit": "Checking the whole plan", "functional check": "Checking the features",
+                  "docs": "Writing the docs", "replan": "Planning again"}.get(dash_live.end_kind(run), "Working")
+                 if kind == "end" else f"Building {working[0]['n']} of {len(tasks)}" if kind == "task" else "")
     return {
         # the age of the data; a run that is not live shows when it stopped
         "asof": {"age": data_age(root, run), "live": live, "mtime": data_mtime(root, run),
                  "stopped": "" if live else dead_since or str(run.get("updated_at") or "")[11:16],
-                 "dead_since": dead_since},
+                 "dead_since": dead_since, "pulse": dash_live.pulse(run, data_mtime(root, run)) if live else None,
+                 "wait_text": str(run.get("current") or "") if live and dash_live.gate_label(run.get("current")) else ""},
         "project": {
             "name": str(cfg.get("name", root.name)), "branch": main, "commit": facts["commit"],
             "last_commit": _first(facts["subject"], 60),
@@ -349,6 +400,10 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "runner": runner, "login": str(login or "not checked"),  # J13/17: the plan is stored by no check yet: no call
             "resets": f"{dt.datetime.fromtimestamp(float(five['reset'])):%H:%M}" if five else "—",
             "last_error": _first(broken["last_error"], 70) if broken else "—",
+            "error_age": err_age, "error_old": err_old,
+            "version": dash_live.version_text(), "run_line": dash_live.run_line(state, clock), "wait": wait,
+            "since_ts": dash_live.epoch(run.get("started_at")) if live else None,
+            "end_title": f"{card['sym']} {card['word']} {card['at']}".strip() if kind == "ended" else "",
             "word": str(run.get("word") or ""),  # P14: the W3 outcome word of the last run
             "run_id": str(run.get("run_id") or ""),"started": str(run.get("started_at") or "").replace("T", " "),
             "status": "running" if live else "finished" if finished else "idle",
@@ -365,7 +420,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "stale_min": stale if stale >= 5 else 0, "stale": "bad" if stale >= 30 else "warn" if stale >= 10 else "",
         },
         "progress": {
-            "done": done, "total": len(tasks), "pct": 100 * done // len(tasks) if tasks else 0,
+            "done": done, "total": len(tasks), "pct": pct, "end_steps": n_end, "audit_added": added, "word": step_word,
             "phases_done": sum(1 for p in plan.phases if p.tasks and all(status.get(t.id) == "done" for t in p.tasks)),
             "phases_total": len(plan.phases), "blocked": blocked, "questions": len(asked),
             "warnings": len(warned), "warned": warned[:6], "warned_why": why_warned[:6],
@@ -373,10 +428,13 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             "working": len(working) if live else 0, "waiting": max(0, len(tasks) - done - blocked - (len(working) if live else 0)),
             "active": working[0]["n"] if live and working else 0,
         },
+        "card": card,
+        "you": inbox.recent(root),  # W48a: the You / Reply line
         "needs_you": [{"id": str(d["id"]), "title": _first(d["title"] or d["question"], 70)} for d in asked[:2]],
         # the same simple sentence as docs/NEEDS-YOU.md gives for this problem
         "blocked_why": ({"id": stuck["id"], "why": (problems(stuck["last_error"] or stuck["note"])
-                                                    or ["No reason is recorded."])[0][:160]} if stuck else None),
+                                                    or ["No reason is recorded."])[0][:160],
+                         "age": why_age, "old": "1" if why_old else ""} if stuck else None),
         # J11: each phase in one line, and the tasks that ended last
         "phases": [{"id": p.id, "title": p.title, "total": len(p.tasks),
                     "done": sum(1 for t in p.tasks if status.get(t.id) == "done"),
@@ -400,7 +458,8 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
                        for m, v in sorted(models, key=lambda x: -x[1]["total"]) if total and v["total"]],
         },
         "size": ({**facts["size"], "run_lines": facts["run"]["lines"] if facts["run"] else None,
-                  "run_files": facts["run"]["files"] if facts["run"] else None} if facts["size"] else None),
+                  "run_files": facts["run"]["files"] if facts["run"] else None,
+                  "run_tasks": len(here)} if facts["size"] else None),
         "files": facts["files"],
         "health": {"git": git, "checks": checks,
                    "words": " ".join(x for x in ("The checks fail on main." if checks == "Red" else "",

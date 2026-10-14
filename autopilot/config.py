@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from yaml.constructor import ConstructorError
 
 from . import AGENT_DIR
 
@@ -57,9 +58,34 @@ def deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
+def _dupes(node, where: str = "the top level") -> None:
+    """W38: YAML keeps the last of two equal keys; a project file must not, so a repeat in one mapping is an error."""
+    if isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            _dupes(item, where)
+    if not isinstance(node, yaml.MappingNode):
+        return
+    seen: dict = {}
+    for key, value in node.value:
+        if isinstance(key, yaml.ScalarNode) and key.tag != "tag:yaml.org,2002:merge":
+            line = key.start_mark.line + 1
+            if (key.tag, key.value) in seen:
+                raise ConstructorError(None, None, f"duplicate key '{key.value}' in {where}: "
+                                                   f"lines {seen[key.tag, key.value]} and {line}")
+            seen[key.tag, key.value] = line
+            _dupes(value, f"{key.value}" if where == "the top level" else f"{where}.{key.value}")
+
+
+class _NoDupes(yaml.SafeLoader):
+    def construct_document(self, node):
+        _dupes(node)
+        return super().construct_document(node)
+
+
 def load_yaml(path: Path) -> dict:
+    """Read a YAML file; a duplicate key raises yaml's ConstructorError (a yaml.YAMLError) naming the key and lines."""
     with open(path, encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+        return yaml.load(fh, Loader=_NoDupes) or {}  # noqa: S506 — _NoDupes is a SafeLoader
 
 
 def defaults() -> dict:
@@ -150,10 +176,13 @@ class Config:
         if fallback:  # N11 reads the runner table (Q1): a name that is no preset can never run
             from .backends.command import PRESETS
             from .doctor import RUNNERS
+            from .handoff import entry_folder
             known = set(PRESETS) | {r.preset for r in RUNNERS if r.preset}
-            bad = [str(n) for n in (fallback if isinstance(fallback, list) else [fallback]) if n not in known]
+            items = fallback if isinstance(fallback, list) else [fallback]
+            bad = [str(n) for n in items if not isinstance(n, dict) and n not in known]
+            bad += [str(n) for n in items if isinstance(n, dict) and not entry_folder(n)]  # W28
             if bad:
-                errs.append(f"agent.fallback names must be presets ({', '.join(sorted(known))}), got {', '.join(bad)}")
+                errs.append(f"agent.fallback names must be presets ({', '.join(sorted(known))}) or {{claude_cli: {{CLAUDE_CONFIG_DIR: folder}}}}, got {', '.join(bad)}")
         for env in ("staging", "prod"):
             if self.get(f"deploy.{env}.enabled") and not self.get(f"deploy.{env}.cmd"):
                 errs.append(f"deploy.{env}.enabled but deploy.{env}.cmd is empty")
@@ -190,8 +219,8 @@ class Config:
             return [f"{what} needs agent.backend: claude_cli (it runs the Claude CLI)"]
         if mode == "docker" and not str(self.get("sandbox.image", "") or "").strip():
             return ["sandbox.mode: docker needs sandbox.image: the name of the image you built from deploy/Dockerfile."]
-        if NATIVE_WINDOWS:  # Claude Code's sandbox and the Docker mode run on Linux, WSL2 and macOS only
-            return ["sandbox is not supported on native Windows: run Autopilot in WSL2 or the Docker image"]
+        if NATIVE_WINDOWS and mode == "allowlist":  # W32: Claude Code's sandbox is Linux, WSL2 and macOS only; docker runs on Docker Desktop
+            return ["sandbox.mode: allowlist is not supported on native Windows: use sandbox.mode: docker (Docker Desktop) or run Autopilot in WSL2"]
         if not allowlist_on(self):
             return []
         if not isinstance(self.get("sandbox.allowed_domains", []), list):

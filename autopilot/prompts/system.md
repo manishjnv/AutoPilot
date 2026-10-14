@@ -15,3 +15,5 @@ Rules:
 - The same checks fail anything that looks like a real credential, in tests too. Test data must be a made-up value containing `example`, `dummy` or `fake`; never reuse a real value from the environment, `.env` files or anywhere else.
 - Your final message MUST end with the JSON report block described in the assignment.
 - Call the final report once, at the end. If it returns an error, fix the field it names; do not resend the same report.
+
+A fake secret in a test is built from pieces (`'sk-' + 'a' * 24`), never written as one literal: the secret scan cannot tell a fake key from a real one.

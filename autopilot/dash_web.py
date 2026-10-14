@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from html import escape as e
 
+from . import dash_card, dash_live
+
 CSS = """
 :root{color-scheme:light dark;--bg:#f3f4f6;--panel:#fff;--panel-2:#e9ecf0;--line:#b9c0ca;--text:#0b0f16;--muted:#3d4654;
 --good:#0f5c24;--bad:#a01b14;--warn:#7a4700;--count:#075a72;--use:#8a1f7a;--model:#1d4fa8;--hl:#dcedf4;--row:3px;--cell:6px;
@@ -44,7 +46,8 @@ th{font-size:var(--t11);text-transform:uppercase;letter-spacing:.08em;color:var(
 padding:var(--cell) var(--s2);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
 td:first-child{white-space:nowrap}
 td{padding:var(--cell) var(--s2);border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
-tr[aria-current=true]{background:var(--hl)}
+tr[aria-current=true]{background:var(--count);color:var(--bg);font-weight:700}
+tr[aria-current=true] td{color:inherit}
 .done{color:var(--good)}.running{color:var(--count)}.blocked{color:var(--bad)}.pending{color:var(--muted)}
 .st{white-space:nowrap;font-weight:600}
 #live .box{max-height:max(240px,calc(40vh - 110px))}
@@ -67,6 +70,20 @@ footer .m{color:var(--muted);font-weight:400}
 vertical-align:-.1em;margin-right:var(--s2);animation:sp .8s steps(8) infinite}
 .spin.run{color:var(--count)}.spin.stale{color:var(--warn)}.spin.stopped{color:var(--bad)}.spin.paused{animation-play-state:paused}
 @keyframes sp{to{transform:rotate(360deg)}}
+#now{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:var(--s3) var(--s4);margin-bottom:var(--s4)}
+#now h2{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s3);align-items:baseline;text-transform:none;letter-spacing:0;font-size:var(--t14);color:var(--text)}
+#now h2 .lab{background:var(--count);color:var(--bg);font-weight:700;padding:0 var(--s2);border-radius:var(--r1);text-transform:uppercase;font-size:var(--t11)}
+#now h2 .age{margin-left:auto;color:var(--muted);font-weight:400}
+#now p{margin:var(--row) 0}
+.seg{display:flex;gap:var(--s1);margin:var(--s2) 0}
+.seg span{position:relative;overflow:hidden;min-width:3.2em;padding:0 var(--s1);border:1px solid var(--line);border-radius:var(--r1);font-size:var(--t12);white-space:nowrap}
+.seg .d{background:var(--good);color:var(--bg);border-color:var(--good)}.seg .n{color:var(--muted)}
+.seg .r{color:var(--text)}.seg .r i{position:absolute;left:0;top:0;bottom:0;background:var(--count);opacity:.45}
+.seg .r b{position:absolute;top:0;bottom:0;width:.8em;background:var(--text);opacity:.35;animation:sh 1s steps(8) infinite;left:0}
+.seg .r em{position:relative;font-style:normal}
+@keyframes sh{to{left:calc(var(--fill) - .8em)}}
+#now.ended li{margin:var(--row) 0}
+@media (prefers-reduced-motion:reduce){.seg .r b{animation:none}}
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
 """
 
@@ -79,7 +96,7 @@ SCRIPT = ("<script type=module>const end=x=>x.scrollHeight-x.scrollTop-x.clientH
           "await r.text(),'text/html');const o=document.querySelector('details')?.open,m0=document.querySelector('.spin')?.dataset.m,"
           "s=[...document.querySelectorAll('[data-keep]')].map(x=>x.id=='out'&&end(x)?1e9:x.scrollTop);"
           "document.querySelector('main').replaceWith(d.querySelector('main'));"
-          "const sp=document.querySelector('.spin');if(sp&&sp.dataset.m==m0)sp.classList.add('paused');"
+          "document.querySelectorAll('.spin').forEach(sp=>{if(sp.dataset.m==m0)sp.classList.add('paused')});"
           "const n=document.querySelector('details');if(n&&o)n.open=true;"
           "document.querySelectorAll('[data-keep]').forEach((x,i)=>{x.scrollTop=s[i]||0});"
           "document.title=d.title;off.hidden=true}catch(x){off.hidden=false}},REFRESH_MS)</script>")
@@ -116,7 +133,7 @@ def _sec(i: str, title: str, body: str) -> str:
     return f'<section id="{i}" aria-labelledby="{i}-h"><h2 id="{i}-h">{e(title)}</h2>{body}</section>'
 
 
-def _tasks(tasks, other: str = "") -> str:
+def _tasks(tasks, other: str = "", spin=None) -> str:
     rows = []
     for t in tasks:
         st = t.get("status") or "pending"
@@ -126,9 +143,11 @@ def _tasks(tasks, other: str = "") -> str:
         model, sep, rest = str(t.get("detail", "")).partition(" · ")
         if not sep and model.endswith(" tries"):
             model, rest = "", model
-        rows.append(f'<tr{cur}><td>{e(str(t.get("n", "")))}</td><td>{e(str(t.get("title", "")))}</td>'
+        hint = f' title="{e(str(t["took"]))}"' if t.get("took") else ""
+        ring = _spin(spin) if cur and spin and spin.get("kind") == "run" else ""  # W18b: the spinner starts the active row
+        rows.append(f'<tr{cur}><td>{ring}{e(str(t.get("n", "")))}</td><td>{e(str(t.get("title", "")))}</td>'
                     f'<td class="st {e(st if st in WORDS else "pending")}">{sym} {word}</td>'
-                    f'<td class="{"w" if t.get("slow") else ""}">{e(str(t.get("time", "")))}</td>'
+                    f'<td class="{"w" if t.get("slow") else ""}"{hint}>{e(str(t.get("time", "")))}</td>'
                     f'<td class="{RISK.get(risk, "")}">{e(risk)}</td>'
                     f'<td class="{"w" if _i(tries) >= 2 else ""}">{e(str(tries))}</td>'
                     f'<td><span class="bl">{e(model)}</span>{" · " if sep else ""}{e(rest)}</td></tr>')
@@ -205,6 +224,52 @@ def _spin(sp) -> str:
     return ring + (f'<span class="{"w" if k == "stale" else "bad"}">{e(text)} </span>' if k != "run" else "")
 
 
+def _card(data: dict) -> str:
+    """W18b: the Now card, the first block under the question banner; at the end of the run the final summary."""
+    c = dash_card.norm(data.get("card"), lambda x: str(x if x is not None else ""))
+    if not c:
+        return ""
+    sp, total = data.get("spin") or {}, _i((data.get("progress") or {}).get("total"))
+    clock = sp.get("clock") or None
+    age = sp.get("data_age", sp.get("age"))
+    age_t = (f"data {_i(age)}s" if _i(age) < 60 else f"data {_i(age) // 60}m") if age is not None else "data —"
+    ring = _spin(sp)
+
+    def txt(parts):
+        return "".join(e(t) for t, _ in parts)
+    if c["kind"] == "ended":
+        li = "".join(f"<li>{e(x['what'])} &rarr; <code>{e(x['how'])}</code></li>" for x in c["pending"]) \
+            or "<li class=z>Nothing is pending.</li>"
+        t = {"green": "good", "yellow": "w", "red": "bad"}.get(c["tone"], "")
+        return (f'<section id="now" class="ended" aria-labelledby="now-h"><h2 id="now-h"><span class="lab">Now</span> Run ended '
+                f'<strong class="{t}">{e(c["word"])}</strong><span class="age">stopped {e(c["at"])}</span></h2>'
+                f'<p>{c["done"]} of {c["total"]} tasks done &middot; {c["retries"]} retries &middot; ${c["cost"] or 0:.2f}'
+                f'{" &middot; " + e(c["elapsed"]) if c["elapsed"] else ""}</p><ul>{li}</ul></section>')
+    idx, frac, pct = dash_card.progress(c, clock)
+    segs = []
+    for i, name in enumerate(c["steps"]):
+        w = round(c["weights"][i] * 100)
+        if i < idx:
+            segs.append(f'<span class="d" style="flex:{w}">&#10003; {e(name)}</span>')
+        elif i == idx:
+            segs.append(f'<span class="r" style="flex:{w};--fill:{round(frac * 100)}%"><i style="width:{round(frac * 100)}%"></i>'
+                        f'<b></b><em>{e(name)}</em></span>')
+        else:
+            segs.append(f'<span class="n" style="flex:{w}">{e(name)}</span>')
+    head = dash_card.head_text(c, total)
+    title = f" &middot; <strong>{e(c['title'])}</strong>" if c["kind"] == "task" else ""
+    rest = " &middot; ".join(e(x) for x in (dash_card.work_text(c, clock), dash_card.eta_text(c["eta"])) if x)
+    if c["kind"] == "end":
+        rest += " &middot; <span class=w>do not close</span>"
+    if c.get("why"):
+        rest += f' &middot; <span class="w">why: {e(c["why"])}</span>'
+    return (f'<section id="now" aria-labelledby="now-h"><h2 id="now-h"><span class="lab">Now</span>{ring}{e(head)}{title}'
+            f' &middot; {e(txt(dash_card.who(c)))}<span class="age {"w" if _i(age) > 30 else ""}">{e(age_t)}</span></h2>'
+            f'<p>{rest}</p><div class="seg" role="img" aria-label="Steps, about {pct} percent">{"".join(segs)}</div>'
+            f'<p>about {pct}%</p><p>{e(txt(dash_card.sofar(c)))}</p>'
+            f'<p class="z">{e(txt(dash_card.last_line(c, clock)))}</p></section>')
+
+
 def _project(p: dict, total: int, sz, asof=None, spin=None) -> str:
     tone = p.get("tone") if p.get("tone") in ("good", "wait", "bad") else ""
     st = e(str(p.get("status") or ""))
@@ -214,7 +279,8 @@ def _project(p: dict, total: int, sz, asof=None, spin=None) -> str:
               if st else "")
     out = (_asof(asof) + _dl([("Branch", p.get("branch"))]) + status  # 'Time left' lives in the bar
            + ("" if p.get("status") == "running" else f'<p>{e(str(p.get("state_words") or ""))}</p>')  # not "Writes the code."
-           + _dl([("Start", p.get("started")), ("Elapsed", p.get("elapsed"))]))
+           + _dl([("Start", p.get("started")), ("Elapsed", p.get("elapsed"))])
+           + "".join(f'<p class="z">{e(str(p[k]))}</p>' for k in ("version", "run_line") if p.get(k)))
     if _i(p.get("stale_min")) > 0:
         c = {"warn": "w", "bad": "bad"}.get(p.get("stale"), "z")
         out += f'<p class="{c}">No change for {_i(p.get("stale_min"))} min.</p>'
@@ -230,22 +296,26 @@ def _project(p: dict, total: int, sz, asof=None, spin=None) -> str:
     if nw.get("n"):
         body += _dl([("Task time", nw.get("time"))])
     body += _dl([("Model", nw.get("model"))])
+    wt = dash_live.tick(p.get("wait"), None)  # W18a: what the run waits for
+    body += f'<p class="z">{e(wt)}</p>' if wt and nw else ""
     out += _group("Now", body if nw else "")
     out += _group("Next", f'<p>{e(str(p["next"]))}</p>' if p.get("next") else "")
     login = str(p.get("login") or "")
     login = "not checked" if login in ("", "—") else login
     err, resets = p.get("last_error") or "—", p.get("resets") or "—"
+    old = err == "—" or bool(p.get("error_old"))  # W18a: the age of the error; dim after the next successful session
+    err = f'{p["error_age"]}: {err}' if err != "—" and p.get("error_age") else err
     out += _group("Agent", _dl([("Runner", p.get("runner") or "—"),
                                 ("Login", login, "w" if login == "not checked" else
                                  "good" if login.lower().startswith(("pro", "max")) else "bad"),
                                 ("Resets", resets, "z" if resets == "—" else "mg"),
-                                ("Error", err, "z" if err == "—" else "bad")]))
+                                ("Error", err, "z" if old else "bad")]))
     if sz:
         rows = [("Code", f'{_i(sz.get("code")):,} lines'),
                 ("Tests", f'{_i(sz.get("tests")):,} lines, {_i(sz.get("test_count")):,} tests'),
                 ("Docs", f'{_i(sz.get("docs")):,} lines')]
         if sz.get("run_lines") is not None:
-            rows.append(("This run", f'+{_i(sz["run_lines"]):,} lines', "good"))
+            rows.append((f'This run ({_i(sz.get("run_tasks"))} tasks)', f'+{_i(sz["run_lines"]):,} lines', "good"))
             rows.append(("", f'{_i(sz.get("run_files")):,} files'))
         out += _group("Size", _dl(rows))
     if p.get("last_commit"):
@@ -255,15 +325,26 @@ def _project(p: dict, total: int, sz, asof=None, spin=None) -> str:
     return out
 
 
+def _you(y) -> str:
+    """W48a: the line the person typed and the reply, read-only."""
+    if not isinstance(y, dict) or not y.get("text"):
+        return ""
+    return (f'<p id="you" role="status"><b>You:</b> {e(str(y["text"]))} &nbsp; <b>Reply:</b> '
+            f'{e(str(y.get("reply") or "…"))}</p>')
+
+
 def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     p, g, u = data.get("project") or {}, data.get("progress") or {}, data.get("usage") or {}
     tasks, health, files = data.get("tasks") or [], data.get("health") or {}, data.get("files")
     done, total, pct = _i(g.get("done")), _i(g.get("total")), _i(g.get("pct"))
     eta, active = p.get("eta") or "", _i(g.get("active"))
-    proj = _project(p, total, data.get("size"), data.get("asof"), data.get("spin"))
+    card = _card(data)
+    proj = _project({**p, "now": None} if card else p, total, data.get("size"), data.get("asof"), data.get("spin"))
 
     prog = (f'<div class="big">{pct}%</div>{_bar(pct / 100, "Progress", "ok")}'
-            f'<div class="row"><span>{done} done · {_i(g.get("working"))} working</span></div>'
+            + (f'<div class="z">{e(str(g["word"]))}</div>' if g.get("word") else "")
+            + (f'<div class="w">audit added {_i(g["audit_added"])} tasks</div>' if _i(g.get("audit_added")) else "")
+            + f'<div class="row"><span>{done} done · {_i(g.get("working"))} working</span></div>'
             f'<div class="row"><span><span class="{"bad" if _i(g.get("blocked")) > 0 else ""}">{_i(g.get("blocked"))} blocked</span>'
             f' · <span class="z">{_i(g.get("waiting"))} waiting</span></span></div>'
             f'<div class="row"><span>{_i(g.get("phases_done"))} of {_i(g.get("phases_total"))} phases</span></div>')
@@ -285,7 +366,8 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     bw = data.get("blocked_why") or {}
     issues = _count("Blocked tasks", g.get("blocked"), "bad")
     if bw:
-        issues += f'<div class="bad">{e(str(bw.get("id", "")))}: {e(str(bw.get("why", "")))}</div>'
+        age = f'{e(str(bw["age"]))} ' if bw.get("age") else ""  # W18a: the age; grey after the next successful session
+        issues += f'<div class="{"z" if bw.get("old") else "bad"}">{age}{e(str(bw.get("id", "")))}: {e(str(bw.get("why", "")))}</div>'
     issues += _count("Questions for you", g.get("questions"), "w") + _count("Gate warnings", g.get("warnings"), "w")
     issues += "".join(f'<div class="w">{e(str(x.get("id", "")))} {e(str(x.get("why", "")))}</div>'
                       for x in (g.get("warned_why") or [])[:3])
@@ -310,7 +392,7 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
         right.append(_sec("files", "Files", fv("added", "good") + fv("modified", "") + fv("deleted", "bad") + more))
     right.append(_sec("issues", "Issues", issues))
     cols = ([_sec("project", "Project", proj)],
-            [_sec("tasks", "Tasks", _tasks(tasks, str(p.get("other") or ""))), _sec("live", "Live output", _live(data.get("live") or []))], right)
+            [_sec("tasks", "Tasks", _tasks(tasks, str(p.get("other") or ""), data.get("spin"))), _sec("live", "Live output", _live(data.get("live") or []))], right)
     cells = [f'<div class="col">{"".join(c)}</div>' for c in cols]
 
     need, needs = data.get("needs_you") or [], ""
@@ -339,9 +421,10 @@ def render(data: dict, refresh: int = 30, report_md: str = "") -> str:
     ms = int(refresh) * 1000
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-            f"<title>{e(str(data.get('line') or ''))} · {PAGE_TITLE}</title><style>{CSS}</style>"
+            f"<title>{e(str(data.get('line') or ''))} · {PAGE_TITLE}"
+            f"{' · ' + e(str(p['version'])) if p.get('version') else ''}</title><style>{CSS}</style>"
             f"<noscript><meta http-equiv=refresh content={int(refresh)}></noscript></head><body>"
             "<p id=off hidden>The build stopped, or the status server is off. This page shows the last status. "
             "For the status now, run: ap status</p>"
-            f'<main><h1>{e(str(p.get("name") or "Autopilot"))}</h1>{needs}<div class="grid">{"".join(cells)}</div>'
+            f'<main><h1>{e(str(p.get("name") or "Autopilot"))}</h1>{_you(data.get("you"))}{needs}{card}<div class="grid">{"".join(cells)}</div>'
             f"{nxt}{bar}{rep}</main>{SCRIPT.replace('REFRESH_MS', str(ms))}</body></html>")

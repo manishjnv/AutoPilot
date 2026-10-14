@@ -20,9 +20,9 @@ OK, WARN, FAIL = "ok", "WARN", "FAIL"
 NOTIFY_ENVS = ("telegram_token_env", "slack_webhook_env", "webhook_env", "ntfy_topic_env")
 
 
-def _run(cmd: list[str], cwd=None, timeout: float = 30) -> tuple[int, str]:
+def _run(cmd: list[str], cwd=None, timeout: float = 30, env=None) -> tuple[int, str]:
     try:
-        p = run_proc(cmd, cwd=cwd, timeout=timeout)
+        p = run_proc(cmd, cwd=cwd, timeout=timeout, env=env)
     except OSError as exc:
         return 127, str(exc)
     return p.rc, (p.stdout + p.stderr).strip()
@@ -44,9 +44,9 @@ def other_auth(cfg) -> str:
     return name or ("usage.billing: api" if cfg is not None and cfg.get("usage.billing") == "api" else "")
 
 
-def check_login(binary: str, version: tuple, cfg, timeout: float = 30) -> tuple[str, str, str]:
+def check_login(binary: str, version: tuple, cfg, timeout: float = 30, env=None) -> tuple[str, str, str]:
     """H2: FAIL only when a login is surely missing: a CLI that has `auth status`, and no other way to pay."""
-    rc, out = _run([binary, "auth", "status"], timeout=timeout)  # documented from 2.1.268: exit 0 = logged in
+    rc, out = _run([binary, "auth", "status"], timeout=timeout, env=env)  # documented from 2.1.268: exit 0 = logged in
     other = other_auth(cfg)
     if rc == 0:
         # only the sure case: a claude.ai login (not a key, not a gateway) on the free plan, and no other way to pay
@@ -277,6 +277,15 @@ def detect_runner(env=None) -> str | None:
     return next((row.key for row, _, ok in _iter_runners(env) if ok), None)
 
 
+def config_folders(cfg) -> list[str]:
+    """W28: the Claude config folders named in `agent.fallback` or `agent.env`, once each, in that order."""
+    from .handoff import entry_folder
+    fb = cfg.get("agent.fallback") if cfg is not None else None
+    found = [(cfg.get("agent.env") or {}).get("CLAUDE_CONFIG_DIR")] if cfg is not None else []
+    found += [entry_folder(e) for e in (fb if isinstance(fb, list) else [fb])]
+    return list(dict.fromkeys(str(f) for f in found if f))
+
+
 def check_claude(cfg=None) -> list[tuple[str, str, str]]:
     from .backends.claude_cli import ClaudeCLIBackend
     binary = ClaudeCLIBackend.resolve_binary()
@@ -287,7 +296,11 @@ def check_claude(cfg=None) -> list[tuple[str, str, str]]:
         return [(FAIL, "claude CLI", f"`{binary} --version` gave rc {rc}: {first[:120] or 'no output'}. Reinstall "
                  f"with `{INSTALL[claude_route(binary)][1]}`, or set AUTOPILOT_CLAUDE_BIN to the real binary")]
     version = tuple(int(x) for x in re.search(r"(\d+)\.(\d+)\.(\d+)", out).groups())
-    return [(OK, "claude CLI", f"{first} ({binary})"), check_login(binary, version, cfg)]
+    rows = [(OK, "claude CLI", f"{first} ({binary})"), check_login(binary, version, cfg)]
+    for folder in config_folders(cfg):  # W28: one login row for each other Claude config folder
+        level, _, detail = check_login(binary, version, cfg, env={**os.environ, "CLAUDE_CONFIG_DIR": folder})
+        rows.append((level, f"claude login ({folder})", detail))
+    return rows
 
 
 def scripts_dir() -> Path | None:
@@ -614,10 +627,14 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
         out.append((FAIL if missing else OK, "sandbox", f"missing {', '.join(missing)} (apt install bubblewrap socat)"
                     if missing else "bubblewrap and socat found"))
     if sandbox_mode(cfg) == "docker":  # W11: the docker mode needs the docker CLI on PATH
-        rc, txt = _run(["docker", "--version"])
-        ver = re.search(r"version ([\w.+-]+)", txt)
-        out.append((OK, "docker", f"found {ver.group(1) if ver else txt.splitlines()[0]}") if rc == 0 and txt
-                   else (FAIL, "docker", "not found (needed for sandbox.mode: docker)"))
+        rc, txt = _run(["docker", "version", "--format", "{{.Server.Version}}"]) if sys.platform == "win32" else (1, "")
+        if rc == 0 and txt:  # W32: Docker Desktop on native Windows; the engine reports its version
+            out.append((OK, "docker", f"{txt.splitlines()[0]} (Docker Desktop)"))
+        else:
+            rc, txt = _run(["docker", "--version"])
+            ver = re.search(r"version ([\w.+-]+)", txt)
+            out.append((OK, "docker", f"found {ver.group(1) if ver else txt.splitlines()[0]}") if rc == 0 and txt
+                       else (FAIL, "docker", "not found (needed for sandbox.mode: docker)"))
 
     channels = [cfg.get(f"notify.{k}") for k in NOTIFY_ENVS if _env(str(cfg.get(f"notify.{k}") or ""))]
     out.append((OK if channels else WARN, "notifications", f"via {', '.join(channels)}" if channels else

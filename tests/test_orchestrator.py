@@ -249,7 +249,7 @@ def test_approve_while_run_active_is_queued(tmp_path):
 
 
 def test_session_budget_floor_removed(tmp_path):
-    root = make_project(tmp_path, phases_basic(), {"budget_usd": {"total": 1}})
+    root = make_project(tmp_path, phases_basic(), {"budget_usd": {"total": 1}, "usage": {"billing": "api"}})
     orch = orch_for(root)
     sid = orch.state.start_session("task", None, None, 1, "sonnet")
     orch.state.end_session(sid, cost=0.5, ok=True)

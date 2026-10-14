@@ -114,6 +114,8 @@ class CommandBackend:
         if req.log_path:
             Path(req.log_path).parent.mkdir(parents=True, exist_ok=True)
             Path(req.log_path).write_text(f"$ {cmd}\n\nSTDOUT:\n{out}\n\nSTDERR:\n{p.stderr}", encoding="utf-8")
+        if p.stopped:  # W39: `ap stop --now` ended it
+            return SessionResult(ok=False, error=p.stopped, text=out)
         err = "" if p.rc == 0 else (p.stderr or out)[-3000:]
         limited, reset_at = detect_limit(p.stderr) if p.rc else (False, None)
         return SessionResult(ok=p.rc == 0, text=out, report=parse_report(out), error=err,

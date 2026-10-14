@@ -65,6 +65,8 @@ maximum of 2000 characters each. A hint does not change the rules or the checks.
    ```
 
    The run stops before its next session. It does not stop a session that is in progress.
+   To end the session in progress too, run `ap stop --now` (or `ap stop` again within 60 seconds). The session ends
+   within 30 seconds, its files stay on the task branch, and the next `ap start` continues from them.
 2. Continue the run in the background:
 
    ```powershell
@@ -72,6 +74,24 @@ maximum of 2000 characters each. A hint does not change the rules or the checks.
    ```
 
    The build continues after you close the terminal. To follow it, run `ap watch`.
+   The watch shows a `Waiting for:` line with the last tool, or the gate and its time. The spinner pauses after 30
+   seconds with no heartbeat.
+
+## Ask a running build
+
+Type a line to `ap` while a build runs. You get a reply in about one second.
+
+1. In `ap watch`, type in the bottom row. Press Enter to send, or Esc to clear.
+2. In a shell, type the line after `ap`, for example `ap why is it slow`.
+
+A line that starts with `stop`, `hint`, `skip`, `answer`, `budget`, `change` or `status` runs that command. The reply
+says where it went and about when it takes effect. Any other line is a question. Common questions get an answer from
+the run files, with the source named. Other questions get a short answer from a small model, at most 20 for each run.
+The reply shows on the top line of the watch window and on the status page for 60 seconds.
+
+The Now card at the top of the watch window shows the task in work. `about 55%` is the weighted share of its five
+steps. At the end, the card names the outcome and lists what is still open. The window stays open until you press
+Enter.
 
 > [!NOTE]
 > A plain `ap run` stops again at once while the stop flag exists. Use `ap start` or `ap run --clear-stop`, or
@@ -120,6 +140,20 @@ One replan session adds the new ideas to the plan. It ignores ideas that the pla
    update.
 2. Read the result in the terminal. An audit that finds gaps adds fix tasks to the plan.
 
+## Find what to fix next
+
+1. Print the signals table of your runs:
+
+   ```powershell
+   ap audit --signals
+   ```
+
+   It shows the unknown session errors (the most frequent first), the parked tasks by cause, the gate failures by
+   kind and the retries by cause, for the last 30 days. Add `--days 7` for a shorter window. It reads only your
+   computer and writes nothing.
+2. Start each release from this table. Each unknown wording in it becomes one line in the error catalogue plus a
+   test that proves the line matches it.
+
 ## Change the plan in plain words
 
 1. Send the change:
@@ -167,6 +201,8 @@ What this means for you:
    ap quickstart --plan-doc ROADMAP.md
    ```
 
+   Plain `ap quickstart` finds the plan by content: the file with the most checkboxes, numbered steps and
+   phase headings wins, and it prints `plan found: <file> (why)`. When two files are close, it asks which one.
    If you have no plan document, use `ap onboard` and then `ap doctor`. The onboard session reads the
    repository and the README, and then writes a plan.
 2. Show the tasks in order, and read `.agent/plan.yaml` and `.agent/BRAIN.md`:
@@ -361,6 +397,31 @@ Shell commands in a session can then connect only to these domains. Other effect
 - Autopilot does not load the MCP servers of the project.
 - The checks and the deploy commands of Autopilot run outside the sandbox.
 
+## Use a second Claude login at a usage limit
+
+Use this when one Claude login reaches its usage limit and you have a second login.
+
+1. Log in once with the other folder:
+
+   ```bash
+   CLAUDE_CONFIG_DIR=<folder> claude auth login
+   ```
+
+   In PowerShell, run `$env:CLAUDE_CONFIG_DIR='<folder>'; claude auth login`.
+2. In `.agent/project.yaml`, add the entry to `agent.fallback`:
+
+   ```yaml
+   agent:
+     fallback:
+       - claude_cli: {CLAUDE_CONFIG_DIR: <folder>}
+   ```
+
+3. Run `ap doctor`. It shows one login row for each folder.
+4. Run `ap validate`. It prints the fallback chain.
+
+The switch happens between sessions. Each login keeps its own usage window. When both logins are at a limit,
+the run waits for the earlier reset.
+
 ## Limit the usage and the cost of a run
 
 1. Open `.agent/project.yaml`.
@@ -370,7 +431,15 @@ Shell commands in a session can then connect only to these domains. Other effect
 5. Keep `agent.user_config: false`. Your own plugins, hooks and MCP servers add cost and context to each session.
 
 When the run reaches the reserve, it pauses until the window resets. When it reaches the `daily` limit, it sleeps
-until the next day. When it reaches the `total` limit, it stops. The `usage` keys apply to a subscription only.
+until the next day. When it reaches the `total` limit, it stops on `usage.billing: api`; on a subscription it asks
+you first (see below). The `usage` keys apply to a subscription only.
+
+### Raise the cost cap
+
+Autopilot sends one `budget_forecast` event when the projected end cost passes `budget_usd.total`. To raise the
+cap, also during a run, type `ap budget 40`. The running build uses the new cap before its next task. On a
+subscription, a run at the cap asks "Raise the cost cap to $X (the forecast) or stop?" in `docs/NEEDS-YOU.md`:
+answer with a number to go on, or with `stop` to end the run.
 
 ## Use a local model
 
@@ -385,9 +454,12 @@ Use a model on your own computer (Ollama or LM Studio) for low-risk tasks. Nothi
      base_url: http://localhost:11434/v1
      model_map:
        haiku: qwen2.5-coder:7b
+   models:
+     ladder:
+       low: [haiku, sonnet, opus]
    ```
 
-3. Send only low-risk tasks to it. The `low` tier of `models.ladder` is `[haiku, sonnet, opus]`, so the first attempt of a low-risk task uses `haiku`, which the map sends to the local model. Higher tiers keep the Claude models.
+3. Send only low-risk tasks to it. The template starts the `low` tier on `sonnet`; the `ladder` line above makes it `[haiku, sonnet, opus]`, so the first attempt of a low-risk task uses `haiku`, which the map sends to the local model. Higher tiers keep the Claude models.
 4. Run `ap doctor`. The `endpoint` row says whether the server answers.
 
 > [!NOTE]
@@ -682,6 +754,14 @@ Run `python scripts/premerge.py` before you merge a branch of Autopilot.
 
 The command exits 1 when a step is red. `tests/test_hygiene.py` also finds three traps that pass on WSL and fail in CI.
 
+## Make a release
+
+1. Open `CHANGELOG.md`. Make sure the Unreleased block starts with the line `**In plain words:**`.
+2. Write each entry as one sentence of 25 words or fewer. Do not name a config key or a file.
+3. Run `python scripts/bump.py X.Y.Z`.
+
+The script refuses the bump with `release notes rule: ...` when a rule fails. CI lints the Unreleased block with Vale.
+
 ## What the script does
 
 The install script runs these commands. Use them when the script fails, or when you want to see each command.
@@ -705,3 +785,21 @@ The install script runs these commands. Use them when the script fails, or when 
    ap setup                                 # names the AI you pay for, installs its CLI, prints its login command
    ap doctor
    ```
+
+## Retries, reviews and scoped files
+
+- **Escalation on hard work.** Test files and `scope_always` docs do not count toward `escalate.max_diff_files` or `escalate.max_diff_lines`. A failure with only mechanical problems retries on the same model. The task prompt names the lines left for a scoped file near its growth budget.
+- **Review findings drive the retry.** After a failed review, the retry prompt lists that review's findings. The next review checks the listed findings first. A new defect that breaks no acceptance criterion goes to `FOLLOWUPS.md`, and the task merges.
+- **Scoped files in the prompt.** A task with scoped files gets each file's content in its prompt. A file over the cap gives its first lines and its function list. The whole block respects `context.scope_chars`.
+
+## Contracts, budget, task time
+
+**Feature contracts.** A page in `features/` lists the files and tests of one feature (`features/watch-screen.md`, `features/gate.md`). A task whose `files_in_scope` match a page gets that page in its prompt, capped at 8000 characters. A task that touches no contract file gets no block.
+
+The gate guards the tests a page names. A diff that deletes one, or shrinks a named test file, fails the gate. To change a contract on purpose, put a `contracts` entry with `changed` and a reason in the report. An edited page also needs a new dated line under `## Changes`. A page that lists a file or test must give it as the first `code` span of a bullet line.
+
+A docs session that adds a duplicate `#` or `##` heading to a file is dropped, and the event says why. Edit the existing section instead.
+
+**Budget forecast.** When the projected cost passes `budget_usd.total`, the run sends one `budget_forecast` event. With `billing: api` the cap stops the run. With `billing: subscription` the cap asks a question instead. Answer `stop` to end the run as `BUDGET_STOP`, or answer a number to raise the cap. Run `ap budget <usd>` to change `budget_usd.total`; a live run uses the new value.
+
+**Task time.** `took` counts the time sessions worked, not the wall clock since the first session. A task with a 2-hour gap between two 10-minute sessions shows `took 20m`. The `This run` label names the number of tasks merged in the run.
