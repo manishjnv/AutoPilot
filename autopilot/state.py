@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, task_id TEXT, phase TEXT, attempt INTEGER,
   model TEXT, started_at TEXT, ended_at TEXT, cost REAL DEFAULT 0, ok INTEGER,
-  claude_session_id TEXT, summary TEXT, error TEXT, log_path TEXT
+  claude_session_id TEXT, summary TEXT, error TEXT, log_path TEXT, account TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS phases (
   id TEXT PRIMARY KEY, status TEXT DEFAULT 'open', completed_at TEXT,
@@ -68,6 +68,8 @@ class State:
             for col in SESSION_COLS:  # older databases predate the token ledger
                 if col not in have:
                     self.db.execute(f"ALTER TABLE sessions ADD COLUMN {col} INTEGER DEFAULT 0")
+            if "account" not in have:  # W50: the login a session ran on ('' = the default login)
+                self.db.execute("ALTER TABLE sessions ADD COLUMN account TEXT DEFAULT ''")
         except sqlite3.DatabaseError:
             self.db.close()
             raise
@@ -157,10 +159,11 @@ class State:
         return list(self.db.execute("SELECT * FROM tasks ORDER BY id"))
 
     # ---------- sessions & cost ----------
-    def start_session(self, kind: str, task_id: str | None, phase: str | None, attempt: int, model: str) -> int:
+    def start_session(self, kind: str, task_id: str | None, phase: str | None, attempt: int, model: str,
+                      account: str = "") -> int:
         cur = self.db.execute(
-            "INSERT INTO sessions(kind, task_id, phase, attempt, model, started_at) VALUES(?,?,?,?,?,?)",
-            (kind, task_id, phase, attempt, model, now()))
+            "INSERT INTO sessions(kind, task_id, phase, attempt, model, started_at, account) VALUES(?,?,?,?,?,?,?)",
+            (kind, task_id, phase, attempt, model, now(), "" if account == "default" else account))
         return int(cur.lastrowid)
 
     def end_session(self, sid: int, *, cost: float, ok: bool, claude_session_id: str = "",

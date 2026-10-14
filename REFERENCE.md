@@ -361,6 +361,7 @@ When the Claude CLI prints its final `result` event, Autopilot waits 10 seconds 
 
 - **5-hour window:** Autopilot reads your real usage from Claude Code. This figure includes your own use. When only
   15% is left (`usage.reserve_pct`), the run pauses until the window resets. This keeps some usage for you.
+- **Active login:** with a second login (`agent.fallback`), the window figures follow the login that the run uses now, and the status and the dashboard name it.
 - **Other agent CLIs:** they give no usage figure. Autopilot then counts its own cost against `usage.window_usd`.
 - **Weekly limit:** you get one alert when the weekly limit passes 90%.
 - **Usage limit:** the run sleeps until the reset, and sends an alert. This does not count as a failed attempt.

@@ -26,6 +26,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - Four more features have written contracts, so their tests cannot be removed without a reason: the outcome word, the receipt, install and setup, and upgrade.
 - A new report option builds a cleaned problem report from your last run, and sends it only if you ask.
 - `ap doctor` prints one checklist format in all three modes, with the same exit codes and an optional JSON output.
+- The usage window figures follow the login the run is on now and name it, and each login learns its own window size.
 
 ## [0.8.0] - 2026-10-14
 

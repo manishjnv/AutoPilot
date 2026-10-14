@@ -11,7 +11,7 @@ import time
 from . import dash_live, inbox
 from .decisions import problems
 from .plain import SimpleView, ending
-from .report import (MODEL_NAMES, STATE_WORDS, _n, _runtime, _shares, next_steps, open_window, run_alive,
+from .report import (MODEL_NAMES, STATE_WORDS, _n, _runtime, _shares, login_name, next_steps, open_window, run_alive, window_key,
                      status_line, warned_tasks)
 
 CODE = {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".kt", ".swift", ".c", ".h", ".cpp", ".hpp", ".cs",
@@ -304,7 +304,8 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
                 (f" + {_dur(rest)} now" if queued and rest else "")
             eta = f"~{hours} ({basis})"
     total, models, _, _ = _shares(state, 0)
-    five, week = open_window(state), (state.get_meta("window_seen", {}) or {}).get("seven_day") or {}
+    wkey = window_key(state, live)  # W50
+    five, week = open_window(state, key=wkey), (state.get_meta(wkey, {}) or {}).get("seven_day") or {}
     used = int(run.get("context_tokens") or 0) if live else 0
     main = str(cfg.get("main_branch", "main"))
     facts = by_commit(root, main, str(run.get("started_at") or ""))
@@ -351,7 +352,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
                  key=lambda r: r["updated_at"] or "", default=None)
     kept = [secs(*span(r)) for r in rows.values() if r["status"] == "done"]
     kept = [x for x in kept if x is not None]
-    login = (state.get_meta("window_seen", {}) or {}).get("plan_tier")
+    login = (state.get_meta(wkey, {}) or {}).get("plan_tier")
     backend = str(cfg.get("agent.backend", "claude_cli"))
     runner = ("claude" if backend == "claude_cli" else
               str(cfg.get("agent.preset") or (cfg.get("agent.command") or "command").split()[0]))
@@ -397,7 +398,7 @@ def dashboard_data(cfg, plan, state, run: dict) -> dict:
             # J13/17: no commit for over 10 minutes while a task works is a stall
             "commit_stalled": bool(live and working and 0 < facts["stamp"] <= time.time() - 600),
             "model": name(run.get("model")) if live else "", "state": str(run.get("state") or "") if live else "",
-            "runner": runner, "login": str(login or "not checked"),  # J13/17: the plan is stored by no check yet: no call
+            "runner": runner, "login": str(login or "not checked"), "account": login_name(state, live),  # J13/17: the plan is stored by no check yet: no call
             "resets": f"{dt.datetime.fromtimestamp(float(five['reset'])):%H:%M}" if five else "—",
             "last_error": _first(broken["last_error"], 70) if broken else "—",
             "error_age": err_age, "error_old": err_old,

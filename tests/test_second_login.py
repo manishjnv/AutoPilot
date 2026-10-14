@@ -1,4 +1,5 @@
 """W28: a second Claude login (another CLAUDE_CONFIG_DIR) as the fallback at a usage limit (fake runners only)."""
+import os
 import time
 
 from autopilot import handoff
@@ -73,3 +74,51 @@ def test_plain_runner_name_still_works(tmp_path):
 def test_bad_mapping_entry_is_refused(tmp_path):
     root = make_project(tmp_path, PHASES, {"agent": {"fallback": [{"claude_cli": {}}]}})
     assert any("agent.fallback" in e for e in Config.load(root).validate())
+
+
+def test_window_sizes_are_learned_per_login(tmp_path, monkeypatch):  # W50
+    folder, orch, _second, _ = setup(tmp_path, monkeypatch)
+    now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 60))
+    for acct, cost in (("", 3.0), (folder, 5.0)):
+        orch.state.db.execute("INSERT INTO sessions(kind, started_at, cost, account) VALUES('task', ?, ?, ?)",
+                              (now, cost, acct))
+    start = time.time() - 600
+    assert orch._window_used(start) == 3.0  # the default login does not count the second login's session
+    orch.state.set_meta("handoff_until", time.time() + 999)
+    orch.state.set_meta("handoff_runner", {"claude_cli": {"CLAUDE_CONFIG_DIR": folder}})
+    assert orch._window_used(start) == 5.0
+
+
+def test_status_and_dashboard_follow_the_active_login(tmp_path, monkeypatch):  # W50
+    from autopilot.dashboard import dashboard_data
+    from autopilot.report import window_line
+    folder, orch, _second, _ = setup(tmp_path, monkeypatch)
+    orch.run()
+    st = orch.state
+    st.set_meta("window_seen", {"five_hour": {"pct": 0.2, "reset": time.time() + 3000}})
+    st.set_meta(f"window_seen@{folder}", {"five_hour": {"pct": 0.5, "reset": time.time() + 3000}})
+    st.set_meta("active_account", folder)
+    line = window_line(st)
+    assert "login: claude-2" in line and "50%" in line  # the second login's figures, not the default's 20%
+    assert "login: default" in window_line(st, live=False) and "20%" in window_line(st, live=False)
+    assert dashboard_data(orch.cfg, orch.plan, st, {})["project"]["account"] == "default"  # no run: default login
+    run = {"status": "running", "pid": os.getpid()}
+    data = dashboard_data(orch.cfg, orch.plan, st, run)
+    assert data["project"]["account"] == "claude-2" and data["usage"]["five"] == 0.5
+
+
+def test_old_database_gets_the_account_column(tmp_path):  # W50
+    import sqlite3
+
+    from autopilot.state import State
+    p = tmp_path / "state.db"
+    con = sqlite3.connect(p)
+    con.execute("CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, task_id TEXT, phase TEXT, "
+                "attempt INTEGER, model TEXT, started_at TEXT, ended_at TEXT, cost REAL DEFAULT 0, ok INTEGER, "
+                "claude_session_id TEXT, summary TEXT, error TEXT, log_path TEXT)")
+    con.commit()
+    con.close()
+    st = State(p)
+    assert "account" in {r["name"] for r in st.db.execute("PRAGMA table_info(sessions)")}
+    sid = st.start_session("task", "T", "P", 1, "m", account="x")
+    assert st.db.execute("SELECT account FROM sessions WHERE id=?", (sid,)).fetchone()[0] == "x"

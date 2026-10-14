@@ -404,6 +404,7 @@ class Orchestrator:
                 self.state.set_meta("auth_paused", "")  # Q22.2: a new start means the owner logged in again
                 self.state.set_meta("outcome", "")  # W3: set again at the end of this run
                 self.migrate_approvals()
+                self.state.set_meta("active_account", self._account())  # W50
                 return self._run()
         except BlockingIOError:
             raise SystemExit("another autopilot run is active for this project")
@@ -852,6 +853,12 @@ class Orchestrator:
             return entry_folder(run)
         return account_of(self.cfg)
 
+    def start_session_on_login(self, *args) -> int:
+        """W50: record the login the session runs on (session row + `active_account` for the dashboard and status)."""
+        acct = self._account()
+        self.state.set_meta("active_account", acct)
+        return self.state.start_session(*args, account=acct)
+
     def _wk(self, name: str) -> str:
         """W28: the meta key of window state `name` for the current account (`default` keeps the plain key)."""
         acct = self._account()
@@ -859,8 +866,9 @@ class Orchestrator:
 
     def _window_used(self, start: float) -> float:
         since = dt.datetime.fromtimestamp(start).isoformat(timespec="seconds")
-        return float(self.state.db.execute("SELECT COALESCE(SUM(cost),0) FROM sessions WHERE started_at >= ?",
-                                           (since,)).fetchone()[0])
+        acct = self._account()  # W50: only this login's sessions count toward its window
+        return float(self.state.db.execute("SELECT COALESCE(SUM(cost),0) FROM sessions WHERE started_at >= ? AND "
+                                           "COALESCE(account,'') = ?", (since, "" if acct == "default" else acct)).fetchone()[0])
 
     def window_gate(self, kind: str, model: str):
         """Before a session: keep `usage.reserve_pct` of the window for the owner (pause until it resets), and start
@@ -970,7 +978,7 @@ class Orchestrator:
             state=STATE.get(kind, "Code"), task=task_id or "", attempt=attempt, model=model, live_tokens=0,
             context_tokens=0, max_attempts=max(attempt, int(self.cfg.get("retries.max_attempts_per_task", 3))),
             session_at=now())
-        sid = self.state.start_session(kind, task_id, phase, attempt, model)
+        sid = self.start_session_on_login(kind, task_id, phase, attempt, model)
         self.sessions_this_run += 1
         log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-{kind}-{task_id or 'main'}.log"
         self.last_log = str(log_path)
@@ -1053,6 +1061,7 @@ class Orchestrator:
         self.learn_window(res.reset_at)  # the first account's window, before the switch (keyed by its folder)
         self.state.set_meta("handoff_until", res.reset_at)
         self.state.set_meta("handoff_runner", runner)
+        self.state.set_meta("active_account", self._account())  # W50: the run is on the second login now
         reset = f"{dt.datetime.fromtimestamp(res.reset_at):%H:%M}"
         self.notify.send("handoff", f"{task_id}: usage limit on {acct} (resets {reset}): next session on "
                                     f"{entry_folder(runner)}" if isinstance(runner, dict) else
@@ -1843,7 +1852,7 @@ class Orchestrator:
         n = self.cfg.parallel_size()
         if self.max_sessions:
             n = min(n, self.max_sessions - self.sessions_this_run)
-        five = open_window(self.state, float(self.cfg.get("usage.window_hours", 5) or 5))
+        five = open_window(self.state, float(self.cfg.get("usage.window_hours", 5) or 5), self._wk("window_seen"))
         if five and 1 - five["pct"] < 0.25:  # N12: under 25 percent of the window is left: one task at a time
             n = 1
         if n < 2 or self.main_red or self.cfg.get("git.mode", "direct") == "pr":  # PR mode merges one task at a time
@@ -1902,7 +1911,7 @@ class Orchestrator:
             risk = self.effective_risk(t)
             model, phase = self.model_for(risk, 0), self.plan.phase_of(t)
             self.state.set_task(t.id, status="running", started_at=now())
-            sid = self.state.start_session("task", t.id, phase.id, 1, model)
+            sid = self.start_session_on_login("task", t.id, phase.id, 1, model)
             self.sessions_this_run += 1
             log_path = self.ad / "logs" / "sessions" / f"{sid:05d}-task-{t.id}.log"
             req = SessionRequest(prompt=self.ctx.task_prompt(t, 1, None, self.git.log_oneline()), model=model,

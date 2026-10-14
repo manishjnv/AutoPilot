@@ -39,13 +39,29 @@ def open_window(state, hours: float = 5, key: str = "window_seen") -> dict:
     return five if "pct" in five and 0 < left <= hours * 3600 + 600 else {}
 
 
-def window_line(state) -> str:
+def active_account(state, live: bool = True) -> str:
+    """W50: the login the run is on now (`default`, else its config folder); no active run = the default login."""
+    return str(state.get_meta("active_account") or "default") if live else "default"
+
+
+def window_key(state, live: bool = True, name: str = "window_seen") -> str:
+    acct = active_account(state, live)
+    return name if acct == "default" else f"{name}@{acct}"
+
+
+def login_name(state, live: bool = True) -> str:
+    acct = active_account(state, live)
+    return acct if acct == "default" else acct.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+
+
+def window_line(state, live: bool = True) -> str:
     """G1: the usage window as the CLI last reported it, or '' when there is no figure for a window still open."""
-    five = open_window(state)
+    key = window_key(state, live)
+    five = open_window(state, key=key)
     if not five:
         return ""
-    week = (state.get_meta("window_seen", {}) or {}).get("seven_day") or {}
-    text = (f"Usage window: {round(100 * five['pct'])}% of the 5-hour window "
+    week = (state.get_meta(key, {}) or {}).get("seven_day") or {}
+    text = (f"Usage window (login: {login_name(state, live)}): {round(100 * five['pct'])}% of the 5-hour window "
             f"(resets {dt.datetime.fromtimestamp(five['reset']):%H:%M})")
     return text + (f" · {round(100 * week['pct'])}% of the weekly limit" if "pct" in week else "")
 
@@ -172,11 +188,13 @@ def status_panel(cfg, plan, state, run: dict, width: int | None = None) -> list[
         mins = left * ms / len(here) / 60000
         progress.append(f"~{round(mins)}m left" if mins < 90 else f"~{mins / 60:.1f}h left")
     total, models, _, _ = _shares(state, 0)
-    five, week = open_window(state), (state.get_meta("window_seen", {}) or {}).get("seven_day") or {}
+    key = window_key(state, live)  # W50: the figures of the login the run is on
+    five, week = open_window(state, key=key), (state.get_meta(key, {}) or {}).get("seven_day") or {}
     name = lambda m: next((s for k, s in MODEL_NAMES.items() if k in str(m).lower()), str(m))  # noqa: E731
     top = sorted(((m, v["total"]) for m, v in models if v["total"]), key=lambda x: -x[1])[:3]
     usage = [f"5h {_bar(five['pct'])}" if five else "",
              f"Week {_bar(week['pct'])}" if five and "pct" in week else "",
+             f"login: {login_name(state, live)}" if five else "",
              f"Tok {_n(total)} (" + ", ".join(f"{name(m)} {_n(n)} {round(100 * n / total)}%" for m, n in top) + ")" if total else "Tok 0",
              f"${state.cost():.2f}"]
     health = [f"Git {run['git']}", f"Checks {run['build']}"] if live and run.get("git") and run.get("build") else []
@@ -225,7 +243,7 @@ def status_line(cfg, plan, state, run: dict, width: int | None = None) -> str:
     total, models, _, _ = _shares(state, 0)
     top = sorted(((m, v["total"]) for m, v in models if v["total"]), key=lambda x: -x[1])[:2]
     short = lambda m: next((s for k, s in MODEL_SHORT.items() if k in str(m).lower()), str(m)[:4])  # noqa: E731
-    five = open_window(state)
+    five = open_window(state, key=window_key(state, live))
     parts = {
         "head": "ON" if live else f"DEAD since {dead_since}".rstrip() if dead else
                 ("Done" + (f" {run['word']}" if run.get("word") else ""))  # W3: the outcome word
