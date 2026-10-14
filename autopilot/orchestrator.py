@@ -514,7 +514,8 @@ class Orchestrator:
                 if self.wait_for_refill(need):  # W63: every login is out for the next task
                     rows = usage_mod.sources(self.cfg, self.state)
                     current = f"login:{usage_mod._login_name(self._account())}"
-            pick = usage_mod.plan_source(rows, current, float(self.cfg.get("usage.idle_pct", 50) or 50), need=need, now=lambda: now)
+            risk = self.effective_risk(task) if task is not None else "high"  # W64 rule e: the api runner takes low and medium only
+            pick = usage_mod.plan_source(rows, current, float(self.cfg.get("usage.idle_pct", 50) or 50), need=need, risk=risk, now=lambda: now)
             line = usage_mod.suggest_line(pick)
             self.state.set_meta("source_suggest", line)
             mode = str(self.cfg.get("usage.switch", "suggest"))
@@ -529,7 +530,10 @@ class Orchestrator:
             if not pick or mode != "auto":
                 return line
             row = next(r for r in rows if r["name"] == pick["source"])
-            if row["kind"] != "login":  # the api backend is not built; cloud is Routine only
+            if row["kind"] == "api" and row.get("can_run"):  # W64: the api credit through the cline preset
+                self.switch_source_api(f"{pick['reason']}: {pick['text']}")
+                return line
+            if row["kind"] != "login":  # cloud is Routine only
                 return line
             self.switch_login(row["folder"], f"{pick['reason']}: {pick['text']}", row["resets"] or now + 7 * 86400)
             return line
@@ -640,6 +644,15 @@ class Orchestrator:
             self.switch_login(folder, f"limit: login {name} has room after the wait", self._now() + 7 * 86400)
         self.notify.send("wait", f"Resumed on login {name} after: {line}")
         self._journal(state=was if was and was != "Wait" else "Code", current="")
+
+    def switch_source_api(self, why: str) -> None:
+        """W64: put the next tasks on the cline preset (the API credit) through the one handoff path; the main login
+        stays the account of record for the usage bars. The log line names the reason."""
+        src = "api" if self.state.get_meta("handoff_runner") == "cline" else usage_mod._login_name(self._account())
+        self.state.set_meta("handoff_runner", "cline")
+        self.state.set_meta("handoff_until", self._now() + 7 * 86400)
+        log.info("source: %s -> api (%s)", src, why)
+        self.notify.send("source", f"{src} -> api ({why})")
 
     def switch_login(self, folder: str, why: str, until: float) -> None:
         """W60 (subsumes W28): put the run on login `folder` ('' = the default login) until `until`, through the one
@@ -1235,6 +1248,8 @@ class Orchestrator:
             self.git.set_ref(self.main, main_before)
             self.notify.send("main_guard", f"session moved {self.main}; restored")
             res.ok, res.error = False, "session moved the main branch"
+        if res.cost and self.state.get_meta("handoff_runner") == "cline":  # W64: the API credit counts down
+            usage_mod.note_api_spend(self.state, self.cfg, res.cost)
         self.state.end_session(sid, cost=res.cost, ok=res.ok, claude_session_id=res.session_id,
                                summary=str(res.report.get("summary", ""))[:2000], error=res.error,
                                log_path=str(log_path), usage=res.usage, num_turns=res.num_turns,
@@ -2232,6 +2247,8 @@ class Orchestrator:
         for (t, phase, path, branch, model, sid, _req, log_path), res in zip(jobs, results):
             if moved:
                 res.ok, res.error = False, "a parallel session moved the main branch"
+            if res.cost and self.state.get_meta("handoff_runner") == "cline":  # W64: the API credit counts down
+                usage_mod.note_api_spend(self.state, self.cfg, res.cost)
             self.state.end_session(sid, cost=res.cost, ok=res.ok, claude_session_id=res.session_id,
                                    summary=str(res.report.get("summary", ""))[:2000], error=res.error,
                                    log_path=str(log_path), usage=res.usage, num_turns=res.num_turns,

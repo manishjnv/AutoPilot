@@ -262,7 +262,7 @@ def test_sources_table_lists_logins_api_and_cloud_with_room_and_notes(monkeypatc
                "usage.cloud_credit": {"usd": 149, "entered": "2026-10-14", "expires": "2026-11-05"}, "usage.sources_off": ["cloud"]})
     rows = {r["name"]: r for r in usage.sources(cfg, FakeState(), now=lambda: now)}
     assert rows["login:default"]["room"] == 0.0 and rows["login:two"]["room"] == 0.88 and rows["login:two"]["folder"] == "/logins/two"
-    assert rows["api"]["note"] == "needs backend" and rows["api"]["can_run"] is False and rows["api"]["usd"] == 109
+    assert rows["api"]["note"].startswith("needs backend") and rows["api"]["can_run"] is False and rows["api"]["usd"] == 109
     assert rows["cloud"]["off"] is True and rows["cloud"]["expires"] == usage._day("2026-11-05")
 
 

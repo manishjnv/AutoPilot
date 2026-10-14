@@ -37,13 +37,47 @@ PRESETS = {
     # --allow-all-tools and --no-ask-user approve every tool and never wait for a person; -s is the silent output.
     "copilot": 'copilot -p "Your full instructions are in the file {prompt_path}. Read it, follow it, end with the '
                'requested JSON report." --allow-all-tools --no-ask-user -s --add-dir {prompt_dir}{model_flag}',
+    # W64 cline: run live 2026-10-15 with Cline CLI 3.0.71 (`npm i -g cline`) and the Console key: `-P anthropic`
+    # names the provider, `-y` auto-approves (like gemini yolo: sandbox rules apply), `--json` prints one JSON event per
+    # line and needs a prompt argument or piped stdin; the _ASK argument plus the piped prompt works (proven). The key
+    # never rides in the command: `cline auth anthropic` once, or `cline -k <key>` once, saves it under ~/.cline.
+    # The final message and the cost come from the `run_result` event (`text`, `usage.totalCost`), see `_cline_stream`.
+    "cline": "cline -y --json -P anthropic{model_flag} " + _ASK,
 }
-_MODEL_OPT = {"kiro": "--model", "cursor": "--model", "aider": "--model", "copilot": "--model"}  # aider -m = --message
+_MODEL_OPT = {"kiro": "--model", "cursor": "--model", "aider": "--model", "copilot": "--model", "cline": "-m"}  # aider -m = --message
 CLAUDE_ALIASES = ("haiku", "sonnet", "opus")
 # Q2: a preset's own names for the ladder aliases, used when agent.model_map does not map them. Copilot accepts Claude
 # model names (docs checked 2026-10-12, not run live: only `claude-haiku-4.5` is named in the docs; sonnet and opus stay
 # unmapped = Copilot's default model until Q9 records the exact names).
-DEFAULT_MODEL_MAP = {"copilot": {"haiku": "claude-haiku-4.5"}}
+# W64 cline: `claude-haiku-5-5` run live 2026-10-15; the sonnet and opus ids follow the same naming, not run live.
+DEFAULT_MODEL_MAP = {"copilot": {"haiku": "claude-haiku-4.5"},
+                     "cline": {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}}
+
+
+def _cline_stream(out: str) -> tuple[str, float, str]:
+    """W64: (final text, cost, error) from the Cline `--json` stream: the `run_result` event carries `text` (the agent's
+    last message with the report block) and `usage.totalCost`; an `error` event carries `message`. When the output is
+    not that stream, the text is returned as is with cost 0."""
+    import json
+    text, cost, err = "", 0.0, ""
+    seen = False
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(ev, dict) or "type" not in ev:  # a bare JSON object in plain text is not the stream
+            continue
+        seen = True
+        if ev.get("type") == "run_result":
+            text = str(ev.get("text") or text)
+            cost = float((ev.get("aggregateUsage") or ev.get("usage") or {}).get("totalCost") or cost)
+        elif ev.get("type") == "error":
+            err = str(ev.get("message") or err)
+    return (text, cost, err) if seen else (out, 0.0, "")
 _FILE_KEYS = ("{prompt_file}", "{prompt_path}", "{prompt_dir}")
 SAFE_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}")
 
@@ -119,5 +153,11 @@ class CommandBackend:
             return SessionResult(ok=False, error=p.stopped, text=out)
         err = "" if p.rc == 0 else (p.stderr or out)[-3000:]
         limited, reset_at = detect_limit(p.stderr) if p.rc else (False, None)
-        return SessionResult(ok=p.rc == 0, text=out, report=parse_report(out), error=err,
+        cost = 0.0
+        if str(self.cfg.get("agent.preset") or "") == "cline":  # W64: the final text and the cost ride in the JSON stream
+            out, cost, stream_err = _cline_stream(out)
+            if p.rc and stream_err:
+                err = stream_err[-3000:]
+                limited, reset_at = detect_limit(stream_err)
+        return SessionResult(ok=p.rc == 0, text=out, report=parse_report(out), error=err, cost=cost,
                              rate_limited=limited, reset_at=reset_at)

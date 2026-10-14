@@ -151,7 +151,7 @@ def figures(state, cfg=None, acct: str = "default", *, now=time.time, live_fetch
     row = state.get_meta(key, {}) or {}
     bars = row.get("bars") or {}
     if fresh or not row or now() - float(row.get("at") or 0) >= CACHE_SEC:
-        bars = (live_fetch or fetch)(folder, cfg=cfg, now=now, cache={} if fresh else _cache)
+        bars = (live_fetch or fetch)(folder, cfg=cfg, now=now, **({"cache": {}} if fresh else {}))  # fresh: no cache
         prev = (row.get("bars") or {}).get("five_hour") if row else None
         if prev and bars.get("five_hour") and abs(float(prev.get("reset") or 0) - bars["five_hour"]["reset"]) < 120:
             state.set_meta(f"{key}:prev", {"at": float(row.get("at") or 0), "pct": float(prev["pct"])})  # W62: the rate
@@ -273,15 +273,37 @@ def _hm(t: float) -> str:
     return f"{datetime.fromtimestamp(t):%a %H:%M}" if t else "?"
 
 
-def balances(cfg) -> dict:
-    """The hand-entered credits from project.yaml: {cloud: {usd, entered, expires}, api: {...}} (missing = {})."""
+def balances(cfg, state=None) -> dict:
+    """The hand-entered credits from project.yaml: {cloud: {usd, entered, expires}, api: {...}} (missing = {}).
+    W64: with `state`, the api credit is the entered figure minus what the cline sessions of this project spent
+    since the entry (`api_spent` in state meta, from the Cline stream's own cost line)."""
     out = {}
     for name in ("cloud", "api"):
         row = cfg.get(f"usage.{name}_credit") if cfg is not None else None
         if isinstance(row, dict) and isinstance(row.get("usd"), (int, float)):
-            out[name] = {"usd": float(row["usd"]), "entered": str(row.get("entered") or ""),
-                         "expires": str(row.get("expires") or "")}
+            usd = float(row["usd"])
+            if name == "api" and state is not None:
+                spent = state.get_meta("api_spent", {}) or {}
+                if str(spent.get("since") or "") == str(row.get("entered") or ""):
+                    usd = max(0.0, usd - float(spent.get("usd") or 0))
+            out[name] = {"usd": usd, "entered": str(row.get("entered") or ""), "expires": str(row.get("expires") or "")}
     return out
+
+
+def api_runner(cfg) -> str:
+    """W64: the preset that spends the API credit: `cline` when it is an `agent.fallback` entry, else ''."""
+    return "cline" if "cline" in [str(e) for e in (cfg.get("agent.fallback") or []) if not isinstance(e, dict)] else ""
+
+
+def note_api_spend(state, cfg, cost: float) -> None:
+    """W64: count a cline session's cost against the entered API credit (keyed by the entry date)."""
+    row = cfg.get("usage.api_credit") if cfg is not None else None
+    since = str((row or {}).get("entered") or "") if isinstance(row, dict) else ""
+    spent = dict(state.get_meta("api_spent", {}) or {})
+    if str(spent.get("since") or "") != since:
+        spent = {"since": since, "usd": 0.0}
+    spent["usd"] = round(float(spent.get("usd") or 0) + float(cost or 0), 6)
+    state.set_meta("api_spent", spent)
 
 
 def balance_text(cfg, billing: str = "subscription") -> str:
@@ -401,14 +423,17 @@ def sources(cfg, state, *, now=time.time) -> list:
             rows.append({"name": f"cli:{value}", "kind": "cli", "folder": "", "room": None, "five": None, "week": None,
                          "resets": 0.0, "week_resets": 0.0, "expires": 0.0, "usd": 0.0, "can_run": True,
                          "off": f"cli:{value}" in off, "note": "side sessions only, never sleeps the run"})
+    runner = api_runner(cfg)  # W64: the api credit runs through the cline preset when it is configured
     for kind in ("api", "cloud"):
-        credit = balances(cfg).get(kind)
+        credit = balances(cfg, state).get(kind)
         usd = float(credit["usd"]) if credit else 0.0
+        can = kind == "api" and bool(runner) and usd > 0
         rows.append({"name": kind, "kind": kind, "folder": "", "room": 1.0 if usd > 0 else 0.0, "five": None, "week": None,
                      "resets": 0.0, "week_resets": 0.0,
                      "expires": _day(credit["expires"]) if credit and credit["expires"] else 0.0, "usd": usd,
-                     "can_run": False, "off": kind in off,
-                     "note": "needs backend" if kind == "api" else "Routine runs only: the planner suggests and counts"})
+                     "can_run": can, "off": kind in off,
+                     "note": ("low and medium tasks through cline" if can else "needs backend: add cline to agent.fallback")
+                     if kind == "api" else "Routine runs only: the planner suggests and counts"})
     return rows
 
 
@@ -440,14 +465,16 @@ def reason_text(reason: str, row: dict) -> str:
     return f"login {name} chosen by the owner"
 
 
-def plan_source(rows: list, current: str = "login:default", idle_pct: float = 50, *, need: float = 0.0, now=time.time) -> dict:
+def plan_source(rows: list, current: str = "login:default", idle_pct: float = 50, *, need: float = 0.0, risk: str = "low",
+                now=time.time) -> dict:
     """The planner: {source, reason, text} for the next task, or {} to stay. Order: a runnable credit that expires
     soonest with room; a login whose weekly window would reset unused (week under `idle_pct` in its last two days);
     else the current login when it has room (nothing to say); else the login with the most room (`cheapest`), or
     `limit` when the current one is out. Never a source marked off, never `cloud` (Routine runs only)."""
     on = [r for r in rows if not r["off"]]
     cur = next((r for r in on if r["name"] == current), None)
-    credits = sorted((r for r in on if r["kind"] in ("api", "cloud") and r["expires"] and r["usd"] > 0 and r["can_run"]),
+    credits = sorted((r for r in on if r["kind"] in ("api", "cloud") and r["expires"] and r["usd"] > 0 and r["can_run"]
+                      and (r["kind"] != "api" or risk in ("low", "medium"))),  # W64 rule e: never a high or critical task
                      key=lambda r: r["expires"])
     if credits and credits[0]["name"] != current:
         return {"source": credits[0]["name"], "reason": "expires soon", "text": reason_text("expires soon", credits[0])}
@@ -528,7 +555,7 @@ def with_states(rows: list, active: str, reserve_pct: float = 95, figs_of=None, 
         if r["off"]:
             r["state"] = "OFF"
         elif r["kind"] == "api":
-            r["state"] = "DISABLED"
+            r["state"] = "ACTIVE" if active == "api" else "STANDBY" if r.get("can_run") else "DISABLED"
         elif r["kind"] == "cloud":
             r["state"] = "MANUAL"
         elif r["kind"] == "login" and r["room"] is not None and r["room"] <= 0:

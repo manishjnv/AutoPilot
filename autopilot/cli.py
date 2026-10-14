@@ -1558,10 +1558,17 @@ def cmd_source(args):
         if line:
             print(line)
         return 0
-    want = f"login:{name}" if not name.startswith("login:") else name
+    want = name if name in ("api", "cloud") or name.startswith("login:") else f"login:{name}"
     row = next((r for r in rows if r["name"] == want), None)
+    if row is not None and row["kind"] == "api" and row.get("can_run"):  # W64: the next tasks run on the cline preset
+        state.set_meta("handoff_runner", "cline")
+        state.set_meta("handoff_until", time.time() + 7 * 86400)
+        state.set_meta("source_suggest", "")
+        print("source: api (owner: the API credit through cline); the next low or medium task starts on it")
+        return 0
     if row is None or row["kind"] != "login":
-        print(f"FAIL  no login named {name}; the logins are: " + ", ".join(r["name"].split(":", 1)[-1] for r in rows if r["kind"] == "login"))
+        print(f"FAIL  no login named {name}; the logins are: " + ", ".join(r["name"].split(":", 1)[-1] for r in rows if r["kind"] == "login")
+              + ("; api runs through cline" if any(r["kind"] == "api" and r.get("can_run") for r in rows) else ""))
         return 1
     folder = row["folder"]
     if folder:

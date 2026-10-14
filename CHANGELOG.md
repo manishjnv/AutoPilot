@@ -22,6 +22,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - The review model can follow the risk tier, and side sessions can run on a free command-line tool.
 - One AI box on the watch screen and the status page shows every login, model and credit with a state word and the next switch.
 - When every login is out, the run waits for the earliest refill and resumes by itself, and one line on the screen says when.
+- Low and medium tasks can run on your API credit through the Cline command-line tool, and the credit counts down on the screen.
 - Each release also carries the table of supported AI programs as a signed file, with the date the vendor docs were checked.
 - The security and how-to documents now explain the admin right that lets a build install system tools without a password.
 - The plugin stop check no longer runs commands in folders that Autopilot did not set up on this computer.

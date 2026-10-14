@@ -62,8 +62,10 @@ def usage_now(cfg, state, run: dict | None = None, live: bool = True) -> str:
         figs = usage.figures(state, cfg, active_account(state, live))
         run = run or _run_file(cfg)
         model = str((run or {}).get("model") or "") if live else ""
-        billing = str(cfg.get("usage.billing", "subscription"))
-        return usage.now_line(figs, model, login_name(state, live), usage.balance_text(cfg, billing))
+        billing = "api" if live and state.get_meta("handoff_runner") == "cline" else str(cfg.get("usage.billing", "subscription"))
+        balance = usage.balance_text(cfg, billing) if billing != "api" else usage.balance_text(cfg, billing).replace(
+            "api credit $", f"api credit ${usage.balances(cfg, state).get('api', {}).get('usd', 0):g} left of $", 1)
+        return usage.now_line(figs, model, login_name(state, live), balance)
     except Exception:  # noqa: BLE001
         return ""
 

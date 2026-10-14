@@ -53,7 +53,7 @@ def test_templates_and_model_flags(tmp_path):
     assert command_template(cfg).startswith("gemini --approval-mode=yolo")
     assert model_flag(cfg, "opus") == " -m pro" and model_flag(cfg, "sonnet") == ""  # unmapped alias: CLI default
     assert model_flag(cfg, "custom/model-1") == " -m custom/model-1"
-    assert set(PRESETS) == {"codex", "gemini", "opencode", "kiro", "cursor", "aider", "copilot"}
+    assert set(PRESETS) == {"codex", "gemini", "opencode", "kiro", "cursor", "aider", "copilot", "cline"}  # W64 cline
     own = cfg_with(tmp_path, {"preset": "codex", "command": "my-agent {model}"})
     assert command_template(own) == "my-agent {model}"  # an explicit command wins
 
