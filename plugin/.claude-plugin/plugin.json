@@ -1,6 +1,6 @@
 {
   "name": "autopilot",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Autopilot builds your software project while you are away. You write what you want in plain words and start it once. You get working software, tested, with a record of every step.",
   "author": {"name": "Manish Kumar"},
   "homepage": "https://github.com/manishjnv/AutoPilot",
