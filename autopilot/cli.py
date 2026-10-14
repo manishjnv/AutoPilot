@@ -1537,12 +1537,11 @@ def cmd_approve(args):
         return 1
     try:
         with exclusive_lock(root / AGENT_DIR / "run.lock"):
+            orch.state.approve(args.phase, "cli")
             orch.reload_plan()
             print(orch.deploy_prod(args.phase, row["prod_ref"]))
     except BlockingIOError:
-        d = root / AGENT_DIR / "approvals"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / args.phase).write_text("approved\n")
+        orch.state.approve(args.phase, "cli")
         print(f"a run is active; it will deploy {args.phase} to prod before its next task")
     _l.shutdown()
     return 0

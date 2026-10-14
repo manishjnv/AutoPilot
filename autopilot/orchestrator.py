@@ -403,6 +403,7 @@ class Orchestrator:
             with exclusive_lock(self.ad / "run.lock"):
                 self.state.set_meta("auth_paused", "")  # Q22.2: a new start means the owner logged in again
                 self.state.set_meta("outcome", "")  # W3: set again at the end of this run
+                self.migrate_approvals()
                 return self._run()
         except BlockingIOError:
             raise SystemExit("another autopilot run is active for this project")
@@ -704,9 +705,7 @@ class Orchestrator:
             row = self.state.phase(arg) if arg in self.plan.phase_by_id else None
             if not row or row["prod_status"] != "awaiting_approval":
                 return f"{arg} is not awaiting prod approval.", False
-            d = self.ad / "approvals"
-            d.mkdir(parents=True, exist_ok=True)
-            (d / arg).write_text("approved via chat\n", encoding="utf-8")
+            self.state.approve(arg, "telegram")
             return f"{arg} approved; it deploys to prod before the next task.", True
         if verb == "unblock" and arg:
             row = self.state.task(arg)
@@ -736,13 +735,21 @@ class Orchestrator:
                 return
             left = end - time.monotonic()
 
-    def process_approvals(self):
+    def migrate_approvals(self):
+        """H3: once per run start, old approval files become rows and are deleted. Later files are never read."""
         d = self.ad / "approvals"
-        for f in sorted(d.iterdir()) if d.is_dir() else []:
-            row = self.state.phase(f.name)
-            if row and row["prod_status"] == "awaiting_approval":
-                self.deploy_prod(f.name, row["prod_ref"])
+        files = [f for f in sorted(d.iterdir()) if f.is_file()] if d.is_dir() else []
+        for f in files:
+            self.state.approve(f.name, who="migrated")
             f.unlink(missing_ok=True)
+        if files:
+            log.info("migrated %d approval file(s) into the state", len(files))
+
+    def process_approvals(self):
+        for ph in self.plan.phases:
+            row = self.state.phase(ph.id)
+            if row and row["prod_status"] == "awaiting_approval" and self.state.approved(ph.id):
+                self.deploy_prod(ph.id, row["prod_ref"])
 
     # ------------------------------------------------------------------ guards
     def _owner_now(self) -> bool:

@@ -411,7 +411,7 @@ def task_gate(cfg, git, task, report=None, attempt: int = 1, log_path=None) -> G
     files = git.staged_files()
     if not files and not task.allow_no_changes:
         gate.problems.append("the session produced no file changes")
-    touched_protected = [f for f in files if f in protected_files(cfg)]
+    touched_protected = [f for f in files if f in protected_files(cfg) or f.startswith(".agent/approvals/")]
     if touched_protected:
         gate.problems.append(f"session modified protected files: {touched_protected}")
     (gate.warnings if task.allow_test_changes else gate.problems).extend(test_tamper(cfg, git, task.allow_test_changes))

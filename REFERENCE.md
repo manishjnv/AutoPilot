@@ -56,7 +56,7 @@ A read-only command (`status`, `watch`, `next`, `report`) first prints `project:
 | `autopilot hint T1 "text"` | Gives advice to the next session of a task. Works while a run is active |
 | `autopilot unblock T1 T2` | Puts blocked tasks back in the queue |
 | `autopilot skip T3` | Removes tasks from the queue |
-| `autopilot approve P05` | Sends a phase to production |
+| `autopilot approve P05` | Sends a phase to production and records who approved and when (kept in `state.db`) |
 | `autopilot stop [--now]` | Stops the run before its next session and prints how long the current session has run. W39: `--now`, or a second `ap stop` within 60 seconds of the first, ends the task session at once: its process tree is ended by process ID or job object (on Linux and macOS SIGINT first, then 20 seconds for the session to finish), its files are committed on `autopilot/<task>`, the attempt is not counted, the task note reads `cut by the owner, resume` and the run ends STOPPED. A stop during the gate waits for the gate. The next `ap start` (after `ap resume`) puts the files back and tells the session `You were stopped by the owner; continue from the files on disk.` |
 | `autopilot resume` | Removes the stop flag. It does not start a run |
 | `ap budget <usd> [-C folder]` | W43: sets the cost cap `budget_usd.total` in `.agent/project.yaml` with a one-line edit; the comments stay. A running build reads the new cap before its next task. A value of 0 or less exits 1 |

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import getpass
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -34,6 +36,7 @@ CREATE TABLE IF NOT EXISTS decisions (
   id TEXT PRIMARY KEY, kind TEXT, task_id TEXT, phase_id TEXT, title TEXT, question TEXT, checked TEXT, why TEXT,
   suggestion TEXT, blocks TEXT, status TEXT, answer TEXT, created_at TEXT, answered_at TEXT
 );
+CREATE TABLE IF NOT EXISTS approvals (phase TEXT PRIMARY KEY, who TEXT, at TEXT);
 """
 SESSION_COLS = ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write", "num_turns", "duration_ms")
 
@@ -216,6 +219,19 @@ class State:
         self.db.execute("INSERT OR IGNORE INTO phases(id) VALUES(?)", (pid,))
         cols = ", ".join(f"{k}=?" for k in fields)
         self.db.execute(f"UPDATE phases SET {cols} WHERE id=?", (*fields.values(), pid))
+
+    def approve(self, phase: str, source: str = "cli", who: str | None = None):
+        """H3: a prod approval lives here, not in a file a session could write. `who` = OS user + source."""
+        if who is None:
+            try:
+                user = getpass.getuser()
+            except Exception:  # noqa: BLE001
+                user = os.environ.get("USERNAME") or os.environ.get("USER") or "unknown"
+            who = f"{user} ({source})"
+        self.db.execute("INSERT OR REPLACE INTO approvals(phase, who, at) VALUES(?,?,?)", (phase, who, now()))
+
+    def approved(self, phase: str) -> sqlite3.Row | None:
+        return self.db.execute("SELECT * FROM approvals WHERE phase=?", (phase,)).fetchone()
 
     def phases_closed(self) -> int:
         return int(self.db.execute("SELECT COUNT(*) FROM phases WHERE status IN ('done','partial')").fetchone()[0])

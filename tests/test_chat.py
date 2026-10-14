@@ -72,7 +72,7 @@ def test_approve_and_unblock_check_their_target(tmp_path):
     assert orch.command("approve P01") == ("P01 is not awaiting prod approval.", False)
     assert orch.command("approve ../../etc") == ("../../etc is not awaiting prod approval.", False)
     orch.state.set_phase("P01", prod_status="awaiting_approval", prod_ref="abc")
-    assert orch.command("/approve P01")[1] and (orch.ad / "approvals" / "P01").exists()
+    assert orch.command("/approve P01")[1] and "telegram" in orch.state.approved("P01")["who"]
     assert orch.command("unblock P01-T01") == ("P01-T01 is not blocked.", False)
     orch.state.set_task("P01-T01", status="blocked", attempts=3)
     assert orch.command("unblock P01-T01")[1] and orch.state.task("P01-T01")["status"] == "pending"

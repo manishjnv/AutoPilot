@@ -479,3 +479,12 @@ def test_key_and_credential_files_are_never_staged(repo):
         put(repo, name, "x\n")
     put(repo, "ok.txt", "x\n")
     assert g.staged_files() == ["ok.txt"]
+
+
+def test_approvals_folder_is_protected(repo):
+    put(repo, ".agent/approvals/x", "approved")
+    subprocess.run(["git", "add", "-f", ".agent/approvals/x"], cwd=repo, check=True)
+    cfg = Config.load(repo)
+    cfg.data["commands"]["test"] = [f'"{sys.executable}" -c "pass"']
+    task = SimpleNamespace(allow_no_changes=False, allow_test_changes=False, files_in_scope=[], verify=[])
+    assert any("protected" in m and "approvals" in m for m in task_gate(cfg, Git(repo), task).problems)

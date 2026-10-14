@@ -239,13 +239,31 @@ def test_approve_while_run_active_is_queued(tmp_path):
     assert not marker.exists()
     with exclusive_lock(root / ".agent" / "run.lock"):
         assert cli_main(["approve", "P01", "-C", str(root)]) == 0
-    assert (root / ".agent" / "approvals" / "P01").exists()
+    assert "cli" in orch.state.approved("P01")["who"]
+    assert not (root / ".agent" / "approvals").exists()
     assert not marker.exists()
     orch2 = orch_for(root)
     orch2.run()
     assert marker.read_text().split() == ["P01"]
     assert orch2.state.phase("P01")["prod_status"] == "deployed"
-    assert not (root / ".agent" / "approvals" / "P01").exists()
+
+
+def test_approval_file_migrated_once_and_later_files_ignored(tmp_path):
+    root = make_project(tmp_path, phases_basic(), {"deploy": {"prod": {"enabled": True, "cmd": "true", "auto": False}}})
+    orch = orch_for(root)
+    assert orch.run() == "app complete"
+    d = root / ".agent" / "approvals"
+    d.mkdir(parents=True)
+    (d / "P01").write_text("approved\n")
+    orch2 = orch_for(root)
+    orch2.reload_plan()
+    orch2.migrate_approvals()  # run start
+    assert orch2.state.approved("P01")["who"] == "migrated" and not (d / "P01").exists()
+    orch2.state.db.execute("DELETE FROM approvals")
+    (d / "P01").write_text("approved\n")  # a session writes it during the run: never read
+    orch2.process_approvals()
+    assert orch2.state.approved("P01") is None
+    assert orch2.state.phase("P01")["prod_status"] == "awaiting_approval"
 
 
 def test_session_budget_floor_removed(tmp_path):
