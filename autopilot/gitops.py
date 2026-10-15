@@ -32,7 +32,10 @@ class GitError(RuntimeError):
 
 
 class Git:
+    kept_branches: list  # W68: (branch, kept name) pairs since the last notice
+
     def __init__(self, root: Path):
+        self.kept_branches = []
         self.root = Path(root)
         self.new_tags: set[str] = set()   # pushed explicitly; tags an agent creates are never pushed
 
@@ -157,6 +160,7 @@ class Git:
     def start_branch(self, name: str, main: str) -> str:
         self.mark_untracked()  # W65: files the owner added since the last clean stay through this discard and the next
         self.checkout_main(main)
+        self.keep_foreign(name, main)  # W68: a commit someone else made on this branch survives under a new name
         self.discard()
         self.run("checkout", "-q", "-B", name, main)
         return self.head()
@@ -258,7 +262,25 @@ class Git:
         self.delete_branch(branch)
 
     def delete_branch(self, name: str):
+        if self.keep_foreign(name, self.branch()):  # the checked-out branch is its own ancestor: no rename
+            return  # W68: renamed, nothing to delete
         self.run("branch", "-q", "-D", name, check=False)
+
+    # ---------- W68: a commit someone else makes on an autopilot/* branch is never thrown away ----------
+    def keep_foreign(self, name: str, main: str) -> str:
+        """When branch `name` holds commits that main does not have, rename it to `<name>.kept-<sha7>` and record it
+        (`kept_branches`); returns the new name, else ''. Autopilot's own branches never hold unmerged commits at the
+        moments this runs (an attempt commits only at its merge), so such a commit is someone else's or a crash leftover."""
+        if main == "HEAD" or not self.ok("rev-parse", "--verify", "-q", f"refs/heads/{name}"):
+            return ""
+        if self.ok("merge-base", "--is-ancestor", name, main):
+            return ""
+        sha = self.run("rev-parse", "--short=7", name, check=False).strip()
+        kept = f"{name}.kept-{sha}"
+        self.run("branch", "-m", name, kept, check=False)
+        log.warning("kept a commit by someone else on %s as %s", name, kept)
+        self.kept_branches.append((name, kept))
+        return kept
 
     def reset_hard(self, ref: str):
         self.run("reset", "-q", "--hard", ref)

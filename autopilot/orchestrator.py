@@ -39,6 +39,7 @@ from .plan import Plan, PlanError, append_phase, clear_reopen_flags
 from .proc import exclusive_lock, run_proc, stop_when, tail_lines
 from .report import digest, open_window, token_footer, window_line
 from . import usage as usage_mod
+from . import gate as gate_mod
 from .schemas import REPORTS
 from .state import State, now
 from .dash_live import version_text
@@ -442,6 +443,26 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001
             log.warning("run journal failed: %s", exc)
 
+    def _kept_branches_notice(self):
+        """W68: one heal line per branch that held a commit Autopilot did not make (renamed by gitops, never reset)."""
+        for name, kept in self.git.kept_branches:
+            self.notify.send("heal", f"kept a commit by someone else on {name} as {kept}; merge or delete it by hand")
+        self.git.kept_branches.clear()
+
+    def _cmd_tick(self, cmd: str, elapsed: float, done: bool = False):
+        """W69: while a project command runs, the journal line grows an elapsed figure every 30 s (`· 13m of about
+        23m`, the estimate = the last duration of the same command); the end records that duration."""
+        if self.run_info.get("status") != "running":
+            return  # a finished run never writes its journal again
+        key = "cmd_secs:" + cmd[:80]
+        if done:
+            self.state.set_meta(key, int(elapsed))
+            return
+        est = self.state.get_meta(key)
+        about = f" of about {max(1, round(int(est) / 60))}m" if est else ""
+        base = re.sub(r" · \d+m( of about \d+m)?$", "", str(self.run_info.get("current") or "")) or f"runs {cmd[:50]}"
+        self._journal(current=f"{base} · {round(elapsed / 60)}m{about}", beat_at=now())
+
     def _wait_line(self, text: str):
         """W18a: name what the run waits for (a gate command, the start check), so the window never shows a silent wait."""
         self._journal(current=text, current_at=now())
@@ -697,6 +718,7 @@ class Orchestrator:
                       status="running", outcome="", word="", current="starting", first_session=self.first_session,
                       beat_at=now(), version=version_text())
         self._start_heartbeat()
+        gate_mod.TICK = self._cmd_tick  # W69: every project command reports its elapsed time to the journal
         self._prepare_repo()
         try:
             self.reload_plan()
@@ -758,6 +780,7 @@ class Orchestrator:
             if outcome == "interrupted" and not self.run_info.get("word"):  # P14: Ctrl+C is the owner ending the run
                 self._end_word(outcome, Stop(outcome, word="STOPPED"))
             self._beat_stop.set()
+            gate_mod.TICK = None  # W69: no ticks after the run
             self._journal(status="finished", outcome=outcome, current="", state="Done", task="", live_tokens=0)
             self.write_report()
         self.notify.send("run_done", f"{word} {outcome} — {progress_line(self.plan, self.state.status_map())}, "
@@ -771,7 +794,8 @@ class Orchestrator:
         if br.startswith(("autopilot/", "autodev/")):          # crashed mid-session: throw away ALL the partial work
             self.git.discard()
             self.git.checkout_main(self.main)
-            self.git.delete_branch(br)
+            self.git.delete_branch(br)  # W68: a branch with commits not in main is renamed, never deleted
+            self._kept_branches_notice()
         elif br != self.main:
             self.git.checkout_main(self.main)
         if not self.git.is_clean():
@@ -957,6 +981,16 @@ class Orchestrator:
                 self.deploy_prod(ph.id, row["prod_ref"])
 
     # ------------------------------------------------------------------ guards
+    def _stop_detail(self) -> str:
+        """W67: who stopped: the STOP file's first word and the time it was written, so a stop is never a mystery."""
+        try:
+            p = self.ad / "STOP"
+            word = (p.read_text(encoding="utf-8").splitlines() or [""])[0].strip()[:20]
+            when = dt.datetime.fromtimestamp(p.stat().st_mtime).strftime("%H:%M")
+        except (OSError, ValueError):
+            return ""
+        return f" ({word or 'stop'}, written {when})"
+
     def _owner_now(self) -> bool:
         """W39: the STOP file says `now` (`ap stop --now`, or a second `ap stop` within 60 s)."""
         try:
@@ -969,7 +1003,7 @@ class Orchestrator:
 
     def check_stop(self):
         if (self.ad / "STOP").exists():
-            raise Stop("stopped by .agent/STOP file", word="STOPPED")
+            raise Stop("stopped by .agent/STOP file" + self._stop_detail(), word="STOPPED")
         if self.max_sessions and self.sessions_this_run >= self.max_sessions:
             raise Stop(f"session limit reached ({self.max_sessions})")
         live = forecast.read_total(self.ad / "project.yaml")  # W43: `ap budget` changes this one key during a run
@@ -1539,6 +1573,7 @@ class Orchestrator:
             own_model, self.last_gate = "", last_error or ""  # N11: the last gate output goes into a handoff
             effort = self.cfg.get(f"models.effort.{risk}", "")
             base = self.git.head() if kept else self.git.start_branch(branch, self.main)
+            self._kept_branches_notice()  # W68
             res = None
             if chain and chain.session_id and model == chain_model:  # same model: continue that session, cache warm
                 res = self.session("task", self.ctx.resume_prompt(task, attempts + 1, last_error, kept), model,
@@ -1839,12 +1874,13 @@ class Orchestrator:
 
     def unstick(self, task, phase, error: str) -> tuple[str, str, dict]:
         """One read-only diagnosis session. -> (technical|spec|owner|skip, guidance text, report)."""
-        self.git.start_branch("autopilot/unstick", self.main)
+        base = self.git.start_branch("autopilot/unstick", self.main)
         try:
             res = self.session("unstick", self.ctx.unstick_prompt(task, error), self.cfg.get("models.unstick", "sonnet"),
                                task_id=task.id, phase=phase.id, read_only=True)
         finally:  # read-only: drop anything it touched
             self.git.discard()
+            self.git.normalize_after_session("autopilot/unstick", base)  # W68
             self.git.checkout_main(self.main)
             self.git.delete_branch("autopilot/unstick")
         if res.rate_limited:
@@ -1905,11 +1941,12 @@ class Orchestrator:
         """A read-only session on a throwaway branch (anything it touches is dropped), retried after a usage limit."""
         branch = f"autopilot/{kind}"
         while True:
-            self.git.start_branch(branch, self.main)
+            base = self.git.start_branch(branch, self.main)
             try:
                 res = self.session(kind, prompt, model, read_only=True, **kw)
             finally:
                 self.git.discard()
+                self.git.normalize_after_session(branch, base)  # W68: the session's own commits go; a foreign one would stay
                 self.git.checkout_main(self.main)
                 self.git.delete_branch(branch)
             if not res.rate_limited:  # session() already waited out the limit
@@ -2948,13 +2985,14 @@ class Orchestrator:
     def audit(self, kind: str, phase_id: str | None = None) -> dict | None:
         """Read-only review of the whole implementation; actionable gaps become a priority FIX phase."""
         max_new = int(self.cfg.get("audit.max_new_tasks", 15))
-        self.git.start_branch("autopilot/audit", self.main)
+        base = self.git.start_branch("autopilot/audit", self.main)
         try:
             res = self.session("audit", self.ctx.auditor_prompt(kind, max_new, self.gate_output()),
                                self.cfg.get("models.auditor", "opus"), phase=phase_id, read_only=True,
                                label=f"audit {kind}", timeout_sec=self.audit_timeout())
         finally:  # read-only: drop anything it touched
             self.git.discard()
+            self.git.normalize_after_session("autopilot/audit", base)  # W68: its own commits go, a foreign one stays
             self.git.checkout_main(self.main)
             self.git.delete_branch("autopilot/audit")
         if res.timed_out and res.text.strip():  # W30b: keep what it wrote; the notes go to the owner, the run goes on
@@ -3028,7 +3066,7 @@ class Orchestrator:
         """Let a session rewrite the remaining plan + BRAIN.md; validated before it is accepted."""
         plan_path, brain_path = self.ad / "plan.yaml", self.ad / "BRAIN.md"
         before_plan = plan_path.read_text(encoding="utf-8")
-        self.git.start_branch("autopilot/replan", self.main)
+        base = self.git.start_branch("autopilot/replan", self.main)
         try:
             lb = self.cfg.get("escalate.load_bearing") or []
             status = self.state.status_map()
@@ -3040,6 +3078,7 @@ class Orchestrator:
             new_brain = brain_path.read_text(encoding="utf-8") if brain_path.exists() else None
         finally:  # drop everything, then re-apply only the two allowed files on main
             self.git.discard()
+            self.git.normalize_after_session("autopilot/replan", base)  # W68
             self.git.checkout_main(self.main)
             self.git.delete_branch("autopilot/replan")
         if not res.ok:

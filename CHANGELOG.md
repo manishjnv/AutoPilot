@@ -9,6 +9,13 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+**In plain words:** three fixes from the first run on a half-built project. A leftover stop file is named, not obeyed. A commit by someone else on an Autopilot branch is kept. A long test run shows its elapsed time.
+
+- A stop file left by an earlier run no longer ends a fresh run; the start names it and how to clear it.
+- The stop line now says which word the stop file holds and when it was written.
+- A commit someone else makes on an Autopilot branch during a run is kept under a new branch name, never reset away.
+- A long project command, such as the full test run, shows its elapsed time and an estimate on every screen.
+
 ## [0.9.0] - 2026-10-15
 
 **In plain words:** this version closes the findings of the 2026-10-14 security review. It spends every usage bar and credit you have. A project you already started is read first, your files stay, and one git command undoes all its work. Autopilot stays unattended: no prompt and no question. The documents explain the admin right in plain words, and the code validates everything the model writes.

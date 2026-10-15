@@ -51,7 +51,7 @@ Each long entry has a short sentence here and the full text under [Command detai
 | `autopilot doctor [--fix] [--runner] [--project] [--json]` | Checks the computer, the runner, or the project folder, as one checklist with the same exit codes. [Details](#command-details) |
 | `autopilot run` (and `start`, `quickstart`) preflight | Before the first session, installs the missing project dependencies with `commands.setup`. [Details](#command-details) |
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
-| `autopilot run` | Builds until the completion audit passes. It refuses the empty template plan with one line that names `ap` and `ap onboard` |
+| `autopilot run` | Builds until the completion audit passes. It refuses the empty template plan, and a STOP file from an earlier run, each with one line |
 | `autopilot start` | Starts or continues the build in the background. It is the same as `run --clear-stop --detach` |
 | `autopilot watch` | Follows a run live, with a dashboard in a large window and a scrolling view in a small one. [Details](#command-details) |
 | `autopilot watch --scroll` | Shows the scrolling view in plain words, also in a large window |

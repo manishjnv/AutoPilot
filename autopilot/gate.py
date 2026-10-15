@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -111,12 +112,32 @@ def check_env(cfg) -> dict:
     return command_env(agent_env(cfg), [*(cfg.get("agent.env", {}) or {}), *(cfg.get("agent.env_passthrough", []) or [])])
 
 
+TICK = None  # W69: callable(cmd, elapsed_seconds, done) while a project command runs; the orchestrator sets it
+TICK_EVERY = 30.0
+
+
+def _ticking(cmd: str, t0: float):
+    """W69: a daemon thread that calls TICK every TICK_EVERY seconds until the returned event is set."""
+    stop = threading.Event()
+
+    def beat():
+        while not stop.wait(TICK_EVERY):
+            try:
+                TICK(cmd, time.monotonic() - t0)
+            except Exception:  # noqa: BLE001 — a journal fault never fails a command
+                pass
+    if TICK:
+        threading.Thread(target=beat, daemon=True, name="autopilot-cmd-tick").start()
+    return stop
+
+
 def run_commands(cmds: list[str], cwd: Path, timeout: int, env: dict | None = None,
                  stop_on_fail: bool = True, base_env: dict | None = None) -> list[CmdResult]:
     results = []
     full_env = with_tool_dirs({**(base_env if base_env is not None else command_env()), **(env or {})})
     for cmd in cmds:
         t0 = time.monotonic()
+        tick = _ticking(cmd, t0)
         try:
             p = run_proc(cmd, shell=True, cwd=cwd, env=full_env, timeout=timeout)
             out, rc = (p.stdout + "\n" + p.stderr).strip(), p.rc
@@ -124,7 +145,14 @@ def run_commands(cmds: list[str], cwd: Path, timeout: int, env: dict | None = No
                 out, rc = f"TIMEOUT after {timeout}s\n{out}", 124
         except OSError as e:
             out, rc = str(e), 127
+        finally:
+            tick.set()
         results.append(CmdResult(cmd, rc, out[-4000:], round(time.monotonic() - t0, 1)))
+        if TICK:
+            try:
+                TICK(cmd, time.monotonic() - t0, True)
+            except Exception:  # noqa: BLE001
+                pass
         if rc != 0 and stop_on_fail:
             break
     return results

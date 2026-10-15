@@ -191,6 +191,8 @@ What this means for you:
 - Autopilot writes no new plan file and no notes file. `BRAIN.md` links to your documents.
 - Your file names stay as they are.
 - `ap init`, `ap run` and `ap start` in a folder with code read the project first. The empty template plan cannot run.
+- Run one Claude Code session per checkout while Autopilot works. A commit from another session on its branch is
+  kept as `<branch>.kept-<sha>`.
 - The tag `autopilot/baseline` marks the project before the first run. `git reset --hard autopilot/baseline` undoes
   all work of Autopilot. Ignored files such as `.env` stay outside it.
 - On Mercurial, Subversion, Perforce or Jujutsu, the undo history lives in `.git`. Add `.git` and `.agent` to the
@@ -673,8 +675,7 @@ step starts. A second run is safe: the script skips a program that is already th
    `-SkipLogin`, `-Runner NAME`, `-Yes`). `--runner` answers the one question in advance.
 5. Run `ap`. If the terminal does not find it, open a new terminal.
 
-Run the script with `bash`, not `sh`: it uses bash features, such as `set -o pipefail`, that `sh` on Debian and
-Ubuntu does not have. The one-line form in the [README](README.md#install) uses `bash` for this reason. Under Git Bash
+Run the script with `bash`, not `sh`. Under Git Bash
 the script hands over to `install.ps1`, because the Windows `curl` cannot run the Linux installers.
 
 | Fact | Detail |

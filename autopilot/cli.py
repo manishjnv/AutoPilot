@@ -50,6 +50,16 @@ def detect_stack(root: Path) -> str:
 
 
 # ---------------------------------------------------------------- commands
+def stale_stop_line(stop: Path) -> str:
+    """W67: one line that names the STOP file and the two ways to clear it."""
+    import datetime as _dt
+    try:
+        when = _dt.datetime.fromtimestamp(stop.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+    except OSError:
+        when = "an earlier run"
+    return f"a STOP file from {when} is present: ap start clears it, or ap run --clear-stop"
+
+
 def template_plan(root: Path) -> bool:
     """W65: plan.yaml is missing or still the untouched template (the template's goal, or its task ids and titles)."""
     p = root / AGENT_DIR / "plan.yaml"
@@ -871,6 +881,9 @@ def cmd_run(args):
     stop = root / AGENT_DIR / "STOP"
     if stop.exists() and args.clear_stop:
         stop.unlink()
+    elif stop.exists():  # W67: a STOP file from an earlier run never ends a fresh run after its first step
+        print(stale_stop_line(stop))
+        return 2
     if run_active(root):  # a second `autopilot run` while one is going: show that run instead of failing
         print("a run is already active for this project; following it (Ctrl+C stops watching, not the run)\n")
         return cmd_watch(argparse.Namespace(path=str(root), lines=20))

@@ -49,7 +49,7 @@ def test_the_stop_file_ends_a_heal_wait(tmp_path):
     def sleep(_):
         (root / ".agent" / "STOP").write_text("stop")
     orch = Orchestrator(root, backend=Outage("network", 99), sleep=sleep)
-    assert orch.run() == "stopped by .agent/STOP file"
+    assert orch.run().startswith("stopped by .agent/STOP file")  # W67: the line adds the word and the time
 
 
 def test_a_broken_plan_is_restored_from_git(tmp_path):
