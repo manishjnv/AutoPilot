@@ -23,7 +23,8 @@ FILTER_RX = r"^filter\..+\.(clean|smudge|process)$"
 JUNK = ["__pycache__/", "*.py[cod]", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", "*.egg-info/",
         "node_modules/", ".next/", ".turbo/", ".DS_Store", "*.swp", ".coverage", "coverage/", "htmlcov/",
         ".venv/", "venv/", ".env", ".env.*", "!.env.example", "target/debug/", "target/release/",
-        "*.pem", "id_rsa*", "id_ed25519*", ".npmrc", "credentials.json", "*.key", "*.p12", "*.pfx"]
+        "*.pem", "id_rsa*", "id_ed25519*", ".npmrc", "credentials.json", "*.key", "*.p12", "*.pfx",
+        ".agent/run.json*", ".agent/*.tmp"]  # the journal and its tmp file: `add -A` must never race the writer
 
 
 class GitError(RuntimeError):

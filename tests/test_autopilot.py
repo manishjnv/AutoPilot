@@ -353,3 +353,13 @@ def test_claude_bin_falls_back_to_old_env(tmp_path, monkeypatch):
     monkeypatch.delenv("AUTOPILOT_CLAUDE_BIN", raising=False)
     monkeypatch.setenv("AUTODEV_CLAUDE_BIN", "/old/claude")
     assert ClaudeCLIBackend(Config.load(tmp_path)).binary == "/old/claude"
+
+
+def test_ensure_repo_excludes_the_journal_and_its_tmp_file(tmp_path):
+    """CI flake 2026-10-15: `git add -A` raced the run.json.tmp rename on Windows; the exclude file keeps both out."""
+    from autopilot.gitops import Git
+    root = tmp_path / "p"
+    root.mkdir()
+    Git(root).ensure_repo("main")
+    text = (root / ".git" / "info" / "exclude").read_text(encoding="utf-8")
+    assert ".agent/run.json*" in text and ".agent/*.tmp" in text
