@@ -26,6 +26,9 @@ from .plan import Plan, PlanError, independent_groups
 from .proc import exclusive_lock
 
 AGENT_FILES = ["project.yaml", "plan.yaml", "BRAIN.md", "DECISIONS.md", "HANDOFF.md"]
+ADOPT_LINE = "type ap to read this project and make its plan, or ap onboard --plan-doc <file>"  # W65
+TEMPLATE_LINE = "the plan is the empty template: " + ADOPT_LINE
+NO_PROJECT_LINE = "code found and no Autopilot project here: " + ADOPT_LINE
 
 
 def setup_logging(root: Path, verbose: bool):
@@ -47,12 +50,29 @@ def detect_stack(root: Path) -> str:
 
 
 # ---------------------------------------------------------------- commands
+def template_plan(root: Path) -> bool:
+    """W65: plan.yaml is missing or still the untouched template (the template's goal, or its task ids and titles)."""
+    p = root / AGENT_DIR / "plan.yaml"
+    if not p.is_file():
+        return True
+    try:
+        plan, tpl = load_yaml(p), load_yaml(TEMPLATES / "agent" / "plan.yaml")
+    except (OSError, yaml.YAMLError):
+        return False  # a broken plan is validate's business, not this check's
+
+    def tasks(d):
+        return [(t.get("id"), t.get("title")) for ph in (d.get("phases") or []) if isinstance(ph, dict)
+                for t in (ph.get("tasks") or []) if isinstance(t, dict)]
+    return str(plan.get("goal") or "").strip() == str(tpl.get("goal") or "").strip() or tasks(plan) == tasks(tpl)
+
+
 def cmd_init(args):
     root = Path(args.path).resolve()
     ad = root / AGENT_DIR
     ad.mkdir(parents=True, exist_ok=True)
     register_project(root)
     stack = args.stack or detect_stack(root)
+    adopt = folder_case(root) == "code" and not idea_file(root)  # W65: code here: say so; the template plan cannot run
     for name in AGENT_FILES:
         dst = ad / name
         if dst.exists() and not args.force:
@@ -103,7 +123,8 @@ def cmd_init(args):
         print(f"create   {AGENT_DIR}/quality_baseline.json ({write_baseline(root)} files)")
     print(f"\nstack: {stack}")
     if not getattr(args, "quiet", False):  # quickstart does these steps itself
-        print("next:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
+        print(("next:  " + ADOPT_LINE) if adopt else
+              "next:  autopilot onboard --plan-doc <your plan.md>   (or edit .agent/plan.yaml)\n"
               "       autopilot validate && autopilot run")
 
 
@@ -843,6 +864,9 @@ def cmd_run(args):
     from .orchestrator import Orchestrator, run_supervised
 
     root = Path(args.path).resolve()
+    if not (root / AGENT_DIR / "project.yaml").exists():  # W65: nothing below can work without a project
+        print(NO_PROJECT_LINE)
+        return 2
     setup_logging(root, args.verbose)
     stop = root / AGENT_DIR / "STOP"
     if stop.exists() and args.clear_stop:
@@ -854,6 +878,9 @@ def cmd_run(args):
         return 1
     if cmd_preflight(args):  # missing or broken credentials: stop before any work
         return 1
+    if template_plan(root):  # W65: the empty template never runs (after the login check: H2 names the login first)
+        print(TEMPLATE_LINE)
+        return 2
     url = "" if getattr(args, "no_page", False) else start_status_page(root)
     if url and not getattr(args, "no_browser", False) and not os.environ.get("AUTOPILOT_NO_BROWSER"):
         open_page_once(root, url)
@@ -908,6 +935,8 @@ def cmd_status(args):
     from .plain import colors_on
     from .dash_live import version_text
     print(version_text())  # W18a: the first line says which Autopilot answers
+    if template_plan(Path(args.path).resolve()):  # W65
+        print(TEMPLATE_LINE + "\n")
     print(dead_red(status_line(cfg, plan, state, run_journal(cfg.root),
                                shutil.get_terminal_size().columns - 1 if sys.stdout.isatty() else None),
                    colors_on(sys.stdout)) + "\n")
@@ -1388,6 +1417,9 @@ def cmd_doctor(args):
 
 
 def cmd_next(args):
+    if template_plan(Path(args.path).resolve()):  # W65
+        print(TEMPLATE_LINE)
+        return 2
     cfg, plan, state = _open_state(Path(args.path).resolve())
     status = dict(state.status_map())
     policy = cfg.get("scheduling.phase_dependency", "soft")
@@ -2061,6 +2093,12 @@ def main(argv=None):
     if args.path is None:  # J2: no -C
         if args.cmd in NEW_PROJECT or (Path.cwd() / AGENT_DIR / "project.yaml").exists():
             found = "."
+        elif args.cmd in ("run", "start") and folder_case(Path.cwd()) == "code" and not idea_file(Path.cwd()):
+            # W65: code here and no project: read it first; never the last project used, never the template
+            if sys.stdin.isatty() and sys.stdout.isatty() and (rc := adopt_start(Path.cwd().resolve())) >= 0:
+                return rc
+            print(NO_PROJECT_LINE)
+            return 2
         else:
             try:
                 found = pick_project("spend" if args.cmd in SPENDING else "read", getattr(args, "yes", False))
@@ -2076,6 +2114,9 @@ def main(argv=None):
         from .commands.audit import cmd_ladder
         return cmd_ladder(args)
     if getattr(args, "detach", False):
+        if args.cmd in ("run", "start") and template_plan(Path(args.path).resolve()):  # W65: before the detach
+            print(TEMPLATE_LINE)
+            return 2
         return start_detached(Path(args.path).resolve(), [a for a in (argv or sys.argv[1:]) if a != "--detach"])
     from .upgrade import auto_update, update_before_run  # T2: after the command, once a day, never during a run
 

@@ -51,7 +51,7 @@ Each long entry has a short sentence here and the full text under [Command detai
 | `autopilot doctor [--fix] [--runner] [--project] [--json]` | Checks the computer, the runner, or the project folder, as one checklist with the same exit codes. [Details](#command-details) |
 | `autopilot run` (and `start`, `quickstart`) preflight | Before the first session, installs the missing project dependencies with `commands.setup`. [Details](#command-details) |
 | `autopilot next [-n 15]` | Shows the next tasks in order, with their models |
-| `autopilot run` | Builds until the completion audit passes |
+| `autopilot run` | Builds until the completion audit passes. It refuses the empty template plan with one line that names `ap` and `ap onboard` |
 | `autopilot start` | Starts or continues the build in the background. It is the same as `run --clear-stop --detach` |
 | `autopilot watch` | Follows a run live, with a dashboard in a large window and a scrolling view in a small one. [Details](#command-details) |
 | `autopilot watch --scroll` | Shows the scrolling view in plain words, also in a large window |
@@ -244,7 +244,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 | Section | Controls | Important keys (default) |
 |---|---|---|
 | `commands` | The commands that the checks run | `setup`, `build`, `lint`, `typecheck`, `test`, `phase_verify`, `smoke` |
-| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (`true` in new projects), `scope_always`, `tests` (`changed`). [Details](#setting-details) |
+| `gate` | The checks | `test_globs`, `ci_files`, `protected`, `new_file_reasons` (`true` in new projects), `delete_reasons` (`true`), `scope_always`, `tests` (`changed`). [Details](#setting-details) |
 | `context` | The task prompt | `scope_chars` (60000, W27): the most characters of the scoped-files block in the task prompt. [Details](#setting-details) |
 | `agent` | The agent CLI | `backend` (unset = preflight detects the CLI, see below; else `claude_cli`), `preset`, `max_turns` (200), `session_timeout_sec` (3600), `env` (variables for the session, for example `CLAUDE_CONFIG_DIR`), `fallback` (default empty; see below), `user_config` (false) |
 | `onboard` | The discovery pack of the `onboard` session | `test_timeout_sec` (300): time limit for the one test run that the pack records |
@@ -273,7 +273,7 @@ All settings are in `.agent/project.yaml`. The template has a comment for each s
 
 ### Setting details
 
-**`gate`.** `new_file_reasons` is `true` in new projects and off when the key is missing. `scope_always` lists the docs a task may change outside its scope, with no scope addition and no warning; the default is `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md`, `README.md`. `tests` says which tests the gate runs per task: `changed` (the default) or `full`; the phase close always runs the full command. A value other than these two is an error. Exception (W45): a change in `autopilot/templates/`, `autopilot/prompts/`, `autopilot/config.py` or `autopilot/schemas.py` runs the full test command. A change to `README.md`, `HOWTO.md`, `REFERENCE.md`, `GUIDE.md` or `ARCHITECTURE.md` adds each test file that names that doc. The review session reads the gate output and does not run tests.
+**`gate`.** `new_file_reasons` is `true` in new projects and off when the key is missing. `scope_always` lists the docs a task may change outside its scope, with no scope addition and no warning; the default is `REFERENCE.md`, `CHANGELOG.md`, `HOWTO.md`, `README.md`. `tests` says which tests the gate runs per task: `changed` (the default) or `full`; the phase close always runs the full command. A value other than these two is an error. Exception (W45): a change in `autopilot/templates/`, `autopilot/prompts/`, `autopilot/config.py` or `autopilot/schemas.py` runs the full test command. A change to `README.md`, `HOWTO.md`, `REFERENCE.md`, `GUIDE.md` or `ARCHITECTURE.md` adds each test file that names that doc. The review session reads the gate output and does not run tests. `delete_reasons` is `true` unless the key says `false`: a deleted non-test file needs a reason in the report field `deleted_files`.
 
 **`context`.** `scope_chars` caps the `## Files in scope (current content)` block. It holds the text of each file that `files_in_scope` names exactly, in list order. A missing file is `(new file)`; the block expands no globs and leaves out the `gate.scope_always` docs. A file that does not fit gives its first 80 lines and its `def` / `class` lines with line numbers.
 
@@ -424,6 +424,7 @@ The gate runs these guards on each task before the checks. A guard that finds a 
 | Same failure twice | A retry that fails the gate on the same first failing line as the attempt before, with no larger diff, parks the task (W61). The note says `NOT PROVEN: same failure twice`, and no stronger model runs |
 | `failing_before` | A task report that lists tests as failing before its change, checked against the test result of main. [Details](#guard-details) |
 | New file | An added file with no reason in the report field `new_files`, when `gate.new_file_reasons` is `true`. [Details](#guard-details) |
+| Deleted file | A deleted file with no reason in the report field `deleted_files`, unless `gate.delete_reasons` is `false`. [Details](#guard-details) |
 
 ### Guard details
 
@@ -434,6 +435,8 @@ The gate runs these guards on each task before the checks. A guard that finds a 
 **`failing_before`.** Autopilot looks up each name in main's test result (the same once-per-commit result as in Red main). A name that passes on main fails the attempt with `failing_before lists tests that pass on main: <names>`. A name that fails on main, on a normal task, puts the task back to pending without counting the attempt. Autopilot checks and repairs main first. A fix task, or a project with no finished task yet, continues.
 
 **New file.** Test files (`gate.test_globs`) and files in `.agent/` need no reason. A move or a rename needs no reason. The problem quotes the rule, and the retry prompt gets it. `gate.new_file_reasons` is `true` in new projects and off when the key is missing.
+
+**Deleted file.** Test files and files in `.agent/` need no reason. A move or a rename needs no reason. A contract page in `features/` follows the contract rule instead. The problem quotes the rule, and the retry prompt gets it. `gate.delete_reasons` is `true` unless the key says `false`.
 
 **Kept diff after a scope or test failure.** An attempt can fail the gate only on `outside files_in_scope` or `scope_additions` lines, or only on a failed test command. Then Autopilot keeps the branch and its changes. The retry prompt says "The diff is kept." It asks the session to add the scope reasons or fix the failing tests, not to start over. Some failures still reset the code to the state before the attempt. They are: a protected-file change, a secret, a kill by name, a test-tamper finding, a review finding. So do a timed-out or stuck session, an escalation to a stronger model, an unstick session, and a park.
 

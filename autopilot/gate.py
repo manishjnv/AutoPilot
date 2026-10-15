@@ -55,6 +55,9 @@ FAKE_SECRET_RULE = ("A fake secret in a test is built from pieces (`'sk-' + 'a' 
 # (only with `gate.new_file_reasons: true`)
 NEW_FILE_RULE = ("Edit the file that owns the content; a move or rename is allowed. A new file (test files excepted) "
                  "needs a reason: list each one with its reason in the report field `new_files`.")
+DELETE_RULE = ("A deleted file (test files excepted; a move or rename is allowed) needs a reason: list each one with "
+               "its reason in the report field `deleted_files`.")  # W65
+CONTRACT_PAGES = ["features/*.md"]
 SETTINGS_FILES = {"pyproject.toml", "setup.cfg", "package.json", "tox.ini", "pytest.ini"}
 SETTINGS_REMOVED_RX = re.compile(r'addopts|testpaths|python_files|"test"\s*:|testMatch|testPathIgnorePatterns')
 SETTINGS_ADDED_RX = re.compile(r"--ignore|--deselect|(^|\s)-k\s|testPathIgnorePatterns|modulePathIgnorePatterns|"
@@ -318,6 +321,21 @@ CODE_EXT = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".go", ".rs", "
 GROWTH_LINES, GROWTH_PCT = 400, 25  # O2: a file may not grow past 400 lines or 25 percent in one task, the larger
 
 
+def missing_delete_reasons(cfg, git, report) -> list[str]:
+    """W65: files deleted in the staged diff (test files, .agent/ and renames excepted) need a `deleted_files` reason."""
+    tests = cfg.get("gate.test_globs") or TEST_GLOBS
+    gone = git.run("-c", "core.quotepath=false", "diff", "--cached", "--name-only", "--diff-filter=D", "-M").splitlines()
+    entries = report.get("deleted_files") if isinstance(report, dict) else None
+    reasons = {_norm(e["path"]) for e in (entries if isinstance(entries, list) else [])
+               if isinstance(e, dict) and str(e.get("path") or "").strip() and str(e.get("reason") or "").strip()}
+    bare = [p for p in gone if p and not _match(p, tests) and not p.startswith(".agent/") and _norm(p) not in reasons
+            and not _match(p, CONTRACT_PAGES)]  # a contract page has its own rule (W36: `changed` with a why)
+    if not bare:
+        return []
+    paths = ", ".join(bare[:20]) + (f", and {len(bare) - 20} more" if len(bare) > 20 else "")
+    return [f"deleted file without a reason: {paths}. {DELETE_RULE}"]  # the rule last: the retry keeps the tail
+
+
 def missing_reasons(cfg, git, report, task=None) -> list[str]:
     """N7: files added in the staged diff (test files, .agent/ and renames excepted) need a `new_files` reason.
     O3: files the task declares under `new_files` pass; a manifest change needs `new_deps` on the task or in the report."""
@@ -425,6 +443,8 @@ def task_gate(cfg, git, task, report=None, attempt: int = 1, log_path=None) -> G
                       for c in kill_commands(log_text)]
     if report is not None and cfg.get("gate.new_file_reasons"):  # N7: P07-T02; None = old callers, no check
         gate.problems += missing_reasons(cfg, git, report, task)  # O3: task-declared files and dependencies
+    if report is not None and cfg.get("gate.delete_reasons", True):  # W65: on unless the key says false
+        gate.problems += missing_delete_reasons(cfg, git, report)
     if cfg.get("gate.file_growth"):  # O2: on in the template (new projects); a missing key = off
         gate.problems += file_growth(cfg, git)
     if cfg.get("gate.layers", True):  # O4: the ```layers block in BRAIN.md is the real switch; no block = no check

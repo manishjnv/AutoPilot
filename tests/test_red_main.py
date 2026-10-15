@@ -98,6 +98,7 @@ class Lists(FakeBackend):
         res = super().run(req)
         if "implement task P01-T02" in req.prompt and res.report:
             res.report["failing_before"] = self.names
+            res.report["deleted_files"] = [{"path": "BROKEN", "reason": "the breakage file"}]  # W65
             (Path(req.cwd) / "BROKEN").unlink(missing_ok=True)  # the change makes the checks pass; main stays red
         return res
 

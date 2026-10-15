@@ -59,7 +59,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
 
 ## Final report (required, last thing in your reply)
 `rca` is only for corrective tasks; leave it out otherwise.
-`new_files` lists each new non-test file with its reason; leave it out when you added none.
+`new_files` lists each new non-test file with its reason; leave it out when you added none. `deleted_files` lists each deleted non-test file with its reason; leave it out when you deleted none.
 `contracts` names each feature contract shown above: `kept`, or `changed` with a `why`. The gate fails a removed test, fewer tests in a file, or a deleted page of a contract unless its entry says `changed` with a reason. An edited `features/<id>.md` needs a new dated line under `## Changes`.
 ```json
 {
@@ -71,6 +71,7 @@ Reuse or extend a listed helper before you write a new one. A new helper with th
   "decisions": ["decision — reason (only architecture/interface/convention choices later sessions must follow)"],
   "followups": ["work you noticed that is out of scope for this task"],
   "new_files": [{"path": "src/new_module.py", "reason": "why no existing file can own this content"}],
+  "deleted_files": [{"path": "src/old_module.py", "reason": "why the file is no longer needed"}],
   "scope_additions": {"src/other.py": "why this file outside the task scope had to change (omit when none)"},
   "new_deps": [{"name": "package", "reason": "why no installed dependency does this (omit when none)"}],
   "failing_before": ["path::test_name (omit when none)"],

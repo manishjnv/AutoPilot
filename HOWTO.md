@@ -190,6 +190,11 @@ What this means for you:
 - Work that exists in the code or in the git log stays done. Autopilot does not redo it.
 - Autopilot writes no new plan file and no notes file. `BRAIN.md` links to your documents.
 - Your file names stay as they are.
+- `ap init`, `ap run` and `ap start` in a folder with code read the project first. The empty template plan cannot run.
+- The tag `autopilot/baseline` marks the project before the first run. `git reset --hard autopilot/baseline` undoes
+  all work of Autopilot. Ignored files such as `.env` are outside this undo point.
+- On Mercurial, Subversion, Perforce or Jujutsu, the undo history lives in `.git`. Add `.git` and `.agent` to the
+  ignore file of your tool.
 
 `ap` reads the git log, the README, `PLAN`, `ROADMAP`, `TODO` and `NOTES` files, `docs/`, `.kiro/`, `.cursor/` and
 `.github/`.
@@ -202,10 +207,8 @@ What this means for you:
    ap quickstart --plan-doc ROADMAP.md
    ```
 
-   Plain `ap quickstart` finds the plan by content: the file with the most checkboxes, numbered steps and
-   phase headings wins, and it prints `plan found: <file> (why)`. When two files are close, it asks which one.
-   If you have no plan document, use `ap onboard` and then `ap doctor`. The onboard session reads the
-   repository and the README, and then writes a plan.
+   Plain `ap quickstart` finds the plan by content and prints `plan found: <file> (why)`. With no plan
+   document, `ap onboard` reads the repository and writes one.
 2. Show the tasks in order, and read `.agent/plan.yaml` and `.agent/BRAIN.md`:
 
    ```powershell
@@ -641,8 +644,7 @@ chat. Stop it with `ap stop -C "<folder>"`.
 
 The script installs uv, Python and Autopilot for your user, then it runs `ap setup`. That command finds the AI you pay
 for, asks one question when it cannot tell, installs that one CLI, and checks its login. It shows each step before the
-step starts. A second run is safe: the script skips a program that is already there. The output of each tool goes to
-`~/.autopilot/install.log`; the screen shows one sentence and one command when a step fails.
+step starts. A second run is safe: the script skips a program that is already there.
 
 > [!WARNING]
 > Compare the checksum before you run the script. The script downloads and runs the installer of uv, and `ap setup`
@@ -658,7 +660,6 @@ step starts. A second run is safe: the script skips a program that is already th
    | Linux, WSL | `sha256sum install.sh` |
    | macOS | `shasum -a 256 install.sh` |
 
-   A file from a checkout at a different commit hashes differently: the sums match only the files of that release.
 3. To see the steps with no change to your computer, do a dry run:
 
    | System | Command |

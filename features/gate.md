@@ -25,6 +25,9 @@ close. Python decides; the agent's report never overrides a guard.
   finding, a review finding, a timed-out or stuck session, an escalation, an unstick session and a park still reset
   the code to the state before the attempt.
 - Secret findings are redacted in the report; a finding's hint appears once however many findings there are.
+- W65: a deleted non-test file outside `.agent/` and `features/` needs a reason in the report field `deleted_files` (renames
+  excepted; `gate.delete_reasons: false` turns it off). The clean after a failed attempt or a review keeps the
+  files that were untracked before the session started.
 
 ## Files
 
@@ -34,6 +37,8 @@ close. Python decides; the agent's report never overrides a guard.
 ## Tests that guard it
 
 - `tests/test_gate.py::test_clean_and_additions_not_flagged`
+- `tests/test_w65.py::test_deleted_file_needs_a_reason`
+- `tests/test_w65.py::test_discard_keeps_the_owners_files`
 - `tests/test_gate.py::test_deleted_test_file`
 - `tests/test_gate.py::test_renamed_to_non_test`
 - `tests/test_gate.py::test_count_drop`
@@ -59,3 +64,4 @@ close. Python decides; the agent's report never overrides a guard.
 ## Changes
 
 - 2026-10-14: first contract, written from the code and the tests (W36).
+- 2026-10-15: W65 adds the deleted-file reason and the owner-file keep on the clean (`tests/test_w65.py`).

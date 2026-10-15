@@ -768,7 +768,7 @@ class Orchestrator:
     def _prepare_repo(self):
         self.git.ensure_repo(self.main)
         br = self.git.branch()
-        if br.startswith(("autopilot/", "autodev/")):          # crashed mid-session: throw away the partial work
+        if br.startswith(("autopilot/", "autodev/")):          # crashed mid-session: throw away ALL the partial work
             self.git.discard()
             self.git.checkout_main(self.main)
             self.git.delete_branch(br)
@@ -1749,6 +1749,7 @@ class Orchestrator:
             return Review("", [], "")
         key = f"review_list:{task.id}"
         listed = [str(f) for f in (self.state.get_meta(key, []) or [])]
+        self.git.mark_untracked()  # W65: the owner's untracked files survive the clean after the review
         # internal snapshot, removed below: no project hooks (a failing hook here would stop the whole run)
         self.git.run("commit", "-q", "--no-verify", "-m", f"[autopilot] review snapshot {task.id}")
         sha = self.git.head()
@@ -1763,7 +1764,7 @@ class Orchestrator:
                                        effort=self.tier_value("review.effort", tier, "high"))
                 finally:  # read-only: drop what it touched (even its git moves), keep the work on the snapshot
                     self.git.run("checkout", "-q", "-f", "-B", branch, sha)
-                    self.git.run("clean", "-q", "-ffd")  # -ff: also nested repos it made (git init / clone)
+                    self.git.clean("-ffd")  # -ff: also nested repos it made (git init / clone); W65: owner files stay
                 if not res.rate_limited:  # session() already waited out the limit
                     break
             rep = res.report if res.ok and isinstance(res.report, dict) else {}

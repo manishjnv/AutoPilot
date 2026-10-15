@@ -9,7 +9,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
-**In plain words:** this version closes the findings of the 2026-10-14 security review. Autopilot stays unattended: no prompt and no question. The documents explain the admin right in plain words, and the code validates everything the model writes.
+**In plain words:** this version closes the findings of the 2026-10-14 security review. It spends every usage bar and credit you have. A project you already started is read first, your files stay, and one git command undoes all its work. Autopilot stays unattended: no prompt and no question. The documents explain the admin right in plain words, and the code validates everything the model writes.
 
 - A new page, COMPARE.md, explains why Autopilot helps even when you already write skills for the model.
 - A production approval is now recorded with who gave it and when, and a coding session cannot approve its own deploy.
@@ -28,6 +28,10 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - The plugin stop check no longer runs commands in folders that Autopilot did not set up on this computer.
 - A task or phase name with unsafe characters is now refused, so it cannot delete a folder outside the build area.
 - Test and deploy commands no longer receive your login, token or alert variables unless a step asks for them.
+- A folder with code is read first: the empty template plan cannot run, and the start commands adopt the project instead.
+- A tag marks the project before the first run, so one git command undoes everything Autopilot did.
+- A deleted file needs a reason in the report, and a failed attempt keeps the files you added during the run.
+- A project on Mercurial, Subversion, Perforce or Jujutsu gets one line that says where the undo history lives.
 - A staged file with shell characters in its name can no longer run a command in the check, and uninstall steps run without a shell.
 - The log now rotates at 10 MB, and a stuck git command stops after five minutes instead of hanging.
 - The status page needs a random link code, and key or credential files never go into a commit.

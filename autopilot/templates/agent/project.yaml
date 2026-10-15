@@ -55,6 +55,8 @@ gate:
   new_file_reasons: true # N7: on in new projects; a project.yaml without this key has it off. A file added by a task (test files and .agent/ excepted) needs a reason in the
                           # report field `new_files`, else the gate fails and the retry quotes the rule. O3: the task may declare
                           # `new_files` and `new_deps`; a dependency manifest change without a declared dependency fails
+  delete_reasons: true    # W65: a file a task deletes (test files and .agent/ excepted) needs a reason in the report
+                          # field `deleted_files`; false turns the check off
   file_growth: true       # O2: a code file may not grow past 400 lines or 25 percent in one task (whichever is larger),
                           # measured against `.agent/quality_baseline.json` from `autopilot init`; the retry says "split, do not grow"
   layers: true            # O4: checks the ```layers block in BRAIN.md (none = no check); only violations new since day one fail

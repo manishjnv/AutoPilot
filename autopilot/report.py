@@ -609,6 +609,11 @@ def adopt_summary(root, max_phases: int = 12) -> str:
         lines += ["Documents disagree:"] + [f"  {c}" for c in conf[:5]]
         if len(conf) > 5:
             lines.append(f"  and {len(conf) - 5} more")
+    from .gitops import other_vcs, vcs_line  # W65
+    if vcs := other_vcs(root):
+        lines.append(vcs_line(vcs))
+    lines += ["Undo everything Autopilot does: git reset --hard autopilot/baseline (the tag is set when the run starts).",
+              ".env and other ignored files are outside this undo point."]
     return "\n".join(lines) + "\n"
 
 

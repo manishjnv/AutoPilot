@@ -644,6 +644,9 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
 
     rc, txt = _run(["git", "--version"])
     out.append((OK if rc == 0 else FAIL, "git", txt.splitlines()[0] if rc == 0 and txt else "not found on PATH"))
+    from .gitops import other_vcs, vcs_line  # W65: another version control gets one line, not an adapter
+    if vcs := other_vcs(cfg.root):
+        out.append((WARN, "version control", vcs_line(vcs)))
     from .rights import describe
     out.append((OK, "rights", describe()))  # N8: what the installer took and how to undo it
     if cfg.get("git.push"):

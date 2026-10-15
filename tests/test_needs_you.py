@@ -234,7 +234,8 @@ def test_red_main_at_start_runs_corrective_phase_first(tmp_path):
             if "implement task FIX001-T01" in req.prompt:
                 self.calls.append(("FIX001-T01", req.model))
                 (Path(req.cwd) / "BROKEN").unlink()
-                return SessionResult(ok=True, cost=0.1, report={"status": "done", "summary": "removed BROKEN", "rca": RCA})
+                return SessionResult(ok=True, cost=0.1, report={"status": "done", "summary": "removed BROKEN", "rca": RCA,
+                                                                 "deleted_files": [{"path": "BROKEN", "reason": "the breakage file"}]})
             return super().run(req)
 
     fake = GivesUp()

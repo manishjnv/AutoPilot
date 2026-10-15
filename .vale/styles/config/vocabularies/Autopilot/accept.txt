@@ -43,3 +43,4 @@ Anthropic's
 VS Code
 Claude Code Routines
 [Kk]ill
+Jujutsu

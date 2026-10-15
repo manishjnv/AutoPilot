@@ -18,7 +18,7 @@ GAP = obj(["title"], title=S, kind=S, risk=S, related_task=S, description=S, acc
 
 REPORTS = {  # session kind -> schema of its final report
     "task": obj(["status", "summary"], status=STATUS, summary=S, files_changed=A, tests_added=A, docs_updated=A,
-                decisions=A, followups=A, rca=RCA, blocker=S, learning=S, new_files=NEW_FILES,
+                decisions=A, followups=A, rca=RCA, blocker=S, learning=S, new_files=NEW_FILES, deleted_files=NEW_FILES,  # W65
                 # O1 and O3: the gate reads these two; a field the schema does not name never reaches the report
                 scope_additions={"type": "object", "additionalProperties": S},
                 new_deps={"type": "array", "items": obj(["name", "reason"], name=S, reason=S)},

@@ -110,6 +110,8 @@ class Git:
             self.run("commit", "-q", "--allow-empty", "-m", "[autopilot] initial commit")
         if not self.ok("rev-parse", "--verify", main):
             self.run("branch", main)
+        if not self.ok("rev-parse", "--verify", "-q", "refs/tags/autopilot/baseline"):  # W65: the one undo point
+            self.run("tag", "autopilot/baseline")  # set once, never moved: `git reset --hard autopilot/baseline`
 
     # ---------- queries ----------
     def head(self) -> str:
@@ -152,6 +154,7 @@ class Git:
         self.run("checkout", "-q", "-f", main)
 
     def start_branch(self, name: str, main: str) -> str:
+        self.mark_untracked()  # W65: files the owner added since the last clean stay through this discard and the next
         self.checkout_main(main)
         self.discard()
         self.run("checkout", "-q", "-B", name, main)
@@ -167,10 +170,11 @@ class Git:
     def discard(self, sleep=time.sleep, wait: float = 1.0):
         """Throw away uncommitted work. On Windows another process (watch window, web page) can hold a file open and
         make git fail to unlink it: retry, then discard everything except .agent/. A lock never raises."""
+        self._unstage_kept()
         for attempt in range(1, 4):
             try:
                 self.run("reset", "-q", "--hard")
-                self.run("clean", "-q", "-fd")
+                self.clean("-fd")
                 return
             except GitError as e:
                 if not any(w in str(e).lower() for w in LOCK_WORDS):
@@ -181,7 +185,38 @@ class Git:
         log.warning("git discard still locked after 3 tries: discarding everything except .agent/")
         self.run("reset", "-q")
         self.run("checkout", "-q", "--", ".", ":(exclude).agent")
-        self.run("clean", "-q", "-fd", "-e", ".agent")
+        self.clean("-fd", "-e", ".agent")
+
+    # ---------- W65: the clean never takes the owner's files ----------
+    def untracked(self) -> set[str]:
+        out = self.run("-c", "core.quotepath=false", "status", "--porcelain", "-uall", check=False)
+        return {ln[3:].strip().strip('"') for ln in out.splitlines() if ln.startswith("??")}
+
+    def mark_untracked(self):
+        """Record the untracked files present before a session: `discard` and `clean` keep them."""
+        self.keep = self.untracked()
+
+    def _unstage_kept(self):
+        """A gate `add -A` stages the owner's files too, and `reset --hard` would delete them: unstage them first."""
+        staged = set(self.run("-c", "core.quotepath=false", "diff", "--cached", "--name-only", check=False).splitlines())
+        paths = sorted((getattr(self, "keep", None) or set()) & staged)
+        for i in range(0, len(paths), 50):
+            self.run("reset", "-q", "--", *paths[i:i + 50], check=False)
+
+    def clean(self, *flags: str):
+        """`git clean` of the files new since `mark_untracked` only; with no mark, everything untracked (as before).
+        ponytail: a file the owner adds while a session runs is new too and goes; the mark protects what was there
+        before the session, the run-start snapshot protects what was there before the run."""
+        keep = getattr(self, "keep", None)
+        if keep is None:
+            self.run("clean", "-q", *flags)
+            return
+        now = self.untracked()
+        new, kept = sorted(now - keep), sorted(now & keep)
+        for i in range(0, len(new), 50):
+            self.run("clean", "-q", *flags, "--", *new[i:i + 50])
+        if kept:
+            log.info("kept %d file(s) you added during the run: %s", len(kept), ", ".join(kept[:5]))
 
     def stash_all(self, message: str):
         self.run("reset", "-q")
@@ -267,3 +302,20 @@ class Git:
         if self.new_tags:  # force: a phase redeploy moves its tag
             self.run("push", "-q", "-f", remote, *(f"refs/tags/{t}:refs/tags/{t}" for t in sorted(self.new_tags)))
             self.new_tags.clear()
+
+
+# ---------- W65: another version control gets one line, not an adapter ----------
+VCS_MARKS = ((".hg", "Mercurial"), (".svn", "Subversion"), (".p4config", "Perforce"), (".jj", "Jujutsu"))
+
+
+def other_vcs(root) -> str:
+    """The name of the version control a project uses instead of git ('' when git is present or none is found)."""
+    root = Path(root)
+    if (root / ".git").exists():
+        return ""
+    return next((name for mark, name in VCS_MARKS if (root / mark).exists()), "")
+
+
+def vcs_line(name: str) -> str:
+    return (f"your project uses {name}; Autopilot keeps its own undo history in .git; "
+            f"add .git and .agent to your {name} ignore file")
