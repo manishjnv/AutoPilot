@@ -227,7 +227,7 @@ def _usage_w59(cfg, state, run: dict, live: bool) -> dict:
         staged = usage.with_states(usage.sources(cfg, state), active, reserve, lambda f: usage.figures(state, cfg, f), model=model)
         nxt = dict(state.get_meta("source_next") or {}) if live else {}
         if not nxt:
-            nxt = usage.next_fields(staged, {}, str(cfg.get("usage.switch", "auto")), active)
+            nxt = usage.next_fields(staged, {}, str(cfg.get("usage.switch", "suggest")), active)
         sources = []
         for r in staged:
             bar = r.get("bar") or {}

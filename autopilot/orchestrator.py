@@ -518,7 +518,7 @@ class Orchestrator:
             pick = usage_mod.plan_source(rows, current, float(self.cfg.get("usage.idle_pct", 50) or 50), need=need, risk=risk, now=lambda: now)
             line = usage_mod.suggest_line(pick)
             self.state.set_meta("source_suggest", line)
-            mode = str(self.cfg.get("usage.switch", "auto"))  # auto is the default since 2026-10-15 (owner)
+            mode = str(self.cfg.get("usage.switch", "suggest"))  # auto in the template (new projects); a missing key = suggest
             try:  # W62: NEXT as fields next to the string, for the AI box, the status page and `ap status`
                 active = usage_mod._login_name(self._account())
                 staged = usage_mod.with_states(rows, active, float(self.cfg.get("usage.model_reserve_pct", 95) or 95),

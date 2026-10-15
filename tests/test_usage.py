@@ -352,3 +352,5 @@ def test_the_template_switches_sources_by_itself():
     from autopilot.config import TEMPLATES
     tpl = yaml.safe_load((TEMPLATES / "agent" / "project.yaml").read_text(encoding="utf-8"))
     assert tpl["usage"]["switch"] == "auto"
+    from autopilot.config import defaults
+    assert defaults()["usage"]["switch"] == "suggest"  # old projects and test fixtures keep the suggestion mode

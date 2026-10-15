@@ -95,6 +95,7 @@ def defaults() -> dict:
     # (clean measure 2026-10-12: -39.5 percent tokens per task, 11 of 11 done; the owner accepted it as the 40 percent rule)
     d.setdefault("gate", {})["new_file_reasons"] = False  # N7: on in the template (new projects) only; a missing key = off
     d["gate"]["file_growth"] = False  # O2: same rule: the template turns it on, an old project.yaml keeps it off
+    d.setdefault("usage", {})["switch"] = "suggest"  # auto in the template (new projects) only; a missing key = suggest
     d.setdefault("review", {})["scope"] = "critical"  # W4: the template turns it on for new projects; a missing key = critical
     return d
 

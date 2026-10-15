@@ -923,7 +923,7 @@ def ai_status_line(cfg, state) -> str:
         active = usage._login_name(active_account(state, live))
         rows = usage.with_states(usage.sources(cfg, state), active, float(cfg.get("usage.model_reserve_pct", 95) or 95),
                                  lambda f: usage.figures(state, cfg, f), model=str(run.get("model") or "") if live else "")
-        nxt = dict(state.get_meta("source_next") or {}) if live else usage.next_fields(rows, {}, str(cfg.get("usage.switch", "auto")), active)
+        nxt = dict(state.get_meta("source_next") or {}) if live else usage.next_fields(rows, {}, str(cfg.get("usage.switch", "suggest")), active)
         return usage.ai_line(rows, nxt)
     except Exception:  # noqa: BLE001
         return ""
