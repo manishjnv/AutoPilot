@@ -492,7 +492,7 @@ class Orchestrator:
                                      self.usage_line()) if x)
 
     def plan_source(self, task=None) -> str:
-        """W60: before a task starts, pick the source. `usage.switch: suggest` (default) keeps the suggestion line in
+        """W60: before a task starts, pick the source. `usage.switch: suggest` keeps the suggestion line in
         state meta `source_suggest` for the views and the digest; `auto` switches between logins with no question
         through the W28 handoff keys (`handoff_runner`, `handoff_until`) and logs `source: a -> b (reason)`. Never a
         running, critical or load-bearing task onto a non-login source, never a source marked off, never a Routine.
@@ -518,7 +518,7 @@ class Orchestrator:
             pick = usage_mod.plan_source(rows, current, float(self.cfg.get("usage.idle_pct", 50) or 50), need=need, risk=risk, now=lambda: now)
             line = usage_mod.suggest_line(pick)
             self.state.set_meta("source_suggest", line)
-            mode = str(self.cfg.get("usage.switch", "suggest"))
+            mode = str(self.cfg.get("usage.switch", "auto"))  # auto is the default since 2026-10-15 (owner)
             try:  # W62: NEXT as fields next to the string, for the AI box, the status page and `ap status`
                 active = usage_mod._login_name(self._account())
                 staged = usage_mod.with_states(rows, active, float(self.cfg.get("usage.model_reserve_pct", 95) or 95),

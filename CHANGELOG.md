@@ -35,6 +35,7 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 - A deleted file needs a reason in the report, and a failed attempt keeps the files you added during the run.
 - A project on Mercurial, Subversion, Perforce or Jujutsu gets one line that says where the undo history lives.
 - A temporary journal file can no longer break a git step on Windows.
+- A new project switches logins and credits between tasks by itself; set it to suggest to only see the advice.
 - A staged file with shell characters in its name can no longer run a command in the check, and uninstall steps run without a shell.
 - The log now rotates at 10 MB, and a stuck git command stops after five minutes instead of hanging.
 - The status page needs a random link code, and key or credential files never go into a commit.

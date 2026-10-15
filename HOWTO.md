@@ -192,7 +192,7 @@ What this means for you:
 - Your file names stay as they are.
 - `ap init`, `ap run` and `ap start` in a folder with code read the project first. The empty template plan cannot run.
 - The tag `autopilot/baseline` marks the project before the first run. `git reset --hard autopilot/baseline` undoes
-  all work of Autopilot. Ignored files such as `.env` are outside this undo point.
+  all work of Autopilot. Ignored files such as `.env` stay outside it.
 - On Mercurial, Subversion, Perforce or Jujutsu, the undo history lives in `.git`. Add `.git` and `.agent` to the
   ignore file of your tool.
 
@@ -436,7 +436,8 @@ the run waits for the earlier reset.
 5. Keep `agent.user_config: false`. Your own plugins, hooks and MCP servers add cost and context to each session.
 6. A model with a full weekly bar gives way to the next one (`usage.model_reserve_pct`, 95). `usage.live: false` stops the live reads.
 7. Enter your credits once: `ap budget --cloud-credit 149 --api-credit 109 --expires 2026-11-05`.
-8. Apply the suggestion on the status page with `ap source <name>`, or set `usage.switch: auto` to switch logins between tasks.
+8. Autopilot switches logins and credits between tasks by itself (`usage.switch: auto`). With `suggest` it only
+   shows the advice, and `ap source <name>` applies it.
 
 When the run reaches the reserve, it pauses until the window resets. When it reaches the `daily` limit, it sleeps
 until the next day. When it reaches the `total` limit, it stops on `usage.billing: api`; on a subscription it asks

@@ -198,7 +198,7 @@ usage:                    # the subscription's 5-hour window (claude -p draws fr
                           # is spent, else wait for a fresh window (0 = off; waiting costs wall-clock time)
   live: true              # W59: read the usage bars of the login from the Claude usage endpoint (one call a minute)
   model_reserve_pct: 95   # a model whose weekly bar is at or over this gives way to the next model down the ladder
-  switch: suggest         # W60: suggest (one line, you apply it with `ap source`) | auto (switch logins between tasks)
+  switch: auto            # W60: auto (switch logins and credits between tasks by itself; owner default 2026-10-15) | suggest (one line, you apply it with `ap source`)
   idle_pct: 50            # a second login whose weekly bar is under this in its last two days counts as idle
   wait_for_refill: true   # W63: when every login is out, wait for the earliest refill and resume by itself (false = the old sleep)
   wait_max_hours: 48      # the run stops with STOPPED when no login has room for this long

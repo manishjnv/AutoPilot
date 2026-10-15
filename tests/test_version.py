@@ -70,3 +70,6 @@ def test_install_scripts_carry_the_package_version_and_install_main():
     assert re.search(r"^DEFAULT_REF=main$", sh, re.M) and re.search(r"^\$DefaultRef = 'main'$", ps1, re.M)
     rel = (root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "DEFAULT_REF=$GITHUB_REF_NAME" in rel and rel.index("DEFAULT_REF=$GITHUB_REF_NAME") < rel.index("sha256sum install.ps1")
+    # 2026-10-15: the runner-table step imports autopilot on a bare runner, so it installs pyyaml first (RCA)
+    step = rel[rel.index("from autopilot.doctor import runners_json") - 200:rel.index("from autopilot.doctor import runners_json")]
+    assert "pip install -q pyyaml &&" in step

@@ -343,3 +343,12 @@ def test_ap_source_lists_and_picks_a_login(tmp_path, monkeypatch, capsys):
     _, _, state = _open_state(root)
     assert state.get_meta("active_account") == folder and state.get_meta("handoff_runner") == {"claude_cli": {"CLAUDE_CONFIG_DIR": folder}}
     assert cmd_source(Namespace(path=str(root), name="nobody")) == 1
+
+
+def test_the_template_switches_sources_by_itself():
+    """Owner default 2026-10-15: usage.switch is auto in the template, so a new project spends every source."""
+    import yaml
+
+    from autopilot.config import TEMPLATES
+    tpl = yaml.safe_load((TEMPLATES / "agent" / "project.yaml").read_text(encoding="utf-8"))
+    assert tpl["usage"]["switch"] == "auto"
