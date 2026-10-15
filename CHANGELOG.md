@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-15
+
 **In plain words:** this version closes the findings of the 2026-10-14 security review. It spends every usage bar and credit you have. A project you already started is read first, your files stay, and one git command undoes all its work. Autopilot stays unattended: no prompt and no question. The documents explain the admin right in plain words, and the code validates everything the model writes.
 
 - A new page, COMPARE.md, explains why Autopilot helps even when you already write skills for the model.
