@@ -9,6 +9,8 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-15
+
 **In plain words:** six fixes from the first run on a half-built project. A leftover stop file is named, not obeyed. A commit by someone else on an Autopilot branch is kept. A long test run shows its elapsed time. A second Claude Code session cannot edit the checkout while a run holds it. A broken test database gets one question, not three code attempts. The stop reason says who stopped and when.
 
 - A stop file left by an earlier run no longer ends a fresh run; the start names it and how to clear it.
