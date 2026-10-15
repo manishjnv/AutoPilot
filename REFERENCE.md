@@ -610,6 +610,10 @@ markdown image line, `![Built by Autopilot](proof.svg)`, and the repo-relative p
 `.agent/history/<phase>/proof.svg`. Paste that path into your README to show the badge. The signed receipt covers both
 files.
 
+### Edit guard in the plugin
+
+While an Autopilot run holds the checkout, the plugin's pre-tool hook (`plugin/scripts/guard.py`) refuses an edit outside `.agent/`. It also refuses a Bash command that moves git or deletes files. Reads, tests, and lints pass. `ap init`, `ap onboard`, `ap quickstart` and `ap move` refuse too, with one line that says `ap stop` first.
+
 ### Stop hook in the plugin
 
 The Claude Code plugin (`plugin/`) adds a Stop hook in `plugin/hooks/hooks.json`. When Claude tries to stop,

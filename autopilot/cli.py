@@ -50,6 +50,14 @@ def detect_stack(root: Path) -> str:
 
 
 # ---------------------------------------------------------------- commands
+def active_run_line(root: Path) -> str:
+    """W70: one line for a command that must not run while a run holds this checkout."""
+    from .report import run_journal
+    since = str(run_journal(root).get("started_at") or "")[11:16]
+    return (f"Autopilot runs here{' since ' + since if since else ''}: type `ap stop` first. "
+            "A second session must not edit this checkout.")
+
+
 def stale_stop_line(stop: Path) -> str:
     """W67: one line that names the STOP file and the two ways to clear it."""
     import datetime as _dt
@@ -1739,7 +1747,7 @@ def cmd_stop(args):
         now_mode = bool(getattr(args, "now", False)) or time.time() - p.stat().st_mtime < NOW_WINDOW
     except OSError:
         now_mode = bool(getattr(args, "now", False))
-    p.write_text("now\n" if now_mode else "stop requested\n")
+    p.write_text(("now\n" if now_mode else "stop requested\n") + f"from ap stop at {dt.datetime.now():%H:%M}\n")  # W72
     if now_mode:
         print("the session in flight ends now; its files stay on the task branch and `ap start` continues from them")
         return
@@ -2120,6 +2128,9 @@ def main(argv=None):
         if found is None:
             return 1
         args.path = found
+    if args.cmd in ("init", "onboard", "quickstart", "move") and run_active(Path(args.path).resolve()):  # W70
+        print(active_run_line(Path(args.path).resolve()))
+        return 2
     remember(Path(args.path).resolve())
     if args.cmd in ("run", "start") and (Path(args.path) / AGENT_DIR / "project.yaml").exists():
         register_project(Path(args.path))

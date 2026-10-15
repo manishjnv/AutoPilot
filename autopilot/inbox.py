@@ -129,7 +129,9 @@ def _command(root, word: str, rest: str) -> str:
         return f"cost cap ${usd:g}, used before the next task, {_median_eta(state)}"
     if word == "stop":
         now = first == "now"
-        (root / AGENT_DIR / "STOP").write_text("now\n" if now else "stop requested\n")
+        import time as _t
+        (root / AGENT_DIR / "STOP").write_text(("now\n" if now else "stop requested\n")
+                                               + f"from the inbox at {_t.strftime('%H:%M')}\n")  # W72: the source
         return "stop now: the session ends at once" if now else f"stop: before the next session, {_median_eta(state)}"
     if word == "change":
         if not rest.strip():

@@ -9,12 +9,15 @@ Release: run `python scripts/bump.py X.Y.Z`, then push the commit and the tag.
 
 ## [Unreleased]
 
-**In plain words:** three fixes from the first run on a half-built project. A leftover stop file is named, not obeyed. A commit by someone else on an Autopilot branch is kept. A long test run shows its elapsed time.
+**In plain words:** six fixes from the first run on a half-built project. A leftover stop file is named, not obeyed. A commit by someone else on an Autopilot branch is kept. A long test run shows its elapsed time. A second Claude Code session cannot edit the checkout while a run holds it. A broken test database gets one question, not three code attempts. The stop reason says who stopped and when.
 
 - A stop file left by an earlier run no longer ends a fresh run; the start names it and how to clear it.
 - The stop line now says which word the stop file holds and when it was written.
 - A commit someone else makes on an Autopilot branch during a run is kept under a new branch name, never reset away.
 - A long project command, such as the full test run, shows its elapsed time and an estimate on every screen.
+- While a run holds the checkout, the plugin refuses edits and git moves from another Claude Code session, and the setup commands refuse too.
+- When the main check fails on the environment, such as a database that is down, Autopilot runs setup, asks you once, and starts no fixer.
+- The stop reason on every screen says which stop was sent, from where, and when.
 
 ## [0.9.0] - 2026-10-15
 

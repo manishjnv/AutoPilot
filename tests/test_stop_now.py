@@ -76,7 +76,7 @@ def test_stop_now_ends_the_run_keeps_the_files_and_the_next_start_resumes(tmp_pa
     took = time.monotonic() - at[0]
     t.join(5)
     assert took < 30, took
-    assert (root / ".agent" / "STOP").read_text().strip() == "now"
+    assert (root / ".agent" / "STOP").read_text().splitlines()[0] == "now"  # W72: line 2 names the source
     assert json.loads((root / ".agent" / "run.json").read_text(encoding="utf-8"))["word"] == "STOPPED"
     assert "stopped by the owner" in outcome
     row = orch.state.task("P01-T01")
@@ -123,16 +123,16 @@ def test_a_second_stop_within_60_seconds_counts_as_now(tmp_path, capsys):
     stop = root / ".agent" / "STOP"
     (root / ".agent" / "run.json").write_text(json.dumps({"session_at": "2026-10-14T10:00:00"}))
     cli_main(["stop", "-C", str(root)])
-    assert stop.read_text().strip() == "stop requested"
+    assert stop.read_text().splitlines()[0] == "stop requested"
     out = capsys.readouterr().out
     assert "the current session has run" in out and "`ap stop --now`" in out
     cli_main(["stop", "-C", str(root)])
-    assert stop.read_text().strip() == "now"
+    assert stop.read_text().splitlines()[0] == "now"
     old = time.time() - 120
     stop.write_text("stop requested\n")
     os.utime(stop, (old, old))
     cli_main(["stop", "-C", str(root)])  # the first stop was over 60 s ago: still a plain stop
-    assert stop.read_text().strip() == "stop requested"
+    assert stop.read_text().splitlines()[0] == "stop requested"
 
 
 def test_claude_session_stopped_by_the_owner_is_not_stuck(tmp_path, monkeypatch):

@@ -271,6 +271,7 @@ class Orchestrator:
         self.plan: Plan | None = None
         self.ctx: ContextBuilder | None = None
         self.main_red, self.main_checked, self.main_error = False, None, ""
+        self.env_blocked = False  # W71: main is red on the environment; the owner was asked, no fixer runs
         self.main_results: dict[str, CmdResult | None] = {}  # W21: main's sha -> first red test result (None = green)
         self.main_due = True  # W21: main has a commit nobody tested yet
         self.forecast_sent = False  # W43: one budget_forecast event per run
@@ -850,6 +851,18 @@ class Orchestrator:
                 continue
 
             pending = [t for t in self.plan.all_tasks() if status.get(t.id) == "pending"]
+            if self.main_red and self.env_blocked:  # W71: wait for the owner's environment fix, then check again
+                if not self.cfg.get("needs_you.wait", True):
+                    raise Stop("stalled: main needs an environment fix, waiting on you (docs/NEEDS-YOU.md)")
+                self._journal(current="waiting for the environment fix", state="Block", task="")
+                self._wait(float(self.cfg.get("needs_you.poll_minutes", 15)) * 60)
+                self.env_blocked = False
+                if self.ensure_main_green():
+                    self.main_red = False
+                    for d in self.state.decisions("OPEN"):
+                        if d["kind"] == "env":
+                            self.state.set_decision(d["id"], status="ANSWERED", answer="main is green again")
+                continue
             if self.main_red:  # W21: nothing corrective can run any more
                 red = self.main_test() or CmdResult("checks", 1, self.main_error, 0)
                 raise Stop(f"main is red: {fail_line(red)}", fatal=True, word="FAILED")
@@ -985,11 +998,13 @@ class Orchestrator:
         """W67: who stopped: the STOP file's first word and the time it was written, so a stop is never a mystery."""
         try:
             p = self.ad / "STOP"
-            word = (p.read_text(encoding="utf-8").splitlines() or [""])[0].strip()[:20]
+            lines = p.read_text(encoding="utf-8").splitlines() or [""]
+            word = lines[0].strip()[:20]
             when = dt.datetime.fromtimestamp(p.stat().st_mtime).strftime("%H:%M")
         except (OSError, ValueError):
             return ""
-        return f" ({word or 'stop'}, written {when})"
+        source = lines[1].strip()[:60] if len(lines) > 1 and lines[1].strip() else f"written {when}"  # W72
+        return f" ({word or 'stop'}, {source})"
 
     def _owner_now(self) -> bool:
         """W39: the STOP file says `now` (`ap stop --now`, or a second `ap stop` within 60 s)."""
@@ -2058,6 +2073,8 @@ class Orchestrator:
     def start_main_red(self):
         head = self.git.head()
         self.main_red, self.main_checked = True, head
+        if self.env_blocked:
+            return  # W71: the owner was asked; no corrective phase, no fixer
         red = self.main_results.get(head)
         named = f" ({fail_line(red)})" if red else ""
         self.notify.send("main_red", f"checks on {self.main} fail{named} and the fixer could not repair them; "
@@ -2601,7 +2618,10 @@ class Orchestrator:
                      "Cargo.toml", "Cargo.lock", "Gemfile", "Gemfile.lock", "composer.json", "composer.lock",
                      "**/pyproject.toml", "**/package.json", "**/requirements*.txt", "docs/RCA.md"]
     _NOT_FOUND = ("command not found", "is not recognized as an internal or external command",
-                  "is not recognized as the name of a cmdlet", ": not found")
+                  "is not recognized as the name of a cmdlet", ": not found",
+                  # W71: a service or a database that is not there is the environment too, never a code fault
+                  "econnrefused", "connection refused", "could not connect to", "\" does not exist",
+                  "cannot find module", "enoent:")
 
     def env_problem(self, output: str) -> str:
         """Does this check output say a tool is missing (an environment problem, not a code problem)? Returns the
@@ -2686,6 +2706,15 @@ class Orchestrator:
                 gate = self._main_gate(phase=phase_checks)
             if gate.ok:
                 return True
+            if line := self.env_problem(gate.report()):  # W71: still the environment: ask once, no code attempts
+                self.env_blocked, self.main_error = True, gate.report()
+                self.needs_you("env", "The main check needs the project environment",
+                               f"The checks on {self.main} fail on the environment, not the code: {line}. "
+                               "Fix it (for example the migrations on the test database), then answer done.",
+                               checked="the setup command ran; one repair session ran", suggestion="ap start")
+                self.notify.send("main_red", f"checks on {self.main} fail on the environment ({line[:120]}); "
+                                             "asked you in docs/NEEDS-YOU.md, no fixer session")
+                return False
         errors = gate.report()
         self.notify.send("main_red", f"verification failing on {self.main} — starting fixer")
         fixers = self.cfg.get("models.fixer", ["sonnet", "opus"])

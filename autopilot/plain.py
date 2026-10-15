@@ -123,9 +123,12 @@ def _minutes(start: str, end: str) -> int:
 def ending(outcome) -> str:
     """The last line of the view, from the outcome of the run."""
     outcome = str(outcome or "?")
-    return ("The build is complete." if outcome == "plan complete" else
-            "The build stopped. You asked for the stop." if "STOP file" in outcome else
-            f"The build stopped. Reason: {outcome}.")
+    if outcome == "plan complete":
+        return "The build is complete."
+    if "STOP file" in outcome:  # W72: the word and the source of the stop ride along
+        m = re.search(r"\(([^)]*)\)", outcome)
+        return f"The build stopped. You asked for the stop ({m.group(1)})." if m else "The build stopped. You asked for the stop."
+    return f"The build stopped. Reason: {outcome}."
 
 
 class SimpleView:
